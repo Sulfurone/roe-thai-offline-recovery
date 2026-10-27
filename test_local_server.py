@@ -41,6 +41,7 @@ class ExplicitCreateResponseTests(unittest.TestCase):
                          else ['--create-zeros', '4'])
                 argv += ['--team-body-file', str(team_file), '--enter-body-file', str(enter_file)]
                 argv += ['--push-after-load-success', f'0x05fb:{body_file}']
+                argv += ['--push-after-map-load', f'0x654b:{body_file}']
                 argv += ['--push-after-player-ready', f'0x04a0:{body_file}']
                 errors = queue.Queue()
                 output = io.StringIO()
@@ -91,6 +92,9 @@ class ExplicitCreateResponseTests(unittest.TestCase):
                         self.assertEqual(decrypt(cipher, bytes(16)),
                                          struct.pack('>IHI', 1, 0x05fb, 0x05fb) + expected)
                         client.sendall(frame(0, body=encrypt(load, bytes(16))))
+                        _, _, cipher, *_ = read_frame(client)
+                        self.assertEqual(decrypt(cipher, bytes(16)),
+                                         struct.pack('>IHI', 1, 0x654b, 0x654b) + expected)
                         move = struct.pack('>IH',42,0x002a)+bytes(16)+struct.pack('>I',0x002a)+bytes(16)
                         client.sendall(frame(0,body=encrypt(move,bytes(16))))
                         _,_,cipher,*_ = read_frame(client)
@@ -117,6 +121,9 @@ class ExplicitCreateResponseTests(unittest.TestCase):
                              if event['event'] == 'experimental_create_response_sent']
                 self.assertEqual(len(responses), 1)
                 self.assertEqual(responses[0]['mode'], expected_mode)
+                map_pushes = [event for event in events if event['event'] == 'map_loaded_push_sent']
+                self.assertEqual(len(map_pushes), 1)
+                self.assertEqual(map_pushes[0]['load_notification'], 2)
                 self.assertTrue(any(event['event'] == 'client_closed' for event in events))
                 self.assertEqual(events[-1]['event'], 'finished')
 

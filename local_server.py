@@ -96,6 +96,8 @@ def main():
                         help='After the 0x7030 team reply, push MSGID (hex) with body FILE, in order (repeatable)')
     parser.add_argument('--push-after-load-success', action='append', default=[], metavar='MSGID:FILE',
                         help='Once per connection after Thai CLIENT_LOAD_SUCCESS 0x0DCD, push these candidate bodies')
+    parser.add_argument('--push-after-map-load', action='append', default=[], metavar='MSGID:FILE',
+                        help='Once after the second 0x0DCD (map load, before the first actor MOVE_1), push these bodies')
     parser.add_argument('--push-after-player-ready',action='append',default=[],metavar='MSGID:FILE',
                         help='Once after map-load notification and the first actor MOVE_1, push these bodies')
     parser.add_argument('--push-delay', type=float, default=1.0,
@@ -223,6 +225,16 @@ def main():
         except ValueError:
             parser.error(f'invalid --push-after-load-success message id: {spec!r}')
         loaded_push_specs.append((message_id, Path(path)))
+    map_push_specs = []
+    for spec in args.push_after_map_load:
+        message, separator, path = spec.partition(':')
+        if not separator or not path:
+            parser.error(f'--push-after-map-load expects MSGID:FILE: {spec!r}')
+        try:
+            message_id = int(message, 16)
+        except ValueError:
+            parser.error(f'invalid --push-after-map-load message id: {spec!r}')
+        map_push_specs.append((message_id, Path(path)))
     player_push_specs = []
     for spec in args.push_after_player_ready:
         message, separator, path = spec.partition(':')
@@ -286,6 +298,8 @@ def main():
                 challenge = os.urandom(16)
                 state = 'await_auth'
                 loaded_pushes_sent = False
+                map_load_count = 0
+                map_pushes_sent = False
                 player_pushes_sent = False
                 gameplay = OfflineGameplay(auto_board=args.gameplay_auto_seat,
                     auto_board_delay=args.gameplay_auto_board_delay,
@@ -424,6 +438,22 @@ def main():
                                 emit('environment_clock_sent', message_id=clock_id,
                                      hour=args.environment_hour,
                                      timestamp=struct.unpack_from('>I', clock_body, 4)[0])
+                            if message_id == 0x0DCD:
+                                map_load_count += 1
+                                if map_load_count == 2 and not map_pushes_sent:
+                                    map_pushes_sent = True
+                                    for push_id, push_path in map_push_specs:
+                                        push_body = push_path.read_bytes()
+                                        if len(push_body) > 65536:
+                                            raise ValueError('Map-load candidate exceeds validated wire bound')
+                                        response = struct.pack('>IHI', 1, push_id, push_id) + push_body
+                                        send(connection, 0, body=encrypt(response, key))
+                                        if gameplay is not None:
+                                            gameplay.observe_spawn(push_id, push_body)
+                                        emit('map_loaded_push_sent', message_id=push_id,
+                                             body_bytes=len(push_body),
+                                             body_sha256=hashlib.sha256(push_body).hexdigest(),
+                                             source=str(push_path), load_notification=map_load_count)
                             if message_id == 0x0DCD and not loaded_pushes_sent:
                                 loaded_pushes_sent = True
                                 for push_id, push_path in loaded_push_specs:

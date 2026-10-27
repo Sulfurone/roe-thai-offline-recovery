@@ -28,7 +28,7 @@ if result['code'] or result['consumed']!=result['bytes']:
 native=bytearray(codec.uc.mem_read(codec.ROOT_OBJECT+10,0x1259))
 if struct.unpack_from('<I',native,0x88)[0]!=config:
     raise ValueError(f'Expected original config {config} {args.vehicle_kind}')
-position=(325800,276700,9500)
+position=(325800,276700,7054 if config==101 else 9500)
 struct.pack_into('<3i',native,0x94,*position)
 struct.pack_into('<I',native,0x90,initial_hp)
 code,body=codec.pack_type(0xe11e50,bytes(native))
@@ -45,13 +45,14 @@ source=source.replace('--gameplay-inventory --gameplay-ground-loot --gameplay-wo
 source=source.replace('--gameplay-initialize-vehicle ','').replace('--gameplay-vehicle-config 101','--gameplay-vehicle-config 4')
 source=source.replace('--gameplay-vehicle-config 4',f'--gameplay-vehicle-config {config}')
 source=source.replace('vehicle-jeep-near.bin',f'vehicle-static-{args.vehicle_kind}.bin')
-source=source.replace('--push-after-load-success 0x654b:','--push-after-player-ready 0x654b:')
+source=source.replace('--push-after-load-success 0x654b:','--push-after-map-load 0x654b:')
 source='\n'.join(line for line in source.splitlines() if '--push-after-player-ready 0x05fb:' not in line and '--push-after-player-ready 0x04a0:' not in line)+'\n'
 source=source.replace('Thai offline world: M4A1 and 5.56 pickup/drop with a combined inventory/world save.',
     'Thai static aircraft control: ground player, aircraft 50 metres north and 30 metres above ground. No boarding or flight.')
 source=source.replace('echo The normal launcher retains the verified ground-walking baseline.',
     'echo This diagnostic isolates aircraft creation from boarding, flight and canopy transfer.')
-if any(x in source for x in ('--gameplay-auto-seat','--gameplay-world-file','--gameplay-inventory','--gameplay-aircraft-route-speed')):
+if any(x in source for x in ('--gameplay-auto-seat','--gameplay-world-file','--gameplay-inventory','--gameplay-aircraft-route-speed',
+                             '--push-after-player-ready 0x654b:')):
     raise ValueError('Unwanted gameplay remains in static control')
 (ROOT/f'start_{args.vehicle_kind}_static_probe.cmd').write_text(source,encoding='utf-8')
 if config==4:
@@ -62,7 +63,7 @@ if config==4:
         'This diagnostic enables the reversible C17 skeleton/LOD compatibility overlay; no boarding or flight.')
     (ROOT/'start_aircraft_overlay_probe.cmd').write_text(overlay,encoding='utf-8')
 report=dict(passed=True,vehicle_kind=args.vehicle_kind,vehicle_config=config,
-    aircraft_position=position,initial_hp=initial_hp,actor_scene='scene-ground.bin',
+    vehicle_position=position,initial_hp=initial_hp,actor_scene='scene-ground.bin',
     native_roundtrip_equal=True,body_bytes=len(body),boarding=False,flight=False,
     scope='Static original-codec control prepared; rendering and visibility require a live client')
 (OUT/'static-aircraft-control.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
