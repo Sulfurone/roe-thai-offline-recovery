@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import select
 import socket
 import struct
 import subprocess
@@ -308,8 +309,27 @@ def main():
                                        or (args.gameplay_state_file and args.gameplay_state_file.exists())),
                          world_profile=str(args.gameplay_world_file) if args.gameplay_world_file else None,
                          ground_stacks=len(gameplay.ground_loot.stacks) if gameplay.ground_loot else None)
+                def send_gameplay_timers():
+                    for response_id,response_body in gameplay.tick():
+                        response=struct.pack('>IHI',1,response_id,response_id)+response_body
+                        send(connection,0,body=encrypt(response,key))
+                        emit('gameplay_timer_response_sent',message_id=response_id,
+                             body_bytes=len(response_body),seated=gameplay.seated,
+                             diagnostic=('inventory self-test' if response_id in (0x3e82,0x3e81,0x4a0)
+                                         else 'aircraft route update' if response_id==0x6563 else 'automatic exit'),
+                             vehicle_position=gameplay.vehicle_position,
+                             inventory_stage=gameplay.inventory_test_stage,
+                             deployment_phase=gameplay.deployment_phase)
                 try:
                     while time.monotonic() < deadline:
+                        # Advance timers when the client is quiet. Socket reads
+                        # still use the original framed reader; a partial frame
+                        # remains subject to its existing connection timeout.
+                        if gameplay is not None and loaded_pushes_sent and state=='transport_ready':
+                            readable,_,_=select.select([connection],[],[],min(.25,max(0,deadline-time.monotonic())))
+                            if not readable:
+                                send_gameplay_timers()
+                                continue
                         command, extension, body, encrypted_length, packet = read_frame(connection)
                         with (folder / f'{number}-received.bin').open('ab') as raw:
                             raw.write(packet)
@@ -379,16 +399,7 @@ def main():
                                          seated=gameplay.seated,deployment_phase=gameplay.deployment_phase,
                                          ground_stacks=len(gameplay.ground_loot.stacks) if gameplay.ground_loot else None,
                                          vehicle_position=gameplay.vehicle_position)
-                                for response_id,response_body in gameplay.tick():
-                                    response=struct.pack('>IHI',1,response_id,response_id)+response_body
-                                    send(connection,0,body=encrypt(response,key))
-                                    emit('gameplay_timer_response_sent',message_id=response_id,
-                                         body_bytes=len(response_body),seated=gameplay.seated,
-                                         diagnostic=('inventory self-test' if response_id in (0x3e82,0x3e81,0x4a0)
-                                                     else 'aircraft route update' if response_id==0x6563 else 'automatic exit'),
-                                         vehicle_position=gameplay.vehicle_position,
-                                         inventory_stage=gameplay.inventory_test_stage,
-                                         deployment_phase=gameplay.deployment_phase)
+                                send_gameplay_timers()
                                 try:
                                     if gameplay.save_state():
                                         emit('gameplay_state_saved',path=str(gameplay.world_file or gameplay.state_file),

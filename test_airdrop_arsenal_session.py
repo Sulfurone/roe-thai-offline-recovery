@@ -98,8 +98,8 @@ class AirdropArsenalSessionTests(unittest.TestCase):
                     struct.pack_into('>3i',physical,13,200,204800,75000)
                     send(0x6549,physical)
                     for message in (0x6554,0x656e,0x656d,0x6542,0x6564,0x6563):receive(message)
-                    time.sleep(3.1)
-                    send(0x1f6a,b'')
+                    # No inbound packet drives this timer: the service must
+                    # advance flight and unlock the jump while the client is idle.
                     receive(0x6565)
                     send(0x6566,b'\0')
                     for message in (0x6544,0x656d):receive(message)

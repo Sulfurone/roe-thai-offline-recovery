@@ -409,10 +409,11 @@ class OfflineGameplay:
         if (self.route_started is not None and now>=self.route_next
                 and (self.seated or self.opening_airdrop)):
             self.route_next=now+.25
-            # The client integrates between sparse network updates. A nearby
-            # target is reached immediately and leaves the aircraft motionless.
-            duration=self.auto_exit_after or 100000/self.aircraft_route_speed
-            target=self.route_position_at(duration)
+            # Native 0x130DAC0 sets the snap threshold to max(8000cm,
+            # 3 * speed). Sending the full 4km endpoint exceeds it and the
+            # original 0x130E180 teleports the aircraft there. A half-second
+            # lead gives the native catch-up calculation 2 * distance = speed.
+            target=self.route_position_at(now-self.route_started+.5)
             replies.append((0x6563,self.aircraft_move(target)))
         if replies:
             return replies

@@ -153,7 +153,7 @@ class GameplayStateTests(unittest.TestCase):
         self.assertEqual(replies[-1][0],0x6564)
         update=game.tick(100.5)
         self.assertEqual(update[0][0],0x6563)
-        self.assertEqual(struct.unpack_from('>3i',update[0][1],8),(325800,287700,35000))
+        self.assertEqual(struct.unpack_from('>3i',update[0][1],8),(325800,273700,35000))
         self.assertEqual(game.tick(100.6),[])
         exit_message=game.tick(108)[0]
         self.assertEqual(struct.unpack_from('>3i',exit_message[1],28),(325980,287700,35120))

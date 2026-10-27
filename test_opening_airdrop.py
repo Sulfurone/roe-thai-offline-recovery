@@ -80,7 +80,7 @@ class OpeningAirDropTests(unittest.TestCase):
         self.assertEqual(struct.unpack_from('>3i',launch,8),(200,204800,75000))
         self.assertEqual(struct.unpack_from('>3f',launch,21),(1.,0.,0.))
         update=game.tick(101)
-        self.assertEqual(struct.unpack_from('>3i',update[0][1],8),(409400,204800,75000))
+        self.assertEqual(struct.unpack_from('>3i',update[0][1],8),(7700,204800,75000))
         game.tick(140.92)
         self.assertEqual(game.vehicle_position,(204800,204800,75000))
         exit_message=game.tick(182)[0][1]
