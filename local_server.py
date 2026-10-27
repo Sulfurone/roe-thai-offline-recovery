@@ -12,7 +12,7 @@ import subprocess
 import time
 from tpdu import auth_info, decrypt, encrypt, frame, read_frame
 from thai_profile import save_submission
-from offline_environment import environment_clock
+from offline_environment import EnvironmentSchedule, environment_clock
 from offline_gameplay import OfflineGameplay,ACTOR_UID,JEEP_UID,TYPED_ACTOR_UID,TYPED_VEHICLE_UID
 
 
@@ -25,10 +25,13 @@ def main():
     parser.add_argument('--single-session',action='store_true',
                         help='Exit after the authenticated client disconnects, releasing the local port')
     parser.add_argument('--environment-hour', type=int, choices=range(24), metavar='0..23',
-                        help='Initialize the native environment clock after map load (12 is noon)')
+                        help='Initialize the native day/weather clock (12 is noon)')
+    parser.add_argument('--environment-trigger',choices=('player-ready','load'),default='player-ready',
+                        help='Safe default waits for the first valid player position; load preserves the old A/B probe')
+    parser.add_argument('--environment-ready-delay',type=float,default=1.0,metavar='SECONDS',
+                        help='Delay after the first valid player position before the one-shot clock (0..30)')
     parser.add_argument('--environment-once', action='store_true',
-                        help='Send the environment clock only on the map load notification, '
-                             'not on the earlier lobby load notification')
+                        help='Legacy load-trigger probe: send only on the second load notification')
     parser.add_argument('--gameplay-prototype', action='store_true',
                         help='Opt in to unverified Thai ammo and vehicle interaction handlers')
     parser.add_argument('--gameplay-arsenal',action='store_true',
@@ -130,6 +133,10 @@ def main():
     parser.add_argument('--key-hex', default='00' * 16,
                         help='Test session key; not yet established for this client')
     args = parser.parse_args()
+    if not 0 <= args.environment_ready_delay <= 30:
+        parser.error('--environment-ready-delay must be from 0 to 30 seconds')
+    if args.environment_once and args.environment_trigger != 'load':
+        parser.error('--environment-once is only valid with --environment-trigger load')
     opening_glider_body=None
     landing_height=None
     if args.gameplay_opening_glider_file is not None:
@@ -304,6 +311,9 @@ def main():
                 map_load_count = 0
                 map_pushes_sent = False
                 player_pushes_sent = False
+                environment = (EnvironmentSchedule(args.environment_hour,args.environment_ready_delay)
+                               if args.environment_hour is not None
+                               and args.environment_trigger == 'player-ready' else None)
                 gameplay = OfflineGameplay(auto_board=args.gameplay_auto_seat,
                     auto_board_delay=args.gameplay_auto_board_delay,
                     magazine=args.gameplay_starting_magazine,
@@ -343,15 +353,38 @@ def main():
                              vehicle_position=gameplay.vehicle_position,
                              inventory_stage=gameplay.inventory_test_stage,
                              deployment_phase=gameplay.deployment_phase)
+                def send_environment_timer():
+                    if environment is None:
+                        return
+                    packet=environment.take()
+                    if packet is None:
+                        return
+                    clock_id,clock_body=packet
+                    response=struct.pack('>IHI',1,clock_id,clock_id)+clock_body
+                    send(connection,0,body=encrypt(response,key))
+                    emit('environment_clock_sent',message_id=clock_id,
+                         hour=args.environment_hour,trigger='player-ready',
+                         ready_delay=args.environment_ready_delay,
+                         position_reports=environment.position_reports,
+                         timestamp=struct.unpack_from('>I',clock_body,4)[0])
                 try:
                     while time.monotonic() < deadline:
                         # Advance timers when the client is quiet. Socket reads
                         # still use the original framed reader; a partial frame
                         # remains subject to its existing connection timeout.
-                        if gameplay is not None and loaded_pushes_sent and state=='transport_ready':
-                            readable,_,_=select.select([connection],[],[],min(.25,max(0,deadline-time.monotonic())))
+                        gameplay_timers=(gameplay is not None and loaded_pushes_sent
+                                         and state=='transport_ready')
+                        environment_timer=(environment is not None and environment.armed_at is not None
+                                           and not environment.sent and state=='transport_ready')
+                        if gameplay_timers or environment_timer:
+                            wait=min(.25,max(0,deadline-time.monotonic()))
+                            if environment_timer:
+                                wait=min(wait,max(0,environment.armed_at-time.monotonic()))
+                            readable,_,_=select.select([connection],[],[],wait)
                             if not readable:
-                                send_gameplay_timers()
+                                if gameplay_timers:
+                                    send_gameplay_timers()
+                                send_environment_timer()
                                 continue
                         command, extension, body, encrypted_length, packet = read_frame(connection)
                         with (folder / f'{number}-received.bin').open('ab') as raw:
@@ -431,26 +464,26 @@ def main():
                                              magazine=gameplay.magazine,reserve=gameplay.reserve)
                                 except OSError as error:
                                     emit('gameplay_state_save_error',error=str(error))
-                            # The original client reports lobby load and later map
-                            # load separately. Its environment manager may reset
-                            # between them, so initialize the clock on each load.
+                            if environment is not None and environment.observe(message_id,application[26:]):
+                                emit('environment_clock_armed',hour=args.environment_hour,
+                                     trigger='player-ready',ready_delay=args.environment_ready_delay,
+                                     position_reports=environment.position_reports)
+                            # Legacy A/B path only. Real-client evidence showed
+                            # that even the second-DCD-only clock can stop the
+                            # game loop after one MOVE_1, so normal launchers use
+                            # the player-ready scheduler above.
                             if message_id == 0x0DCD:
                                 map_load_count += 1
-                            # A/B finding: sending the clock on the lobby load makes
-                            # the client's first map load take 20-29s instead of the
-                            # 9-11s healthy baseline (dcd1 -> dcd2 gap). Every slow
-                            # session carried this push on both notifications; no
-                            # healthy session carried it at all. --environment-once
-                            # keeps the daytime setting while initializing the clock
-                            # only on the map load, where it is actually needed.
-                            clock_due = args.environment_hour is not None and (
-                                not args.environment_once or map_load_count >= 2)
+                            clock_due = (args.environment_hour is not None
+                                and args.environment_trigger == 'load' and (
+                                    not args.environment_once or map_load_count >= 2))
                             if message_id == 0x0DCD and clock_due:
                                 clock_id, clock_body = environment_clock(args.environment_hour)
                                 response = struct.pack('>IHI', 1, clock_id, clock_id) + clock_body
                                 send(connection, 0, body=encrypt(response, key))
                                 emit('environment_clock_sent', message_id=clock_id,
                                      hour=args.environment_hour,
+                                     trigger='load',
                                      load_notification=map_load_count,
                                      timestamp=struct.unpack_from('>I', clock_body, 4)[0])
                             if message_id == 0x0DCD and map_load_count == 2 and not map_pushes_sent:
@@ -647,6 +680,7 @@ def main():
                                     struct.pack_into('>H', response, 24, response_id)
                                 send(connection, 0, body=encrypt(bytes(response), key))
                                 emit('default_field_response_probe_sent', message_id=response_id)
+                            send_environment_timer()
                             # Game-specific application replies are not implemented yet.
                         elif command == 13:
                             emit('client_closed')

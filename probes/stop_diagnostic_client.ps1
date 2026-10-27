@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory=$true)][int]$DiagnosticPid,
     [Parameter(Mandatory=$true)][string]$StartedAfter,
+    [Parameter(Mandatory=$true)][string]$ExpectedPath,
     [long]$VerifiedWindowHandle = 0,
     [string]$ExpectedCreationDate = '',
     [Parameter(Mandatory=$true)][string]$ResultPath
@@ -12,11 +13,10 @@ try {
     if ($null -eq $target) {
         $report.status = 'already_closed'
     } else {
-        $expectedPath = 'F:\roe\32838\Europa_Client.exe'
         $actualPath = $target.Path
         $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId=$DiagnosticPid"
         if ($processInfo.Name -ne 'Europa_Client.exe') { throw 'Process name differs' }
-        if ($actualPath -and $actualPath -ne $expectedPath) { throw 'Executable path differs from the diagnostic client' }
+        if ($actualPath -and $actualPath -ne $ExpectedPath) { throw 'Executable path differs from the diagnostic client' }
         if (-not $actualPath) {
             # Fallback requires a fresh CUA window identified by the full game
             # path, its exact owning PID, and the observed process creation time.
@@ -40,7 +40,7 @@ public static class RoeDiagnosticWindowOwner {
         if ($processInfo.CreationDate -lt [DateTimeOffset]::Parse($StartedAfter).LocalDateTime) {
             throw 'Process started before this diagnostic run'
         }
-        $report.path = if ($actualPath) { $actualPath } else { $expectedPath }
+        $report.path = if ($actualPath) { $actualPath } else { $ExpectedPath }
         $report.started = $processInfo.CreationDate.ToString('o')
         Stop-Process -InputObject $target -Force
         $target.WaitForExit(5000) | Out-Null

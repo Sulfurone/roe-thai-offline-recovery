@@ -7,6 +7,7 @@ import json
 import struct
 import argparse
 from native_codec_probe import NativeCodec,ROOT,OUT
+from prepare_cross_map_airdrop import set_vehicle_push_phase
 
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--initial-hp',type=int,
@@ -45,14 +46,15 @@ source=source.replace('--gameplay-inventory --gameplay-ground-loot --gameplay-wo
 source=source.replace('--gameplay-initialize-vehicle ','').replace('--gameplay-vehicle-config 101','--gameplay-vehicle-config 4')
 source=source.replace('--gameplay-vehicle-config 4',f'--gameplay-vehicle-config {config}')
 source=source.replace('vehicle-jeep-near.bin',f'vehicle-static-{args.vehicle_kind}.bin')
-source=source.replace('--push-after-load-success 0x654b:','--push-after-map-load 0x654b:')
+source=set_vehicle_push_phase(source,'map-load')
 source='\n'.join(line for line in source.splitlines() if '--push-after-player-ready 0x05fb:' not in line and '--push-after-player-ready 0x04a0:' not in line)+'\n'
+label={'aircraft':'aircraft','glider':'glider','jeep':'Jeep'}[args.vehicle_kind]
 source=source.replace('Thai offline world: M4A1 and 5.56 pickup/drop with a combined inventory/world save.',
-    'Thai static aircraft control: ground player, aircraft 50 metres north and 30 metres above ground. No boarding or flight.')
+    f'Thai static {label} control: ground player, one unoccupied {label}. No boarding or movement.')
 source=source.replace('echo The normal launcher retains the verified ground-walking baseline.',
-    'echo This diagnostic isolates aircraft creation from boarding, flight and canopy transfer.')
+    'echo This diagnostic isolates map-load entity creation from boarding and movement.')
 if any(x in source for x in ('--gameplay-auto-seat','--gameplay-world-file','--gameplay-inventory','--gameplay-aircraft-route-speed',
-                             '--push-after-player-ready 0x654b:')):
+                             '--push-after-player-ready 0x654b:','--push-after-load-success 0x654b:')):
     raise ValueError('Unwanted gameplay remains in static control')
 (ROOT/f'start_{args.vehicle_kind}_static_probe.cmd').write_text(source,encoding='utf-8')
 if config==4:

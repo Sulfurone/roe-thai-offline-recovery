@@ -14,10 +14,10 @@ if not errorlevel 1 (
   exit /b 1
 )
 
-echo Thai daylight parachute test: west edge to east edge across 4096 metres, 81.84 seconds. Native jump prompt after 3 seconds. A separate Thai glider unfolds after exit; near-ground terrain releases it.
+echo Thai offline parachute: board at the west edge, fly east, then use the native jump control and land normally.
 echo The normal launcher retains the verified ground-walking baseline.
 echo Keep this console open while playing. Local service duration: 12 hours.
-"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --port 8002 --single-session --launch --environment-hour 12 --gameplay-prototype --gameplay-typed-uids --gameplay-auto-seat --gameplay-auto-board-delay 2 --gameplay-initialize-vehicle --gameplay-auto-exit-seconds 81.84 --gameplay-opening-airdrop --gameplay-opening-glider-file "%~dp0private\typed-gameplay\vehicle-glider.bin" --gameplay-landing-terrain "%~dp0private\terrain-collision\RigidTerrain.repx" --gameplay-inventory --gameplay-ground-loot --gameplay-arsenal --gameplay-world-file "%~dp0profiles\uid-1-offline-parachute.json" --gameplay-aircraft-route-speed 5000 --gameplay-aircraft-route-end 409400 204800 75000 --gameplay-vehicle-config 4 --probe-auth-response --compact-responses ^
+"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --port 8002 --single-session --launch --gameplay-prototype --gameplay-auto-seat --gameplay-auto-board-delay 2 --gameplay-initialize-vehicle --gameplay-aircraft-route-speed 5000 --gameplay-aircraft-route-end 409400 204800 75000 --gameplay-typed-uids  --gameplay-vehicle-config 4 --probe-auth-response --compact-responses ^
   --world-body-file "%~dp0private\typed-gameplay\world.bin" ^
   --team-body-file "%~dp0private\typed-gameplay\team.bin" ^
   --enter-body-file "%~dp0private\typed-gameplay\enter.bin" ^
@@ -34,7 +34,5 @@ echo Keep this console open while playing. Local service duration: 12 hours.
   --push-after-team 0x0dcf:"%~dp0private\typed-gameplay\scene-cross-map.bin" ^
   --push-after-team 0x0516:"%~dp0private\native-roster\movement-grounded-delta.bin" ^
   --push-delay 3.0 ^
-  --push-after-player-ready 0x05fb:"%~dp0private\native-roster\inventory-m4a1-candidate.bin" ^
-  --push-after-player-ready 0x04a0:"%~dp0private\typed-gameplay\ammo.bin" ^
-  --push-after-player-ready 0x654b:"%~dp0private\typed-gameplay\vehicle-cross-map.bin"
+  --push-after-map-load 0x654b:"%~dp0private\typed-gameplay\vehicle-cross-map.bin"
 pause

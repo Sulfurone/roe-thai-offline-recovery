@@ -10,7 +10,7 @@ if errorlevel 1 (
 echo Thai opening airdrop: west edge to east edge across 4096 metres, 81.84 seconds. Native jump prompt after 3 seconds.
 echo The normal launcher retains the verified ground-walking baseline.
 echo Keep this console open while playing. Local service duration: 12 hours.
-"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --launch --environment-hour 12 --gameplay-prototype --gameplay-typed-uids --gameplay-auto-seat --gameplay-auto-board-delay 2 --gameplay-initialize-vehicle --gameplay-auto-exit-seconds 81.84 --gameplay-opening-airdrop --gameplay-inventory --gameplay-state-file "%~dp0profiles\uid-1-offline-inventory.json" --gameplay-aircraft-route-speed 5000 --gameplay-aircraft-route-end 409400 204800 75000 --gameplay-vehicle-config 4 --probe-auth-response --compact-responses ^
+"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --launch --gameplay-prototype --gameplay-typed-uids --gameplay-auto-seat --gameplay-auto-board-delay 2 --gameplay-initialize-vehicle --gameplay-auto-exit-seconds 81.84 --gameplay-opening-airdrop --gameplay-inventory --gameplay-state-file "%~dp0profiles\uid-1-offline-inventory.json" --gameplay-aircraft-route-speed 5000 --gameplay-aircraft-route-end 409400 204800 75000 --gameplay-vehicle-config 4 --probe-auth-response --compact-responses ^
   --world-body-file "%~dp0private\typed-gameplay\world.bin" ^
   --team-body-file "%~dp0private\typed-gameplay\team.bin" ^
   --enter-body-file "%~dp0private\typed-gameplay\enter.bin" ^
@@ -29,5 +29,5 @@ echo Keep this console open while playing. Local service duration: 12 hours.
   --push-delay 3.0 ^
   --push-after-player-ready 0x05fb:"%~dp0private\native-roster\inventory-m4a1-candidate.bin" ^
   --push-after-player-ready 0x04a0:"%~dp0private\typed-gameplay\ammo.bin" ^
-  --push-after-player-ready 0x654b:"%~dp0private\typed-gameplay\vehicle-cross-map.bin"
+  --push-after-map-load 0x654b:"%~dp0private\typed-gameplay\vehicle-cross-map.bin"
 pause
