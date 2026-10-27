@@ -27,9 +27,9 @@ game-root/
 git clone https://github.com/Sulfurone/roe-thai-offline-recovery.git recovery
 cd recovery
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python -m unittest test_offline_gameplay test_opening_airdrop -q
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m unittest test_offline_gameplay test_opening_airdrop -q
+$env:ROE_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
 ```
 
 上述 26 项检查使用合成状态，无须客户端和私人抓包。仓库还保留其他测试；其中一部分需要本地生成的协议样本、角色数据、原客户端内存镜像或原版资源，干净克隆后不能直接全部运行。
@@ -37,7 +37,7 @@ python -m unittest test_offline_gameplay test_opening_airdrop -q
 资源研究示例（只读取原归档，输出在仓库忽略的目录中）：
 
 ```powershell
-python sfc_extract.py ..\32838\SFC\TableBin.sfc extracted\tablebin
+.\.venv\Scripts\python.exe sfc_extract.py ..\32838\SFC\TableBin.sfc extracted\tablebin
 ```
 
 要尝试本地服务，还需要按 [研究方法](docs/METHODS.md) 和 [研究交接历史](HANDOFF.md) 自行生成 `private/native-roster/`、`private/typed-gameplay/` 等本地文件。现有生成脚本之间仍有前置依赖，**从全新客户端到可启动所需样本的完整自动化尚未完成**；不要把示例启动脚本当成克隆后即可使用的安装程序。服务默认监听 `127.0.0.1:8001`。Windows 启动脚本使用 PATH 中的 `python`，也可预先设置 `ROE_PYTHON` 为 Python 可执行文件路径。

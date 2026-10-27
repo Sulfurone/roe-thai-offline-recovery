@@ -23,3 +23,7 @@
 启动脚本会读取 `private/native-roster/` 和 `private/typed-gameplay/` 的版本特定样本；它们由原客户端和个人会话推导，未分发。`profiles/`、`logs/`、`extracted/` 和 `private/` 均在忽略列表中。生成器（例如 `probes/prepare_native_defaults.py` 和 `probes/prepare_typed_gameplay.py`）展示现有依赖，但仍有需要先取得原始角色请求、原始客户端加载映像和早期基础样本的步骤；顺序及可用性需结合交接历史和各脚本检查。项目当前没有从零到可玩的一键重建脚本，欢迎补齐。
 
 `README-research-history.md` 与 `HANDOFF.md` 是本机实验的历史快照，含过时的绝对地址、进程状态及中间推测。请以最新代码和实际测试为准，不要直接照搬历史上的进程 ID、路径或 GUI 操作。
+
+## 历史辅助脚本
+
+`probes/find_metalib.py` 和 `probes/historical/` 保留用于扫描结构、消息号、字符串和资源命名的早期研究工具。部分脚本保留当时的 `F:\roe` 示例路径或具体文件名，使用前需要针对自己的目录调整；它们读取本地材料，不应将输出中的客户端数据或个人会话公开。`mem_debug.py` 需要显式提供进程 ID。

@@ -1,7 +1,7 @@
 @echo off
 setlocal
 if not defined ROE_PYTHON set "ROE_PYTHON=python"
-where "%ROE_PYTHON%" >nul 2>&1
+"%ROE_PYTHON%" --version >nul 2>&1
 if errorlevel 1 (
   echo Python runtime not found. See README.md.
   pause
