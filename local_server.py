@@ -26,6 +26,9 @@ def main():
                         help='Exit after the authenticated client disconnects, releasing the local port')
     parser.add_argument('--environment-hour', type=int, choices=range(24), metavar='0..23',
                         help='Initialize the native environment clock after map load (12 is noon)')
+    parser.add_argument('--environment-once', action='store_true',
+                        help='Send the environment clock only on the map load notification, '
+                             'not on the earlier lobby load notification')
     parser.add_argument('--gameplay-prototype', action='store_true',
                         help='Opt in to unverified Thai ammo and vehicle interaction handlers')
     parser.add_argument('--gameplay-arsenal',action='store_true',
@@ -431,29 +434,39 @@ def main():
                             # The original client reports lobby load and later map
                             # load separately. Its environment manager may reset
                             # between them, so initialize the clock on each load.
-                            if message_id == 0x0DCD and args.environment_hour is not None:
+                            if message_id == 0x0DCD:
+                                map_load_count += 1
+                            # A/B finding: sending the clock on the lobby load makes
+                            # the client's first map load take 20-29s instead of the
+                            # 9-11s healthy baseline (dcd1 -> dcd2 gap). Every slow
+                            # session carried this push on both notifications; no
+                            # healthy session carried it at all. --environment-once
+                            # keeps the daytime setting while initializing the clock
+                            # only on the map load, where it is actually needed.
+                            clock_due = args.environment_hour is not None and (
+                                not args.environment_once or map_load_count >= 2)
+                            if message_id == 0x0DCD and clock_due:
                                 clock_id, clock_body = environment_clock(args.environment_hour)
                                 response = struct.pack('>IHI', 1, clock_id, clock_id) + clock_body
                                 send(connection, 0, body=encrypt(response, key))
                                 emit('environment_clock_sent', message_id=clock_id,
                                      hour=args.environment_hour,
+                                     load_notification=map_load_count,
                                      timestamp=struct.unpack_from('>I', clock_body, 4)[0])
-                            if message_id == 0x0DCD:
-                                map_load_count += 1
-                                if map_load_count == 2 and not map_pushes_sent:
-                                    map_pushes_sent = True
-                                    for push_id, push_path in map_push_specs:
-                                        push_body = push_path.read_bytes()
-                                        if len(push_body) > 65536:
-                                            raise ValueError('Map-load candidate exceeds validated wire bound')
-                                        response = struct.pack('>IHI', 1, push_id, push_id) + push_body
-                                        send(connection, 0, body=encrypt(response, key))
-                                        if gameplay is not None:
-                                            gameplay.observe_spawn(push_id, push_body)
-                                        emit('map_loaded_push_sent', message_id=push_id,
-                                             body_bytes=len(push_body),
-                                             body_sha256=hashlib.sha256(push_body).hexdigest(),
-                                             source=str(push_path), load_notification=map_load_count)
+                            if message_id == 0x0DCD and map_load_count == 2 and not map_pushes_sent:
+                                map_pushes_sent = True
+                                for push_id, push_path in map_push_specs:
+                                    push_body = push_path.read_bytes()
+                                    if len(push_body) > 65536:
+                                        raise ValueError('Map-load candidate exceeds validated wire bound')
+                                    response = struct.pack('>IHI', 1, push_id, push_id) + push_body
+                                    send(connection, 0, body=encrypt(response, key))
+                                    if gameplay is not None:
+                                        gameplay.observe_spawn(push_id, push_body)
+                                    emit('map_loaded_push_sent', message_id=push_id,
+                                         body_bytes=len(push_body),
+                                         body_sha256=hashlib.sha256(push_body).hexdigest(),
+                                         source=str(push_path), load_notification=map_load_count)
                             if message_id == 0x0DCD and not loaded_pushes_sent:
                                 loaded_pushes_sent = True
                                 for push_id, push_path in loaded_push_specs:
