@@ -65,6 +65,7 @@ vehicle = bytearray(0x1259)
 struct.pack_into('<Q', vehicle, 0, 0x200101)
 vehicle[8:8+10] = b'LocalJeep\0'
 struct.pack_into('<I', vehicle, 0x88, 101)
+struct.pack_into('<I', vehicle, 0x90, 24000)  # Current HP at original factory initialization.
 struct.pack_into('<3i', vehicle, 0x94, 326400, 272200, 7054)
 struct.pack_into('<f', vehicle, 0xad, 1.0)
 save('vehicle-jeep-candidate.bin', 0x654b, 0xe11e50, vehicle)
@@ -75,6 +76,7 @@ glider = bytearray(vehicle)
 glider[8:136] = bytes(128)
 glider[8:20] = b'LocalGlider\0'
 struct.pack_into('<I',glider,0x88,3)
+struct.pack_into('<I',glider,0x90,100)
 struct.pack_into('<3i',glider,0x94,325800,271700,35000)
 save('vehicle-glider-candidate.bin',0x654b,0xe11e50,glider)
 aircraft=bytearray(glider)

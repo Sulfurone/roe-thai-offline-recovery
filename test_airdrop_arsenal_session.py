@@ -43,10 +43,11 @@ class AirdropArsenalSessionTests(unittest.TestCase):
                   '--environment-hour','12','--gameplay-opening-glider-file',
                   str(ROOT/'private/typed-gameplay/vehicle-glider.bin'),'--gameplay-landing-terrain',str(terrain),
                   '--gameplay-typed-uids','--gameplay-auto-seat','--gameplay-initialize-vehicle',
+                  '--gameplay-auto-board-delay','.25',
                   '--gameplay-vehicle-config','4','--gameplay-auto-exit-seconds','81.84',
                   '--gameplay-aircraft-route-speed','5000','--gameplay-aircraft-route-end','409400','204800','75000',
-                  '--push-after-load-success',f'0x654b:{vehicle}',
-                  '--push-after-player-ready',f'0x5fb:{stub}','--push-after-player-ready',f'0x4a0:{stub}']
+                  '--push-after-player-ready',f'0x5fb:{stub}','--push-after-player-ready',f'0x4a0:{stub}',
+                  '--push-after-player-ready',f'0x654b:{vehicle}']
             errors=queue.Queue()
             output=io.StringIO()
             def serve():
@@ -85,14 +86,15 @@ class AirdropArsenalSessionTests(unittest.TestCase):
                                               arsenal_enabled=True,world_file=profile)
                     send(0xdcd,bytes(4))
                     self.assertEqual(struct.unpack_from('>I',receive(0x4816))[0],12)
-                    receive(0x654b)
                     # Actual Thai sessions report both lobby and map load.
-                    # The second clock must not respawn the aircraft.
+                    # Neither load notice may spawn or board the aircraft;
+                    # a current-map actor position is the readiness signal.
                     send(0xdcd,bytes(4))
                     self.assertEqual(struct.unpack_from('>I',receive(0x4816))[0],12)
                     send(0x2a,struct.pack('>I3i',1,200,204800,75000))
                     self.assertEqual(receive(0x5fb),expected.inventory.full_body())
                     receive(0x4a0)
+                    receive(0x654b)
                     physical=bytearray(61)
                     struct.pack_into('>Q',physical,0,TYPED_VEHICLE_UID)
                     struct.pack_into('>3i',physical,13,200,204800,75000)
@@ -130,6 +132,10 @@ class AirdropArsenalSessionTests(unittest.TestCase):
                 self.assertFalse(thread.is_alive())
             if not errors.empty():raise errors.get()
             events=[json.loads(line) for line in output.getvalue().splitlines()]
+            first_move=next(i for i,e in enumerate(events) if e['event']=='application_message' and e.get('message_id')==0x2a)
+            spawn=next(i for i,e in enumerate(events) if e['event']=='player_ready_push_sent' and e.get('message_id')==0x654b)
+            self.assertGreater(spawn,first_move)
+            self.assertFalse(any(e['event']=='scene_loaded_push_sent' and e.get('message_id')==0x654b for e in events))
             jump=next(i for i,e in enumerate(events) if e['event']=='application_message' and e.get('message_id')==0x6566)
             ground=[i for i,e in enumerate(events) if e['event']=='gameplay_response_sent' and e.get('message_id')==0x821]
             self.assertEqual(len(ground),27) # 26 seed objects and the dropped M4A1.

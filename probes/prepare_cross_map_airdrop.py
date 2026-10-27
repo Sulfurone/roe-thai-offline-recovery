@@ -91,6 +91,11 @@ def prepare(root,target,codec):
     text=text.replace('--gameplay-aircraft-route-speed 2000',
         f'--gameplay-aircraft-route-speed {speed} --gameplay-aircraft-route-end {endpoint[0]} {endpoint[1]} {endpoint[2]}')
     text=text.replace('scene-glider.bin','scene-cross-map.bin').replace('vehicle-helicopter.bin','vehicle-cross-map.bin')
+    # The first DCD may be queued from lobby load. Spawn only after a real
+    # map actor reports its position, then leave time for model initialization.
+    text=text.replace('--push-after-load-success 0x654b:', '--push-after-player-ready 0x654b:')
+    if '--gameplay-auto-board-delay' not in text:
+        text=text.replace('--gameplay-auto-seat','--gameplay-auto-seat --gameplay-auto-board-delay 2')
     text=text.replace('Thai opening airdrop: board, fly, native jump prompt after 3 seconds. Auto-exit at 40 seconds.',
         f'Thai opening airdrop: west edge to east edge across {width/100:g} metres, {duration:g} seconds. Native jump prompt after 3 seconds.')
     (root/'start_offline_airdrop.cmd').write_text(text,encoding='utf-8')
@@ -114,6 +119,12 @@ def prepare(root,target,codec):
     parachute=parachute.replace('Native jump prompt after 3 seconds.',
         'Native jump prompt after 3 seconds. A separate Thai glider unfolds after exit and releases near terrain or after 8 seconds.')
     (root/'start_offline_parachute.cmd').write_text(parachute,encoding='utf-8')
+    parachute_test=parachute.replace(f'--gameplay-auto-exit-seconds {duration:g}',
+        '--gameplay-auto-exit-seconds 12').replace('uid-1-offline-parachute.json',
+        'uid-1-offline-parachute-selftest.json')
+    parachute_test=parachute_test.replace('Native jump prompt after 3 seconds.',
+        'Self-test: automatic aircraft exit after 12 seconds.')
+    (root/'start_parachute_selftest.cmd').write_text(parachute_test,encoding='utf-8')
     test=text.replace(f'--gameplay-auto-exit-seconds {duration:g}','--gameplay-auto-exit-seconds 12')
     test=test.replace('Native jump prompt after 3 seconds.','Self-test: auto-exit after 12 seconds near the west edge.')
     (root/'start_airdrop_selftest.cmd').write_text(test,encoding='utf-8')

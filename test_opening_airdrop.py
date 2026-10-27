@@ -10,6 +10,34 @@ from test_ground_loot import request,drop
 
 
 class OpeningAirDropTests(unittest.TestCase):
+    def test_spawn_delay_waits_for_actor_and_does_not_reboard_after_jump(self):
+        game=OfflineGameplay(vehicle_config=4,auto_board=True,auto_board_delay=2,
+            opening_airdrop=True,aircraft_route_speed=2000,auto_exit_after=40)
+        name=b'Aircraft\0'
+        spawn=struct.pack('>QI',game.vehicle_uid,len(name))+name+struct.pack('>III3i',4,0,0,200,204800,75000)
+        with patch('offline_gameplay.time.monotonic',return_value=100):
+            game.observe_spawn(0x654b,spawn)
+        self.assertEqual(game.tick(101),[])
+        with patch('offline_gameplay.time.monotonic',return_value=101):
+            self.assertEqual(game.handle(0x2a,struct.pack('>I3i',1,200,204800,74000)),[])
+            game.observe_spawn(0x654b,spawn)
+        self.assertFalse(game.seated)
+        self.assertEqual(game.tick(101.99),[])
+        self.assertIn(0x6542,[m for m,_ in game.tick(102)])
+        self.assertEqual(game.route_started,102)
+        self.assertFalse(game.auto_board)
+        game.tick(105)
+        with patch('offline_gameplay.time.monotonic',return_value=106):
+            game.handle(0x6566,b'\0')
+        game.tick(200)
+        self.assertNotIn(0x6542,[m for m,_ in game.tick(201)])
+        self.assertFalse(game.seated)
+
+    def test_invalid_auto_board_delay_is_rejected(self):
+        for delay in (-1,31,float('nan'),float('inf')):
+            with self.assertRaises(ValueError):
+                OfflineGameplay(auto_board_delay=delay)
+
     def game(self):
         game=OfflineGameplay(vehicle_config=4,auto_board=True,opening_airdrop=True,
                              aircraft_route_speed=2000,auto_exit_after=40)

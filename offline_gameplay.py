@@ -37,6 +37,8 @@ class OfflineGameplay:
     vehicle_position: tuple = (326400,272200,6501)
     player_position: tuple = (325800,271700,7054)
     auto_board: bool = False
+    auto_board_delay: float = 0
+    auto_board_not_before: float | None = field(default=None,init=False)
     actor_ready: bool = False
     vehicle_ready: bool = False
     vehicle_announced: bool = False
@@ -78,6 +80,8 @@ class OfflineGameplay:
     scatter_random: random.Random = field(default_factory=random.Random,init=False)
 
     def __post_init__(self):
+        if not math.isfinite(self.auto_board_delay) or not 0<=self.auto_board_delay<=30:
+            raise ValueError('Auto-board delay must be between zero and 30 seconds')
         if self.arsenal_enabled and not self.ground_loot_enabled:
             raise ValueError('Arsenal requires ground loot')
         if self.scatter_loot and not self.ground_loot_enabled:
@@ -228,13 +232,17 @@ class OfflineGameplay:
         position=struct.unpack_from('>3i',body,start+12)
         if config!=self.vehicle_config or not all(abs(v)<2000000 for v in position):
             return
+        if not self.vehicle_announced:
+            self.auto_board_not_before=time.monotonic()+self.auto_board_delay
         self.vehicle_position=position
         self.vehicle_announced=True
 
-    def can_auto_board(self):
+    def can_auto_board(self,now=None):
         # The unoccupied glider does not send car physics reports. Its
         # diagnostic boarding gate uses the map actor's first movement.
+        now=time.monotonic() if now is None else now
         return (self.auto_board and self.actor_ready and
+                (self.auto_board_not_before is None or now>=self.auto_board_not_before) and
                 (self.vehicle_ready or (self.vehicle_config in (3,4) and self.vehicle_announced)))
 
     def reserve_sync(self):
@@ -271,6 +279,7 @@ class OfflineGameplay:
         if self.seated:
             return []
         now=time.monotonic() if now is None else now
+        self.auto_board = False
         self.seated = True
         self.seat = seat
         if self.auto_exit_after>0:
@@ -377,6 +386,8 @@ class OfflineGameplay:
 
     def tick(self,now=None):
         now=time.monotonic() if now is None else now
+        if not self.seated and self.can_auto_board(now) and self.route_started is None:
+            return self.board(now=now)
         glider=self.opening_glider
         if glider is not None and glider.seated:
             replies=glider.tick(now)

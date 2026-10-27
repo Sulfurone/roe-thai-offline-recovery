@@ -1,4 +1,4 @@
-"""Experimental loopback TPDU server with incomplete offline gameplay."""
+"""Experimental loopback TPDU handshake, not a playable game server."""
 import argparse
 import datetime
 import hashlib
@@ -34,6 +34,8 @@ def main():
                         help='Spawn a weapon/ammo cluster every 600m of reported ground travel')
     parser.add_argument('--gameplay-auto-seat', action='store_true',
                         help='Diagnostic: board the test Jeep after its first physics report')
+    parser.add_argument('--gameplay-auto-board-delay',type=float,default=0,
+                        help='Wait this many seconds after vehicle spawn before automatic boarding (0..30)')
     parser.add_argument('--gameplay-vehicle-config',type=int,choices=[3,4,101],default=101,
                         help='Original Thai test vehicle: glider=3, helicopter=4, Jeep=101')
     parser.add_argument('--gameplay-typed-uids',action='store_true',
@@ -286,6 +288,7 @@ def main():
                 loaded_pushes_sent = False
                 player_pushes_sent = False
                 gameplay = OfflineGameplay(auto_board=args.gameplay_auto_seat,
+                    auto_board_delay=args.gameplay_auto_board_delay,
                     magazine=args.gameplay_starting_magazine,
                     inventory_enabled=args.gameplay_inventory,state_file=args.gameplay_state_file,
                     inventory_selftest=args.gameplay_inventory_selftest,
@@ -316,7 +319,10 @@ def main():
                         emit('gameplay_timer_response_sent',message_id=response_id,
                              body_bytes=len(response_body),seated=gameplay.seated,
                              diagnostic=('inventory self-test' if response_id in (0x3e82,0x3e81,0x4a0)
-                                         else 'aircraft route update' if response_id==0x6563 else 'automatic exit'),
+                                         else 'aircraft route update' if response_id==0x6563
+                                         else 'automatic boarding' if response_id==0x6542
+                                         else 'jump enabled' if response_id==0x6565
+                                         else 'glider spawn' if response_id==0x654b else 'automatic exit'),
                              vehicle_position=gameplay.vehicle_position,
                              inventory_stage=gameplay.inventory_test_stage,
                              deployment_phase=gameplay.deployment_phase)
@@ -377,6 +383,8 @@ def main():
                                         raise ValueError('Player candidate exceeds validated wire bound')
                                     response=struct.pack('>IHI',1,push_id,push_id)+push_body
                                     send(connection,0,body=encrypt(response,key))
+                                    if gameplay is not None:
+                                        gameplay.observe_spawn(push_id,push_body)
                                     emit('player_ready_push_sent',message_id=push_id,
                                          body_bytes=len(push_body),
                                          body_sha256=hashlib.sha256(push_body).hexdigest(),source=str(push_path),

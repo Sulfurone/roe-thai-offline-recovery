@@ -32,12 +32,14 @@ for name,expected in [('vehicle-cross-map.bin',4),('vehicle-glider.bin',3),('veh
     if len(captured)!=1:raise ValueError('Factory was not reached exactly once')
     args=captured.pop()
     if args[4]!=expected:raise ValueError(f'Unexpected vehicle config: {name}')
+    if args[7]!={3:100,4:100,101:24000}[expected]:
+        raise ValueError(f'Unexpected initial HP at original factory: {name}')
     position=struct.unpack('<3f',bytes(codec.uc.mem_read(args[5],12)))
     quaternion=struct.unpack('<4f',bytes(codec.uc.mem_read(args[6],16)))
     if quaternion!=(0.,0.,0.,1.):raise ValueError('Unexpected vehicle orientation')
     results.append(dict(fixture=name,config=args[4],uid=hex(args[1]|args[2]<<32),
                         control_type=args[3],position=position,quaternion=quaternion,
-                        trailing_integer=args[7],status_pointer=hex(args[8]),last_flag=args[9]))
+                        initial_hp=args[7],status_pointer=hex(args[8]),last_flag=args[9]))
 report={'callback':'0x1289610','factory':'0x10999D0','results':results,
         'scope':'Original decoded DTO and callback only; factory, asset loading and rendered model not executed'}
 (OUT/'vehicle-spawn-arguments.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
