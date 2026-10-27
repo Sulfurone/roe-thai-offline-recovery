@@ -63,7 +63,7 @@ game=OfflineGameplay(vehicle_config=4,auto_board=True,opening_airdrop=True,
     aircraft_route_speed=5000,auto_exit_after=81.84,aircraft_route_end=(409400,204800,75000))
 game.vehicle_position=(200,204800,75000);game.board(now=100.)
 samples=[];previous=xyz();max_step=0.
-for frame in range(200):
+for frame in range(1635):
     now=100.+frame*.05
     for message,body in game.tick(now):
         if message!=0x6563:continue
@@ -72,8 +72,8 @@ for frame in range(200):
         c.invoke(0x130e310,controller,[target,direction,word(5000)])
     c.invoke(0x130e180,controller,[word(.05)])
     current=xyz();max_step=max(max_step,math.dist(current,previous));previous=current
-    if frame in (0,19,99,199):samples.append(dict(seconds=(frame+1)*.05,position=current))
-if not 40000<previous[0]<60000 or max_step>1000:
+    if frame in (0,19,99,199,799,1599,1634):samples.append(dict(seconds=(frame+1)*.05,position=current))
+if not 390000<previous[0]<=409400 or max_step>1000:
     raise ValueError(f'Bounded route has unexpected position or jump: {previous}, max_step={max_step}')
 report={'passed':True,'old_far_target_first_step':old,'bounded_samples':samples,
         'max_step_cm':max_step,'frame_seconds':.05,'sync_interval_seconds':.25,
