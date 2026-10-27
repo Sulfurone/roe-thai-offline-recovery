@@ -30,7 +30,7 @@
 
 ## 分开检查实体、登机和飞行
 
-`probes/prepare_aircraft_static_probe.py` 生成 `start_aircraft_static_probe.cmd`：地面角色、附近静止飞机，不启用登机、飞行、滑翔翼或持久存档。默认耐久为 100；`--initial-hp 0` 可重现旧的零耐久生成包。用它区分实体生成与运输机运动造成的异常。
+`probes/prepare_aircraft_static_probe.py` 生成相同时机的静止载具对照：默认 `aircraft`/config 4，也可用 `--vehicle-kind glider`/config 3 或 `--vehicle-kind jeep`/config 101。它不启用登机、飞行、挂靠或持久存档；默认初始耐久取原配置上限100/100/24000，也可在原上限内覆盖。用三种对象区分通用0x654B创建、空中SimpleAero初始化和运输机专属资源问题。
 
 `start_parachute_selftest.cmd` 则启用完整阶段，12 秒后自动离机，使用独立测试存档。正常跳伞入口航程约 82 秒。检查实际客户端位置、用户画面和操作；保活或服务已出包只能证明连接与发送链仍在运行。
 

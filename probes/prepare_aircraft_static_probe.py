@@ -9,15 +9,19 @@ import argparse
 from native_codec_probe import NativeCodec,ROOT,OUT
 
 parser=argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--initial-hp',type=int,choices=(0,100),default=100,
-    help='100 is the original initial HP; zero reproduces the former fixture')
-parser.add_argument('--vehicle-kind',choices=('aircraft','glider'),default='aircraft',
-    help='Use config 4 aircraft or config 3 glider for an isolated creation control')
+parser.add_argument('--initial-hp',type=int,
+    help='Override original initial HP (aircraft/glider 100, Jeep 24000)')
+parser.add_argument('--vehicle-kind',choices=('aircraft','glider','jeep'),default='aircraft',
+    help='Use config 4 aircraft, config 3 glider, or config 101 Jeep creation control')
 args=parser.parse_args()
 codec=NativeCodec()
 target=ROOT/'private/typed-gameplay'
-config=4 if args.vehicle_kind=='aircraft' else 3
-template='vehicle-helicopter.bin' if config==4 else 'vehicle-glider.bin'
+config={'aircraft':4,'glider':3,'jeep':101}[args.vehicle_kind]
+template={'aircraft':'vehicle-helicopter.bin','glider':'vehicle-glider.bin',
+          'jeep':'vehicle-jeep-near.bin'}[args.vehicle_kind]
+initial_hp=args.initial_hp if args.initial_hp is not None else (24000 if config==101 else 100)
+if not 0<=initial_hp<=(24000 if config==101 else 100):
+    parser.error('Initial HP is outside the original configuration maximum')
 result=codec.decode_server(0x654b,(target/template).read_bytes())
 if result['code'] or result['consumed']!=result['bytes']:
     raise ValueError('Original aircraft fixture did not decode')
@@ -26,7 +30,7 @@ if struct.unpack_from('<I',native,0x88)[0]!=config:
     raise ValueError(f'Expected original config {config} {args.vehicle_kind}')
 position=(325800,276700,9500)
 struct.pack_into('<3i',native,0x94,*position)
-struct.pack_into('<I',native,0x90,args.initial_hp)
+struct.pack_into('<I',native,0x90,initial_hp)
 code,body=codec.pack_type(0xe11e50,bytes(native))
 result=codec.decode_server(0x654b,body)
 if code or result['code'] or result['consumed']!=result['bytes']:
@@ -58,7 +62,7 @@ if config==4:
         'This diagnostic enables the reversible C17 skeleton/LOD compatibility overlay; no boarding or flight.')
     (ROOT/'start_aircraft_overlay_probe.cmd').write_text(overlay,encoding='utf-8')
 report=dict(passed=True,vehicle_kind=args.vehicle_kind,vehicle_config=config,
-    aircraft_position=position,initial_hp=args.initial_hp,actor_scene='scene-ground.bin',
+    aircraft_position=position,initial_hp=initial_hp,actor_scene='scene-ground.bin',
     native_roundtrip_equal=True,body_bytes=len(body),boarding=False,flight=False,
     scope='Static original-codec control prepared; rendering and visibility require a live client')
 (OUT/'static-aircraft-control.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
