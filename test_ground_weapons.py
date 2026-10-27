@@ -41,7 +41,10 @@ class GroundWeaponTests(unittest.TestCase):
         game.handle(0x3e80,drop(1,container=1,slot=1))
         replies=game.handle(0x3b63,request(0x400002,container=2,destination=8,automatic=0))
         self.assertEqual([m for m,_ in replies],[0x3e82,0x82b,0x3b64])
-        self.assertEqual(game.magazine,28)
+        # A bagged gun is not carried; the live magazine stays empty until
+        # it is equipped, but its rounds stay recorded on the gun.
+        self.assertEqual(game.magazine,0)
+        self.assertEqual(list(game.inventory.weapon_magazines.values()),[28])
         self.assertIsNone(game.inventory.weapon_slot())
         replies=game.handle(0x3e80,struct.pack('>BBHBHHB',1,2,8,1,2,1,1))
         self.assertEqual(struct.unpack('>QII',replies[-1][1])[1:],(2,28))
@@ -50,17 +53,52 @@ class GroundWeaponTests(unittest.TestCase):
         self.assertEqual(game.ground_loot.stacks[0x400003].magazine,28)
         self.assertEqual(game.magazine,0)
 
-    def test_occupied_requested_slot_or_second_weapon_rejects_without_losing_gun(self):
+    def test_occupied_requested_slot_rejects_without_losing_gun(self):
         game=self.ready()
         game.handle(0x3e80,drop(1,container=1,slot=1))
         before=game.state_payload()
         replies=game.handle(0x3b63,request(0x400002,container=2,destination=0,automatic=0))
         self.assertEqual(replies[0][0],0x3b66)
         self.assertEqual(game.state_payload(),before)
-        # A second gun is outside the current loadout; never silently replace.
+        # An explicitly occupied weapon slot is never displaced.
         game.inventory.items[1,2]=Item(1,WEAPON_TEMPLATE,0x100111,1)
-        self.assertEqual(game.handle(0x3b63,request(0x400002))[0][0],0x3b66)
+        self.assertEqual(game.handle(0x3b63,request(0x400002,container=1,destination=2,automatic=0))[0][0],0x3b66)
         self.assertIn(0x400002,game.ground_loot.stacks)
+        # The dropped M4A1 returns to the free long-gun slot.
+        self.assertEqual(game.handle(0x3b63,request(0x400002))[0][0],0x3e82)
+        self.assertEqual(game.inventory.items[1,1].uid,0x100101)
+        # Automatic pickup of a third long gun stores it in the bag instead.
+        third=game.ground_loot.add(Item(1,10202,0x100121,1),game.player_position)
+        self.assertEqual(game.handle(0x3b63,request(third.entity))[0][0],0x3e82)
+        self.assertNotIn(third.entity,game.ground_loot.stacks)
+        self.assertEqual(game.inventory.items[2,1].uid,0x100121)
+
+    def test_second_long_gun_keeps_independent_magazine_across_restart(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'world.json'
+            game=OfflineGameplay(inventory_enabled=True,ground_loot_enabled=True,arsenal_enabled=True,
+                                 world_file=path,magazine=28)
+            game.handle(0x2a,struct.pack('>I3i',1,325800,271700,6488))
+            second=next(s for s in game.ground_loot.stacks.values() if s.item.template==10202)
+            game.handle(0x2a,struct.pack('>I3i',1,*second.position))
+            self.assertEqual(game.handle(0x3b63,request(second.entity))[0][0],0x3e82)
+            self.assertEqual(game.inventory.items[1,2],second.item)
+            game.handle(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,1,0))
+            game.handle(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,2,0))
+            self.assertEqual(game.magazine,26)
+            game.handle(0x49e,struct.pack('>I',2))
+            self.assertEqual(game.magazine,0)
+            ammo=next(s for s in game.ground_loot.stacks.values() if s.item.template==30002)
+            game.handle(0x2a,struct.pack('>I3i',1,*ammo.position))
+            self.assertEqual(game.handle(0x3b63,request(ammo.entity))[0][0],0x3e82)
+            game.handle(0x49c,struct.pack('>I',2))
+            self.assertEqual((game.magazine,game.reserve),(30,150))
+            game.handle(0x49e,struct.pack('>I',1))
+            self.assertEqual(game.magazine,26)
+            reopened=self.ready(path)
+            self.assertEqual((reopened.magazine,reopened.selected_slot),(26,1))
+            reopened.handle(0x49e,struct.pack('>I',2))
+            self.assertEqual(reopened.magazine,30)
 
     def test_weapon_on_ground_survives_restart_then_equips_same_magazine(self):
         with tempfile.TemporaryDirectory() as temporary:

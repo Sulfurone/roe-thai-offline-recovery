@@ -8,10 +8,11 @@ from dataclasses import dataclass,field
 import json
 import math
 from pathlib import Path
+import random
 import struct
 import time
-from offline_inventory import OfflineInventory
-from offline_ground_loot import OfflineGroundLoot
+from offline_inventory import Item,OfflineInventory
+from offline_ground_loot import OfflineGroundLoot,MAX_GROUND_STACKS
 from offline_weapons import WEAPONS,AMMUNITION,is_weapon
 import offline_world_state
 
@@ -67,10 +68,15 @@ class OfflineGameplay:
     ground_loot: OfflineGroundLoot | None = field(default=None,init=False)
     world_file: Path | None = None
     state_save_count: int = field(default=0,init=False)
+    scatter_loot: bool = False
+    scatter_anchor: tuple | None = field(default=None,init=False)
+    scatter_random: random.Random = field(default_factory=random.Random,init=False)
 
     def __post_init__(self):
         if self.arsenal_enabled and not self.ground_loot_enabled:
             raise ValueError('Arsenal requires ground loot')
+        if self.scatter_loot and not self.ground_loot_enabled:
+            raise ValueError('Scatter loot requires ground loot')
         if self.ground_loot_enabled and (not self.inventory_enabled or self.state_file is not None):
             raise ValueError('Ground loot requires inventory and cannot use an inventory-only profile')
         if self.world_file is not None and (not self.ground_loot_enabled or not self.inventory_enabled
@@ -91,6 +97,9 @@ class OfflineGameplay:
         if not self.inventory_enabled:
             return
         self.inventory=OfflineInventory(self.reserve)
+        weapon=self.inventory.items.get((1,1))
+        if weapon is not None:
+            self.inventory.weapon_magazines[weapon.uid]=self.magazine
         if self.ground_loot_enabled:
             from offline_inventory import Item,AMMO_TEMPLATE
             self.ground_loot=OfflineGroundLoot()
@@ -144,12 +153,56 @@ class OfflineGameplay:
         return True
 
     def has_weapon(self,slot):
-        return slot==(self.inventory.weapon_slot() if self.inventory is not None else 1)
+        if self.inventory is None:
+            return slot==1
+        item=self.inventory.items.get((1,slot))
+        return item is not None and is_weapon(item)
+
+    def weapon_key(self,slot=None):
+        slot=self.selected_slot if slot is None else slot
+        return (1,slot) if self.has_weapon(slot) else None
+
+    def weapon_magazine(self,key):
+        if self.inventory is None:
+            return self.magazine
+        item=self.inventory.items.get(key)
+        if item is None or not is_weapon(item):
+            return 0
+        if key==self.weapon_key():
+            return self.magazine
+        return self.inventory.weapon_magazines.get(item.uid,0)
+
+    def set_weapon_magazine(self,key,count):
+        if self.inventory is None:
+            return
+        item=self.inventory.items.get(key)
+        if item is None or not is_weapon(item):
+            return
+        self.inventory.weapon_magazines[item.uid]=count
+        if key==self.weapon_key():
+            self.magazine=count
+
+    def refresh_magazine(self):
+        # The live magazine value always mirrors the gun in the selected
+        # slot; with no gun selected it carries no meaning.
+        if self.inventory is None:
+            return
+        key=self.weapon_key()
+        self.magazine=(self.inventory.weapon_magazines[self.inventory.items[key].uid]
+                       if key is not None else 0)
+
+    def sync_slot(self):
+        if self.inventory is None:
+            return 1
+        if self.has_weapon(self.selected_slot):
+            return self.selected_slot
+        return next((slot for (container,slot),item in sorted(self.inventory.items.items())
+                     if container==1 and is_weapon(item)),1)
 
     def ammo_sync(self,slot=None):
         if slot is None:
-            slot=(self.inventory.weapon_slot() if self.inventory is not None else 1) or 1
-        return 0x04a0, struct.pack('>QII',self.actor_uid,slot,self.magazine)
+            slot=self.sync_slot()
+        return 0x04a0, struct.pack('>QII',self.actor_uid,slot,self.weapon_magazine((1,slot)))
 
     def observe_spawn(self,message,body):
         # Native 0x654B: QWORD uid, DWORD name length, NUL-terminated name,
@@ -344,6 +397,44 @@ class OfflineGameplay:
             self.reserve=self.inventory.reserve
             raise
 
+    SCATTER_STEP=60000  # centimetres of reported travel between clusters
+    SCATTER_MIN=3000
+    SCATTER_MAX=8000
+    SCATTER_CEILING=12000  # ignore airborne positions from an opening jump
+
+    def scatter(self,position):
+        # Ground height away from the spawn plateau is only known from the
+        # client's own reports, so clusters anchor to the reported position
+        # and inherit its height. Clusters are committed with the world
+        # profile like any other loot mutation.
+        if self.ground_loot is None or not self.ground_loot.announced:
+            return []
+        x,y,z=position
+        if z>=self.SCATTER_CEILING:
+            return []
+        anchor=self.scatter_anchor
+        if anchor is None:
+            self.scatter_anchor=position
+            return []
+        if math.dist((x,y,0),(anchor[0],anchor[1],0))<self.SCATTER_STEP:
+            return []
+        self.scatter_anchor=position
+        if len(self.ground_loot.stacks)>MAX_GROUND_STACKS-2:
+            return []
+        picks=self.scatter_random
+        template=sorted(WEAPONS)[len(self.ground_loot.stacks)//2%len(WEAPONS)]
+        spec=WEAPONS[template]
+        angle=picks.uniform(0,2*math.pi)
+        distance=picks.uniform(self.SCATTER_MIN,self.SCATTER_MAX)
+        spot=(x+round(distance*math.cos(angle)),y+round(distance*math.sin(angle)),z)
+        weapon=self.ground_loot.add(Item(spec.kind,template,self.inventory.next_uid,1),
+                                    spot,picks.randint(0,spec.capacity))
+        self.inventory.next_uid+=1
+        ammo=self.ground_loot.add(Item(3,spec.ammunition,self.inventory.next_uid,
+                                       picks.randint(40,60)),(spot[0]+100,spot[1],spot[2]))
+        self.inventory.next_uid+=1
+        return [weapon.spawn(),ammo.spawn()]
+
     def _handle(self, message, body):
         if message==0x3b63 and self.ground_loot is not None:
             stack=(self.ground_loot.stacks.get(struct.unpack_from('>I',body)[0])
@@ -352,26 +443,36 @@ class OfflineGameplay:
                                             self.actor_ready and not self.seated)
             self.reserve=self.inventory.reserve
             if stack is not None and is_weapon(stack.item) and any(msg==0x3e82 for msg,_ in replies):
-                self.magazine=stack.magazine
-                if self.inventory.weapon_slot() is not None:
-                    replies.append(self.ammo_sync())
+                key=next((k for k,item in self.inventory.items.items() if item.uid==stack.item.uid),None)
+                if key is not None:
+                    # A picked gun keeps the rounds it carried on the ground;
+                    # with empty hands it becomes the carried weapon.
+                    self.set_weapon_magazine(key,stack.magazine)
+                    if key[0]==1 and self.weapon_key() is None:
+                        self.selected_slot=key[1]
+                    self.refresh_magazine()
+                    if self.inventory.weapon_slot() is not None:
+                        replies.append(self.ammo_sync())
             return replies
         if message==0x3e80 and self.inventory is not None:
             previous_weapon=self.inventory.weapon_slot()
-            previous_uid=next((x.uid for x in self.inventory.items.values() if is_weapon(x)),None)
             if body[:1]==b'\2' and self.ground_loot is not None:
+                magazine=(self.weapon_magazine((body[1],struct.unpack_from('>H',body,2)[0]))
+                          if len(body)>=15 else 0)
                 replies=self.ground_loot.drop(body,self.inventory,self.actor_uid,self.player_position,
-                                             self.actor_ready and not self.seated,self.magazine)
+                                             self.actor_ready and not self.seated,magazine)
             else:
                 replies=self.inventory.handle(body)
             self.reserve=self.inventory.reserve
-            if previous_uid is not None and not any(is_weapon(x) for x in self.inventory.items.values()):
-                self.magazine=0
-                if previous_weapon is not None:
-                    replies.append(self.ammo_sync(previous_weapon))
-                    if self.selected_slot==previous_weapon:
-                        self.selected_slot=0
-            if any(msg==0x3e82 for msg,_ in replies) and self.inventory.weapon_slot() is not None:
+            survivors={item.uid for item in self.inventory.items.values() if is_weapon(item)}
+            for uid in [uid for uid in self.inventory.weapon_magazines if uid not in survivors]:
+                del self.inventory.weapon_magazines[uid]
+            self.refresh_magazine()
+            if previous_weapon is not None and not survivors:
+                replies.append(self.ammo_sync(previous_weapon))
+                if self.selected_slot==previous_weapon:
+                    self.selected_slot=0
+            if any(msg==0x3e82 for msg,_ in replies) and survivors:
                 replies.append(self.ammo_sync())
             return replies
         if message in (0x049e,0x049c) and self.valid_length(body,4):
@@ -379,14 +480,20 @@ class OfflineGameplay:
             if message == 0x049e:
                 if slot in (0,1,2,3,4,5,6):
                     self.selected_slot = slot
+                    self.refresh_magazine()
                 return [self.ammo_sync(slot)] if self.has_weapon(slot) else []
             if not self.has_weapon(slot):
                 return [(0x049d,struct.pack('>II',slot,1))]
-            weapon=self.inventory.weapon() if self.inventory is not None else None
-            spec=WEAPONS[weapon.template] if weapon is not None else WEAPONS[10201]
+            key=(1,slot)
+            item=self.inventory.items[key] if self.inventory is not None else None
+            spec=WEAPONS[item.template] if item is not None else WEAPONS[10201]
             available=self.inventory.reserve_for(spec.ammunition) if self.inventory is not None else self.reserve
-            amount = min(spec.capacity-self.magazine,available)
-            self.magazine += amount
+            current=self.weapon_magazine(key)
+            amount = min(spec.capacity-current,available)
+            if self.inventory is None:
+                self.magazine += amount
+            else:
+                self.set_weapon_magazine(key,current+amount)
             self.reserve -= amount
             reserve_update=self.inventory.consume(amount,spec.ammunition) if self.inventory is not None else self.reserve_sync()
             return [(0x049d,struct.pack('>II',slot,0)),self.ammo_sync(slot),reserve_update]
@@ -400,7 +507,10 @@ class OfflineGameplay:
             if (body[28] != 0 or not all(math.isfinite(x) for x in coords)
                     or sum((a-b)**2 for a,b in zip(coords[:3],coords[3:]))<1e-12):
                 return []
-            self.magazine = max(0,self.magazine-1)
+            self.set_weapon_magazine((1,self.selected_slot),
+                                     max(0,self.weapon_magazine((1,self.selected_slot))-1))
+            if self.inventory is None:
+                self.magazine=max(0,self.magazine-1)
             return [self.ammo_sync()]
         if message == 0x6549 and self.valid_length(body,61):
             uid = struct.unpack_from('>Q',body)[0]
@@ -459,6 +569,8 @@ class OfflineGameplay:
                     elif (not self.ground_loot.announced and not self.seated and self.deployment_phase=='descending'
                           and any(math.dist(position,s.position)<=50000 for s in self.ground_loot.stacks.values())):
                         loot_replies=self.ground_loot.announce()
+                    if self.scatter_loot:
+                        loot_replies+=self.scatter(position)
                 if self.inventory_selftest and self.inventory_test_started is None:
                     self.inventory_test_started=time.monotonic()
                 if self.can_auto_board():

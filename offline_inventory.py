@@ -38,6 +38,9 @@ class OfflineInventory:
         if reserve:
             self.items[2,0]=Item(3,AMMO_TEMPLATE,0x100102,reserve)
         self.next_uid=0x100103
+        # Loaded rounds per carried weapon uid; the original keeps one
+        # magazine per gun, not per character.
+        self.weapon_magazines={}
 
     @staticmethod
     def valid_slot(key):
@@ -151,17 +154,23 @@ class OfflineInventory:
         return self.delta(changed)
 
     def snapshot(self,magazine,selected_slot):
-        return {'version':1,'magazine':magazine,'selected_slot':selected_slot,
+        return {'version':2,'magazine':magazine,'selected_slot':selected_slot,
                 'next_uid':self.next_uid,'items':[
                     dict(container=key[0],slot=key[1],kind=item.kind,
                          template=item.template,uid=item.uid,count=item.count)
-                    for key,item in sorted(self.items.items())]}
+                    for key,item in sorted(self.items.items())],
+                'weapon_magazines':[{'uid':uid,'magazine':count}
+                                    for uid,count in sorted(self.weapon_magazines.items())]}
 
     @classmethod
     def restore(cls,data):
-        if not isinstance(data,dict) or set(data)!={'version','magazine','selected_slot','next_uid','items'}:
+        fields={'version','magazine','selected_slot','next_uid','items'}
+        if not isinstance(data,dict) or set(data) not in (fields,fields|{'weapon_magazines'}):
             raise ValueError('Unknown offline inventory profile schema')
-        for field,minimum,maximum in [('version',1,1),('magazine',0,max(s.capacity for s in WEAPONS.values())),
+        version=1 if set(data)==fields else 2
+        if data['version']!=version:
+            raise ValueError('Unknown offline inventory profile schema')
+        for field,minimum,maximum in [('version',1,2),('magazine',0,max(s.capacity for s in WEAPONS.values())),
                                       ('selected_slot',0,6),('next_uid',1,2**64-1)]:
             if type(data[field]) is not int or not minimum<=data[field]<=maximum:
                 raise ValueError(f'Invalid offline profile {field}')
@@ -185,9 +194,33 @@ class OfflineInventory:
                 raise ValueError('Unsupported offline item type/count')
             inventory.items[key]=item
             uids.add(item.uid)
-        if inventory.reserve>MAX_RESERVE or sum(is_weapon(item) for item in inventory.items.values())>1:
+        # Original carry limit: two long guns in slots 1/2 plus one pistol
+        # in slot 3; further guns may only sit in the bag.
+        weapons=[item for item in inventory.items.values() if is_weapon(item)]
+        if (inventory.reserve>MAX_RESERVE or sum(item.kind==1 for item in weapons)>2
+                or sum(item.kind==2 for item in weapons)>1):
             raise ValueError('Offline loadout exceeds its supported limits')
-        weapon=inventory.weapon()
-        if weapon is not None and data['magazine']>WEAPONS[weapon.template].capacity:
-            raise ValueError('Magazine exceeds this firearm capacity')
+        if version==1:
+            # v1 profiles carried a single gun whose magazine was global.
+            weapon=next(iter(weapons),None)
+            if weapon is not None:
+                if data['magazine']>WEAPONS[weapon.template].capacity:
+                    raise ValueError('Magazine exceeds this firearm capacity')
+                inventory.weapon_magazines[weapon.uid]=data['magazine']
+        else:
+            weapon_by_uid={item.uid:item for item in weapons}
+            for row in data['weapon_magazines']:
+                if (not isinstance(row,dict) or set(row)!={'uid','magazine'}
+                        or any(type(value) is not int for value in row.values())):
+                    raise ValueError('Invalid offline weapon magazine entry')
+                weapon=weapon_by_uid.get(row['uid'])
+                if (weapon is None or not 0<=row['magazine']<=WEAPONS[weapon.template].capacity
+                        or row['uid'] in inventory.weapon_magazines):
+                    raise ValueError('Invalid or duplicate offline weapon magazine entry')
+                inventory.weapon_magazines[row['uid']]=row['magazine']
+            active=inventory.items.get((1,data['selected_slot']))
+            expected=(inventory.weapon_magazines.get(active.uid,0)
+                      if active is not None and is_weapon(active) else 0)
+            if data['magazine']!=expected:
+                raise ValueError('Saved magazine does not match the selected weapon')
         return inventory

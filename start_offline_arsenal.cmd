@@ -7,7 +7,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-echo Thai offline arsenal: original firearm and ammunition test world; one carried firearm at a time.
+echo Thai offline arsenal: original firearm and ammunition test world; carry two long guns and one pistol.
 echo The normal launcher retains the verified ground-walking baseline.
 echo Keep this console open while playing. Local service duration: 12 hours.
 "%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --launch --gameplay-prototype --gameplay-inventory --gameplay-ground-loot --gameplay-arsenal --gameplay-world-file "%~dp0profiles\uid-1-offline-arsenal.json" --gameplay-typed-uids --gameplay-initialize-vehicle --gameplay-vehicle-config 101 --probe-auth-response --compact-responses ^

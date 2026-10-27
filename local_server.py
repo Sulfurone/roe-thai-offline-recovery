@@ -24,6 +24,8 @@ def main():
                         help='Opt in to unverified Thai ammo and vehicle interaction handlers')
     parser.add_argument('--gameplay-arsenal',action='store_true',
                         help='Seed recovered firearms/ammunition in a fresh ground-loot world')
+    parser.add_argument('--gameplay-scatter-loot',action='store_true',
+                        help='Spawn a weapon/ammo cluster every 600m of reported ground travel')
     parser.add_argument('--gameplay-auto-seat', action='store_true',
                         help='Diagnostic: board the test Jeep after its first physics report')
     parser.add_argument('--gameplay-vehicle-config',type=int,choices=[3,4,101],default=101,
@@ -117,6 +119,8 @@ def main():
         parser.error('Inventory self-test requires the prototype/inventory options and no state file')
     if args.gameplay_arsenal and not args.gameplay_ground_loot:
         parser.error('--gameplay-arsenal requires --gameplay-ground-loot')
+    if args.gameplay_scatter_loot and not args.gameplay_ground_loot:
+        parser.error('--gameplay-scatter-loot requires --gameplay-ground-loot')
     if args.gameplay_ground_loot and (not args.gameplay_prototype or not args.gameplay_inventory
             or args.gameplay_state_file):
         parser.error('Ground loot requires the prototype/inventory options without an inventory-only profile')
@@ -259,6 +263,7 @@ def main():
                     inventory_selftest=args.gameplay_inventory_selftest,
                     ground_loot_enabled=args.gameplay_ground_loot,
                     arsenal_enabled=args.gameplay_arsenal,
+                    scatter_loot=args.gameplay_scatter_loot,
                     world_file=args.gameplay_world_file,
                     opening_airdrop=args.gameplay_opening_airdrop,
                     aircraft_route_end=tuple(args.gameplay_aircraft_route_end) if args.gameplay_aircraft_route_end else None,

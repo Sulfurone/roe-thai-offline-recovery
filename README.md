@@ -8,7 +8,7 @@ This is an experimental, community-maintained reconstruction for the original Ga
 
 - 本地回环服务已推进到登录、角色/房间、地图和地面活动；原客户端的落地和正常行走曾由玩家确认。
 - 已研究从地图一侧飞到另一侧的开局航线，服务端记录和客户端离机坐标已验证；手动跳伞、开伞和操作画面尚待确认。
-- 载具、枪械、弹药、背包和地面物品已有实验性协议处理；20 种枪械和 6 种弹药已通过部分自动及协议验证，实际拾取、驾驶、命中和战斗仍未完整验收。当前随身枪械数量有限制。
+- 载具、枪械、弹药、背包和地面物品已有实验性协议处理；20 种枪械和 6 种弹药已通过部分自动及协议验证，实际拾取、驾驶、命中和战斗仍未完整验收。现在可同时携带两把长枪（槽 1/2）和一把手枪（槽 3），每把枪弹匣独立保存；另有实验性“沿途刷物”入口，每移动约 600 米生成一簇枪弹（合成位置，非原版刷点）。
 - 没有完整原版服务器、多人对战、AI 或完整玩法。协议推测与测试入口会继续变化；请区分原客户端实际操作、原生编解码回环、合成网络测试这三种不同证据。
 
 细节和验证范围见 [功能清单](GAMEPLAY.md)、[研究方法](docs/METHODS.md) 和 [研究交接历史](HANDOFF.md)。后两份历史文件记录当时本机的过程，部分启动状态、路径和待办已经过时。
@@ -28,11 +28,11 @@ git clone https://github.com/Sulfurone/roe-thai-offline-recovery.git recovery
 cd recovery
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m unittest test_offline_gameplay test_opening_airdrop -q
+.\.venv\Scripts\python.exe -m unittest test_offline_gameplay test_opening_airdrop test_scatter_loot -q
 $env:ROE_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
 ```
 
-上述 26 项检查使用合成状态，无须客户端和私人抓包。仓库还保留其他测试；其中一部分需要本地生成的协议样本、角色数据、原客户端内存镜像或原版资源，干净克隆后不能直接全部运行。
+上述 30 项检查使用合成状态，无须客户端和私人抓包。仓库还保留其他测试；其中一部分需要本地生成的协议样本、角色数据、原客户端内存镜像或原版资源，干净克隆后不能直接全部运行。
 
 资源研究示例（只读取原归档，输出在仓库忽略的目录中）：
 

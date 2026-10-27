@@ -111,8 +111,7 @@ class OfflineGroundLoot:
         stack=self.stacks.get(entity)
         if (not can_interact or not self.announced or stack is None or slot not in (0,0xffffffff)
                 or automatic not in (0,1) or owner not in (0,actor_uid)
-                or math.dist(player_position,stack.position)>PICKUP_DISTANCE
-                or is_weapon(stack.item) and inventory.weapon() is not None):
+                or math.dist(player_position,stack.position)>PICKUP_DISTANCE):
             return self.error(entity)
         if automatic:
             key=next(((1,i) for i in WEAPONS[stack.item.template].slots if (1,i) not in inventory.items),None) if is_weapon(stack.item) else next((key for key,item in sorted(inventory.items.items())

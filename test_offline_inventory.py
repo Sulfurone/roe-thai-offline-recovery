@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 from offline_gameplay import OfflineGameplay
-from offline_inventory import OfflineInventory
+from offline_inventory import Item,OfflineInventory
 
 
 def transfer(source,destination,quantity,current=1):
@@ -75,9 +75,14 @@ class InventoryTests(unittest.TestCase):
         game.handle(0x3e80,transfer((1,1),(2,8),1))
         self.assertEqual(game.handle(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,1,0)),[])
         game.handle(0x49c,struct.pack('>I',1))
-        self.assertEqual((game.magazine,game.reserve),(29,120))
+        # The live magazine mirrors the selected slot; the stowed gun keeps
+        # its rounds in the per-weapon record.
+        self.assertEqual((game.magazine,game.reserve),(0,120))
+        self.assertEqual(game.inventory.weapon_magazines[0x100101],29)
         game.handle(0x3e80,transfer((2,8),(1,2),1))
         self.assertEqual(game.inventory.weapon_slot(),2)
+        game.handle(0x49e,struct.pack('>I',2))
+        self.assertEqual(game.magazine,29)
 
     def test_atomic_save_reopen_and_noop_save(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -104,18 +109,34 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual(path.read_text(encoding='utf-8'),'{broken profile')
 
     def test_profile_validation_rejects_duplicate_and_out_of_range_data(self):
-        valid=OfflineInventory().snapshot(30,1)
-        for mutate in [lambda x:x.update(version=2),
+        valid=OfflineGameplay(inventory_enabled=True).inventory.snapshot(30,1)
+        for mutate in [lambda x:x.update(version=1),
                        lambda x:x.update(magazine=-1),
                        lambda x:x['items'][1].update(uid=x['items'][0]['uid']),
                        lambda x:x['items'][1].update(count=1000),
                        lambda x:x['items'][1].update(slot=128),
                        lambda x:x['items'][1].update(template=999),
-                       lambda x:x.update(selected_slot=True)]:
+                       lambda x:x.update(selected_slot=True),
+                       lambda x:x['weapon_magazines'][0].update(magazine=999),
+                       lambda x:x['weapon_magazines'][0].update(magazine=29),
+                       lambda x:x['weapon_magazines'][0].update(uid=999),
+                       lambda x:x['weapon_magazines'].append({'uid':x['items'][0]['uid'],'magazine':1})]:
             data=copy.deepcopy(valid)
             mutate(data)
             with self.assertRaises(ValueError):
                 OfflineInventory.restore(data)
+
+    def test_two_long_guns_and_one_pistol_carry_but_a_third_long_gun_fails(self):
+        inventory=OfflineInventory()
+        primary=inventory.items[1,1]
+        inventory.items[1,2]=Item(1,10202,0x100081,1)
+        inventory.items[1,3]=Item(2,20002,0x100082,1)
+        inventory.weapon_magazines={primary.uid:30,0x100081:0,0x100082:17}
+        restored=OfflineInventory.restore(inventory.snapshot(30,1))
+        self.assertEqual(restored.weapon_magazines,inventory.weapon_magazines)
+        inventory.items[2,5]=Item(1,10201,0x100083,1)
+        with self.assertRaises(ValueError):
+            OfflineInventory.restore(inventory.snapshot(30,1))
 
     def test_automatic_inventory_probe_returns_weapon_without_repeating(self):
         game=OfflineGameplay(inventory_enabled=True,inventory_selftest=True)
