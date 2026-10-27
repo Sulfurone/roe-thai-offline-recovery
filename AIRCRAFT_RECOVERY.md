@@ -33,3 +33,11 @@
 `probes/prepare_aircraft_static_probe.py` 生成 `start_aircraft_static_probe.cmd`：地面角色、附近静止飞机，不启用登机、飞行、滑翔翼或持久存档。默认耐久为 100；`--initial-hp 0` 可重现旧的零耐久生成包。用它区分实体生成与运输机运动造成的异常。
 
 `start_parachute_selftest.cmd` 则启用完整阶段，12 秒后自动离机，使用独立测试存档。正常跳伞入口航程约 82 秒。检查实际客户端位置、用户画面和操作；保活或服务已出包只能证明连接与发送链仍在运行。
+
+## 审计 C17 资源引用，不修改资源包
+
+`probes/audit_aircraft_resources.py` 验证选定 SFC 的记录边界、LZ4 解压长度与存档哈希，只把元数据报告写入私有目录。`probes/prepare_aircraft_resource_overlay.py` 进一步核对 `ALL_FILES.DAT` 的固定记录、SFC 键、偏移和解压长度。
+
+本地版本的 C17 骨架描述引用一个不在索引中的 Avatars/Skin 路径，而相同骨架存在于 Actors/Vehicle；C17 网格描述还引用缺失的 LOD3。覆盖工具可将原骨架以及原 LOD2 的副本写到这两个缺失路径，用于 `-useallfiles` 对照。它拒绝覆盖已有文件，不修改 SFC/VFS，并只会按带 SHA-256 的收据删除自己写入且未改变的文件。游戏资源本身不得提交公开仓库。
+
+2026-10-27 的静止 config 4 实机对照在启用该覆盖后仍无响应，所以这个兼容层不是已确认的修复。该结果也不能证明客户端实际优先采用了松散文件；只能证明当前两个补齐文件不足以恢复飞机。下一步应比较 config 3/4 的实体初始化和先决消息，而不是继续猜测模型编号。
