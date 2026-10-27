@@ -1,0 +1,4 @@
+LIBRARY DataEngine.dll
+EXPORTS
+    "_BeginCollectPerfDatas@4" = "ROE_Original_DataEngine._BeginCollectPerfDatas@4" @1
+    "_EndCollectPerfDatas@0" = "ROE_Original_DataEngine._EndCollectPerfDatas@0" @2

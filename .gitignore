@@ -1,0 +1,25 @@
+# Local game and generated or sensitive artifacts are never source files.
+/private/
+/profiles/
+/logs/
+/extracted/
+/python-libs/
+/build-tools/
+/references/
+/32838/
+__pycache__/
+*.py[cod]
+*.bin
+*.image
+*.dmp
+*.exe
+*.dll
+*.sys
+*.sfc
+*.vfs
+*.pak
+*.zip
+*.7z
+*.pdb
+.env
+.venv/
