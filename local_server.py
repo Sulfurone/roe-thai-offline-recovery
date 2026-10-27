@@ -11,6 +11,7 @@ import subprocess
 import time
 from tpdu import auth_info, decrypt, encrypt, frame, read_frame
 from thai_profile import save_submission
+from offline_environment import environment_clock
 from offline_gameplay import OfflineGameplay,ACTOR_UID,JEEP_UID,TYPED_ACTOR_UID,TYPED_VEHICLE_UID
 
 
@@ -20,6 +21,10 @@ def main():
     parser.add_argument('--port', type=int, default=8001,
                         help='Loopback port for this experiment (old clients use 8001)')
     parser.add_argument('--launch', action='store_true')
+    parser.add_argument('--single-session',action='store_true',
+                        help='Exit after the authenticated client disconnects, releasing the local port')
+    parser.add_argument('--environment-hour', type=int, choices=range(24), metavar='0..23',
+                        help='Initialize the native environment clock after map load (12 is noon)')
     parser.add_argument('--gameplay-prototype', action='store_true',
                         help='Opt in to unverified Thai ammo and vehicle interaction handlers')
     parser.add_argument('--gameplay-arsenal',action='store_true',
@@ -52,6 +57,10 @@ def main():
                         help='Atomic combined inventory and finite ground-loot profile')
     parser.add_argument('--gameplay-opening-airdrop',action='store_true',
                         help='Opening aircraft route: native jump prompt after 3 seconds and exit at route end')
+    parser.add_argument('--gameplay-opening-glider-file',type=Path,
+                        help='Original config-3 spawn body: unfold a separate glider after aircraft exit')
+    parser.add_argument('--gameplay-landing-terrain',type=Path,
+                        help='Original RigidTerrain.repx for near-ground glider release')
     parser.add_argument('--gameplay-aircraft-route-end',type=int,nargs=3,metavar=('X','Y','Z'),
                         help='Optional finite aircraft endpoint in original world centimetres')
     parser.add_argument('--client-arg', action='append', default=[],
@@ -113,6 +122,24 @@ def main():
     parser.add_argument('--key-hex', default='00' * 16,
                         help='Test session key; not yet established for this client')
     args = parser.parse_args()
+    opening_glider_body=None
+    landing_height=None
+    if args.gameplay_opening_glider_file is not None:
+        if not args.gameplay_opening_airdrop or args.gameplay_landing_terrain is None:
+            parser.error('Opening glider requires opening-airdrop and landing-terrain')
+        from offline_terrain import TerrainSurface
+        try:
+            if args.gameplay_opening_glider_file.stat().st_size>65536:
+                raise ValueError('Glider spawn exceeds the wire size bound')
+            opening_glider_body=args.gameplay_opening_glider_file.read_bytes()
+            landing_height=TerrainSurface.from_repx(args.gameplay_landing_terrain).height_at
+            OfflineGameplay(vehicle_config=4,auto_board=True,opening_airdrop=True,
+                            aircraft_route_speed=2000,auto_exit_after=40,
+                            opening_glider_body=opening_glider_body)
+        except (OSError,ValueError,TypeError) as error:
+            parser.error(f'Cannot prepare opening glider: {error}')
+    elif args.gameplay_landing_terrain is not None:
+        parser.error('Landing terrain requires the opening glider option')
     if args.gameplay_state_file and not (args.gameplay_prototype and args.gameplay_inventory):
         parser.error('--gameplay-state-file requires --gameplay-prototype and --gameplay-inventory')
     if args.gameplay_inventory_selftest and (not args.gameplay_prototype or not args.gameplay_inventory or args.gameplay_state_file):
@@ -266,6 +293,7 @@ def main():
                     scatter_loot=args.gameplay_scatter_loot,
                     world_file=args.gameplay_world_file,
                     opening_airdrop=args.gameplay_opening_airdrop,
+                    opening_glider_body=opening_glider_body,landing_height=landing_height,
                     aircraft_route_end=tuple(args.gameplay_aircraft_route_end) if args.gameplay_aircraft_route_end else None,
                     vehicle_config=args.gameplay_vehicle_config,
                     actor_uid=TYPED_ACTOR_UID if args.gameplay_typed_uids else ACTOR_UID,
@@ -367,6 +395,16 @@ def main():
                                              magazine=gameplay.magazine,reserve=gameplay.reserve)
                                 except OSError as error:
                                     emit('gameplay_state_save_error',error=str(error))
+                            # The original client reports lobby load and later map
+                            # load separately. Its environment manager may reset
+                            # between them, so initialize the clock on each load.
+                            if message_id == 0x0DCD and args.environment_hour is not None:
+                                clock_id, clock_body = environment_clock(args.environment_hour)
+                                response = struct.pack('>IHI', 1, clock_id, clock_id) + clock_body
+                                send(connection, 0, body=encrypt(response, key))
+                                emit('environment_clock_sent', message_id=clock_id,
+                                     hour=args.environment_hour,
+                                     timestamp=struct.unpack_from('>I', clock_body, 4)[0])
                             if message_id == 0x0DCD and not loaded_pushes_sent:
                                 loaded_pushes_sent = True
                                 for push_id, push_path in loaded_push_specs:
@@ -555,6 +593,8 @@ def main():
                             emit('unhandled_command', command=command)
                 except (EOFError, OSError, ValueError) as error:
                     emit('connection_ended', state=state, reason=str(error))
+                if args.single_session and state=='transport_ready':
+                    break
         emit('finished', connections=number)
     log.close()
 

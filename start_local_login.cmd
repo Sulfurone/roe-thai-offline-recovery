@@ -9,5 +9,5 @@ if errorlevel 1 (
 )
 echo Experimental local login / empty character screen only.
 echo Character creation and playable matches are not implemented.
-"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 3600 --launch --probe-auth-response --probe-world-response --compact-responses
+"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 3600 --launch --environment-hour 12 --probe-auth-response --probe-world-response --compact-responses
 pause

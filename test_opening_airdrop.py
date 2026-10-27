@@ -51,13 +51,14 @@ class OpeningAirDropTests(unittest.TestCase):
         final=game.tick(140)
         self.assertEqual([m for m,_ in final],[0x6563])
         self.assertEqual(struct.unpack_from('>3i',final[0][1],8),(325800,351700,35000))
+        self.assertEqual(struct.unpack_from('>I',final[0][1],33)[0],0)
         self.assertIsNone(game.route_started)
         self.assertEqual(game.tick(160),[])
 
     def test_route_end_ejects_once_at_the_finite_endpoint(self):
         game,_=self.game()
         replies=game.tick(143)
-        self.assertEqual([m for m,_ in replies],[0x6544,0x656d])
+        self.assertEqual([m for m,_ in replies],[0x6544,0x656d,0x6563])
         self.assertEqual(struct.unpack_from('>3i',replies[0][1],28),(325980,351700,35120))
         self.assertIsNone(game.route_started)
         self.assertIsNone(game.exit_deadline)
@@ -78,6 +79,8 @@ class OpeningAirDropTests(unittest.TestCase):
             launch=game.board()[-1][1]
         self.assertEqual(struct.unpack_from('>3i',launch,8),(200,204800,75000))
         self.assertEqual(struct.unpack_from('>3f',launch,21),(1.,0.,0.))
+        update=game.tick(101)
+        self.assertEqual(struct.unpack_from('>3i',update[0][1],8),(409400,204800,75000))
         game.tick(140.92)
         self.assertEqual(game.vehicle_position,(204800,204800,75000))
         exit_message=game.tick(182)[0][1]

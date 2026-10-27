@@ -10,7 +10,7 @@ if errorlevel 1 (
 echo Thai offline map prototype. Landing and basic movement verified.
 echo Combat, inventory and pose-specific movement are still incomplete.
 echo Keep this console open while playing. Local service duration: 12 hours.
-"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --launch --probe-auth-response --compact-responses ^
+"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --launch --environment-hour 12 --probe-auth-response --compact-responses ^
   --world-body-file "%~dp0private\native-roster\world-native-default.bin" ^
   --team-body-file "%~dp0private\native-roster\team-one.bin" ^
   --enter-body-file "%~dp0private\native-roster\enter-game.bin" ^

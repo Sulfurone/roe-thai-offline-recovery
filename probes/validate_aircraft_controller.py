@@ -74,11 +74,20 @@ if (abs(cross_positions[-1][0]-2200)>1
         or any(abs(y-204800)>1 or abs(z-75000)>1 for x,y,z in cross_positions)
         or facings[-1]!=(1.,0.)):
     raise ValueError(f'West-east direction and original movement integration disagree: {cross_positions} / {facings}')
+stop_position=tuple(cross_positions[-1])
+put(target,'3f',*stop_position)
+c.invoke(0x130e0e0,controller,[target,direction,fword(0)])
+c.invoke(0x130ddd0,controller,[])
+c.invoke(0x130e180,controller,[fword(1)])
+stopped=struct.unpack('<3f',c.uc.mem_read(position,12))
+if any(abs(a-b)>.01 for a,b in zip(stopped,stop_position)):
+    raise ValueError(f'Zero-speed endpoint still moves in the original integrator: {stopped}')
 result={'original_functions':['0x130DD50','0x130E0E0','0x130DDD0','0x130E180'],
         'accessors_stubbed':True,'isolated_simulation':True,
         'wire_speed_parameter':2000,'native_initial_catchup_speed':speed,
         'step_seconds':.1,'positions':positions,'passed':True,
         'west_east_positions':cross_positions,'native_facing_directions':facings,
+        'zero_speed_endpoint_position':stopped,'zero_speed_endpoint_stopped':True,
         'limitation':'Synthetic model accessors; not live rendering or boarding proof'}
 (OUT/'aircraft-controller-validation.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
 print(json.dumps(result,indent=2))

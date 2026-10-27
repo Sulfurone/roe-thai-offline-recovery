@@ -101,6 +101,19 @@ def prepare(root,target,codec):
     combined=combined.replace('Thai opening airdrop:',
         'Thai airdrop and arsenal test:')
     (root/'start_offline_airdrop_arsenal.cmd').write_text(combined,encoding='utf-8')
+    parachute=combined.replace('--gameplay-opening-airdrop',
+        '--gameplay-opening-airdrop --gameplay-opening-glider-file "%~dp0private\\typed-gameplay\\vehicle-glider.bin" '
+        '--gameplay-landing-terrain "%~dp0private\\terrain-collision\\RigidTerrain.repx"')
+    parachute=parachute.replace('uid-1-offline-drop-arsenal.json','uid-1-offline-parachute.json')
+    parachute=parachute.replace('--seconds 43200','--seconds 43200 --port 8002 --single-session')
+    parachute=parachute.replace('Thai airdrop and arsenal test:','Thai daylight parachute test:')
+    parachute=parachute.replace('echo Thai daylight parachute test:',
+        'tasklist /FI "IMAGENAME eq Europa_Client.exe" /NH | find /I "Europa_Client.exe" >nul\n'
+        'if not errorlevel 1 (\n  echo Close the current game window before starting the parachute session.\n'
+        '  pause\n  exit /b 1\n)\n\necho Thai daylight parachute test:')
+    parachute=parachute.replace('Native jump prompt after 3 seconds.',
+        'Native jump prompt after 3 seconds. A separate Thai glider unfolds after exit and releases near terrain or after 8 seconds.')
+    (root/'start_offline_parachute.cmd').write_text(parachute,encoding='utf-8')
     test=text.replace(f'--gameplay-auto-exit-seconds {duration:g}','--gameplay-auto-exit-seconds 12')
     test=test.replace('Native jump prompt after 3 seconds.','Self-test: auto-exit after 12 seconds near the west edge.')
     (root/'start_airdrop_selftest.cmd').write_text(test,encoding='utf-8')

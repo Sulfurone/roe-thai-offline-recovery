@@ -63,6 +63,11 @@ class OfflineGameplay:
     jump_allowed: bool = False
     deployment_phase: str = 'ground'
     aircraft_route_end: tuple | None = None
+    opening_glider_body: bytes | None = None
+    opening_glider: object = field(default=None,init=False,repr=False)
+    landing_height: object = field(default=None,repr=False)
+    landing_previous_z: int | None = field(default=None,init=False)
+    landing_stable_reports: int = field(default=0,init=False)
     ground_loot_enabled: bool = False
     arsenal_enabled: bool = False
     ground_loot: OfflineGroundLoot | None = field(default=None,init=False)
@@ -90,6 +95,10 @@ class OfflineGameplay:
         if self.opening_airdrop and (self.vehicle_config!=4 or not self.auto_board
                 or not 0<self.aircraft_route_speed<=maximum_speed or not 3<self.auto_exit_after<=maximum_duration):
             raise ValueError('Opening airdrop requires aircraft auto-board and a bounded route/speed/duration')
+        if self.opening_glider_body is not None:
+            if not self.opening_airdrop:
+                raise ValueError('Opening glider requires the opening aircraft route')
+            self.glider_spawn(self.player_position)
         if self.state_file is not None and not self.inventory_enabled:
             raise ValueError('Persistent inventory requires the inventory option')
         if self.inventory_selftest and (not self.inventory_enabled or self.state_file is not None):
@@ -258,13 +267,14 @@ class OfflineGameplay:
         self.vehicle_initialized=True
         return self.vehicle_state_sync()
 
-    def board(self, seat=1):
+    def board(self, seat=1, now=None):
         if self.seated:
             return []
+        now=time.monotonic() if now is None else now
         self.seated = True
         self.seat = seat
         if self.auto_exit_after>0:
-            self.exit_deadline=time.monotonic()+self.auto_exit_after
+            self.exit_deadline=now+self.auto_exit_after
         # +8 is the vehicle CONFIG ID, not the seat. Callback 0x108D040
         # looks up that config; +0x18 is a one-based passenger seat.
         reply = struct.pack('>QIIQII3iB',self.vehicle_uid,self.vehicle_config,0,
@@ -278,7 +288,7 @@ class OfflineGameplay:
                 replies.append((0x6565,struct.pack('>Q',self.vehicle_uid)))
             if self.aircraft_route_speed>0:
                 self.route_origin=self.vehicle_position
-                self.route_started=time.monotonic()
+                self.route_started=now
                 self.route_next=self.route_started
                 replies.append((0x6564,self.aircraft_move(self.vehicle_position)))
                 if self.opening_airdrop:
@@ -287,7 +297,7 @@ class OfflineGameplay:
                     self.deployment_phase='boarding'
         return replies
 
-    def aircraft_move(self,position):
+    def aircraft_move(self,position,speed=None):
         # Thai 0x6563/64: UID, integer position+flag, direction floats,
         # movement speed DWORD. 0x130DDD0 normalizes the target delta;
         # 0x130E180 integrates that direction times speed and frame delta.
@@ -297,7 +307,36 @@ class OfflineGameplay:
             length=math.dist(origin,self.aircraft_route_end)
             if length>0:
                 direction=tuple((b-a)/length for a,b in zip(origin,self.aircraft_route_end))
-        return struct.pack('>Q3iB3fI',self.vehicle_uid,*position,0,*direction,self.aircraft_route_speed)
+        return struct.pack('>Q3iB3fI',self.vehicle_uid,*position,0,*direction,
+                           self.aircraft_route_speed if speed is None else speed)
+
+    def glider_spawn(self,position):
+        body=bytearray(self.opening_glider_body)
+        if len(body)<40 or len(body)>65536:
+            raise ValueError('Opening glider spawn must be a bounded original 0x654B body')
+        name_bytes=struct.unpack_from('>I',body,8)[0]
+        start=12+name_bytes
+        if not 1<=name_bytes<=128 or len(body)<start+24 or body[start-1]!=0:
+            raise ValueError('Opening glider spawn name is malformed')
+        if struct.unpack_from('>I',body,start)[0]!=3:
+            raise ValueError('Opening canopy must use the original Thai glider config 3')
+        uid=self.vehicle_uid+1
+        struct.pack_into('>Q',body,0,uid)
+        struct.pack_into('>3i',body,start+12,*position)
+        return uid,bytes(body)
+
+    def deploy_glider(self,now=None):
+        if self.opening_glider_body is None or self.opening_glider is not None:
+            return []
+        now=time.monotonic() if now is None else now
+        uid,body=self.glider_spawn(self.player_position)
+        glider=OfflineGameplay(vehicle_config=3,actor_uid=self.actor_uid,
+                               vehicle_uid=uid,initialize_vehicle=True,auto_exit_after=8)
+        glider.observe_spawn(0x654b,body)
+        glider.player_position=self.player_position
+        self.opening_glider=glider
+        self.deployment_phase='gliding'
+        return [(0x654b,body)]+glider.board(now=now)
 
     def route_position_at(self,elapsed):
         elapsed=max(0.,elapsed)
@@ -338,12 +377,22 @@ class OfflineGameplay:
 
     def tick(self,now=None):
         now=time.monotonic() if now is None else now
+        glider=self.opening_glider
+        if glider is not None and glider.seated:
+            replies=glider.tick(now)
+            if replies and not glider.seated:
+                # Seated clients do not provide continuous near-ground reports.
+                self.player_position=glider.player_position
+                self.deployment_phase='descending'
+                return replies
         if self.route_started is not None and (self.seated or self.opening_airdrop):
             self.update_route_position(now)
         if self.exit_deadline is not None and now>=self.exit_deadline:
             replies=self.leave(now)
             if self.opening_airdrop:
+                replies.append((0x6563,self.aircraft_move(self.vehicle_position,speed=0)))
                 self.route_started=None
+                replies+=self.deploy_glider(now)
             return replies
         replies=[]
         if (self.jump_enable_deadline is not None and now>=self.jump_enable_deadline
@@ -354,13 +403,16 @@ class OfflineGameplay:
             replies.append((0x6565,struct.pack('>Q',self.vehicle_uid)))
         if (self.opening_airdrop and self.route_started is not None
                 and now>=self.route_started+self.auto_exit_after):
-            replies.append((0x6563,self.aircraft_move(self.vehicle_position)))
+            replies.append((0x6563,self.aircraft_move(self.vehicle_position,speed=0)))
             self.route_started=None
             return replies
         if (self.route_started is not None and now>=self.route_next
                 and (self.seated or self.opening_airdrop)):
             self.route_next=now+.25
-            target=self.route_position_at(now-self.route_started+.25)
+            # The client integrates between sparse network updates. A nearby
+            # target is reached immediately and leaves the aircraft motionless.
+            duration=self.auto_exit_after or 100000/self.aircraft_route_speed
+            target=self.route_position_at(duration)
             replies.append((0x6563,self.aircraft_move(target)))
         if replies:
             return replies
@@ -436,11 +488,30 @@ class OfflineGameplay:
         return [weapon.spawn(),ammo.spawn()]
 
     def _handle(self, message, body):
+        glider=self.opening_glider
+        if glider is not None and glider.seated:
+            if message in (0x6543,0x6549):
+                replies=glider.handle(message,body)
+                if not glider.seated:
+                    self.player_position=glider.player_position
+                    self.deployment_phase='descending'
+                return replies
+            if message==0x002a and len(body)>=16:
+                position=struct.unpack_from('>3i',body,4)
+                if all(abs(v)<2000000 for v in position):
+                    glider.player_position=glider.vehicle_position=position
+                    ground=self.landing_height(*position[:2]) if self.landing_height else None
+                    if ground is not None and abs(position[2]-ground)<=300:
+                        replies=glider.leave()
+                        self.deployment_phase='landing'
+                        # Keep the existing position/loot path and announce at landing.
+                        return replies+self._handle(message,body)
         if message==0x3b63 and self.ground_loot is not None:
             stack=(self.ground_loot.stacks.get(struct.unpack_from('>I',body)[0])
                    if len(body) in (33,41) else None)
             replies=self.ground_loot.pickup(body,self.inventory,self.actor_uid,self.player_position,
-                                            self.actor_ready and not self.seated)
+                                            self.actor_ready and not self.seated
+                                            and not (glider is not None and glider.seated))
             self.reserve=self.inventory.reserve
             if stack is not None and is_weapon(stack.item) and any(msg==0x3e82 for msg,_ in replies):
                 key=next((k for k,item in self.inventory.items.items() if item.uid==stack.item.uid),None)
@@ -460,7 +531,8 @@ class OfflineGameplay:
                 magazine=(self.weapon_magazine((body[1],struct.unpack_from('>H',body,2)[0]))
                           if len(body)>=15 else 0)
                 replies=self.ground_loot.drop(body,self.inventory,self.actor_uid,self.player_position,
-                                             self.actor_ready and not self.seated,magazine)
+                                             self.actor_ready and not self.seated
+                                             and not (glider is not None and glider.seated),magazine)
             else:
                 replies=self.inventory.handle(body)
             self.reserve=self.inventory.reserve
@@ -530,6 +602,10 @@ class OfflineGameplay:
                 return []
             return self.board(seat or 1)
         if message == 0x6543 and self.valid_length(body,1):
+            if self.opening_airdrop:
+                if self.jump_enable_deadline is not None and time.monotonic()<self.jump_enable_deadline:
+                    return []
+                return self.leave()+self.deploy_glider() if self.seated else []
             return self.leave()
         if message==0x6547 and self.valid_length(body,4) and self.vehicle_config==101 and self.seated:
             # Original 0x1288750 sends a one-based destination seat.
@@ -553,12 +629,21 @@ class OfflineGameplay:
             if self.opening_airdrop and (not self.seated or self.jump_enable_deadline is not None
                     and time.monotonic()<self.jump_enable_deadline):
                 return []
-            return self.leave()
+            return self.leave()+self.deploy_glider()
         if message == 0x002a and len(body)>=16:
             position = struct.unpack_from('>3i',body,4)
             if all(abs(x)<2000000 for x in position):
                 self.player_position = position
                 self.actor_ready = True
+                if self.deployment_phase=='landing' and self.landing_height is not None:
+                    ground=self.landing_height(*position[:2])
+                    stable=(ground is not None and abs(position[2]-ground)<=400
+                            and self.landing_previous_z is not None
+                            and abs(position[2]-self.landing_previous_z)<=25)
+                    self.landing_stable_reports=self.landing_stable_reports+1 if stable else 0
+                    self.landing_previous_z=position[2]
+                    if self.landing_stable_reports>=2:
+                        self.deployment_phase='landed'
                 loot_replies=[]
                 if self.ground_loot is not None:
                     # In the combined opening test, avoid delivering a distant
@@ -566,7 +651,8 @@ class OfflineGameplay:
                     # Announce once after jumping and entering its 500 m area.
                     if not self.opening_airdrop:
                         loot_replies=self.ground_loot.announce()
-                    elif (not self.ground_loot.announced and not self.seated and self.deployment_phase=='descending'
+                    elif (not self.ground_loot.announced and not self.seated
+                          and self.deployment_phase in ('descending','landing','landed')
                           and any(math.dist(position,s.position)<=50000 for s in self.ground_loot.stacks.values())):
                         loot_replies=self.ground_loot.announce()
                     if self.scatter_loot:

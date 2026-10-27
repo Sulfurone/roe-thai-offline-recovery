@@ -10,7 +10,7 @@ if errorlevel 1 (
 echo Thai ground-loot test: M4A1 and 5.56 pickup/drop; loaded rounds follow the gun. Fresh session, no save.
 echo The normal launcher retains the verified ground-walking baseline.
 echo Keep this console open while playing. Local service duration: 12 hours.
-"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --launch --gameplay-prototype --gameplay-inventory --gameplay-ground-loot --gameplay-typed-uids --gameplay-initialize-vehicle --gameplay-vehicle-config 101 --probe-auth-response --compact-responses ^
+"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --launch --environment-hour 12 --gameplay-prototype --gameplay-inventory --gameplay-ground-loot --gameplay-typed-uids --gameplay-initialize-vehicle --gameplay-vehicle-config 101 --probe-auth-response --compact-responses ^
   --world-body-file "%~dp0private\typed-gameplay\world.bin" ^
   --team-body-file "%~dp0private\typed-gameplay\team.bin" ^
   --enter-body-file "%~dp0private\typed-gameplay\enter.bin" ^

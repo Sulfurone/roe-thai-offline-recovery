@@ -26,12 +26,22 @@ class AirdropArsenalSessionTests(unittest.TestCase):
             stub=root/'placeholder.bin'
             stub.write_bytes(b'\0')
             vehicle=ROOT/'private/typed-gameplay/vehicle-cross-map.bin'
+            terrain=root/'landing.repx'
+            terrain.write_text('<PhysX30Collection><PxHeightField><NbRows>2</NbRows><NbColumns>2</NbColumns>'
+                '<samples>0 0 0 0</samples></PxHeightField><PxRigidStatic>'
+                '<GlobalPose>0.5 0.5 0.5 0.5 300000 250000 6500</GlobalPose><Shapes><PxShape><Geometry>'
+                '<PxHeightFieldGeometry><RowScale>100000</RowScale><ColumnScale>100000</ColumnScale>'
+                '<HeightScale>1</HeightScale></PxHeightFieldGeometry></Geometry></PxShape></Shapes>'
+                '</PxRigidStatic></PhysX30Collection>',encoding='utf-8')
             with socket.socket() as reserved:
                 reserved.bind(('127.0.0.1',0))
                 port=reserved.getsockname()[1]
             argv=['local_server.py','--seconds','8','--port',str(port),'--gameplay-prototype',
+                  '--single-session',
                   '--gameplay-inventory','--gameplay-ground-loot','--gameplay-arsenal',
                   '--gameplay-world-file',str(profile),'--gameplay-opening-airdrop',
+                  '--environment-hour','12','--gameplay-opening-glider-file',
+                  str(ROOT/'private/typed-gameplay/vehicle-glider.bin'),'--gameplay-landing-terrain',str(terrain),
                   '--gameplay-typed-uids','--gameplay-auto-seat','--gameplay-initialize-vehicle',
                   '--gameplay-vehicle-config','4','--gameplay-auto-exit-seconds','81.84',
                   '--gameplay-aircraft-route-speed','5000','--gameplay-aircraft-route-end','409400','204800','75000',
@@ -73,7 +83,13 @@ class AirdropArsenalSessionTests(unittest.TestCase):
                             return packet[10:]
                     expected=OfflineGameplay(inventory_enabled=True,ground_loot_enabled=True,
                                               arsenal_enabled=True,world_file=profile)
-                    send(0xdcd,bytes(4));receive(0x654b)
+                    send(0xdcd,bytes(4))
+                    self.assertEqual(struct.unpack_from('>I',receive(0x4816))[0],12)
+                    receive(0x654b)
+                    # Actual Thai sessions report both lobby and map load.
+                    # The second clock must not respawn the aircraft.
+                    send(0xdcd,bytes(4))
+                    self.assertEqual(struct.unpack_from('>I',receive(0x4816))[0],12)
                     send(0x2a,struct.pack('>I3i',1,200,204800,75000))
                     self.assertEqual(receive(0x5fb),expected.inventory.full_body())
                     receive(0x4a0)
@@ -87,7 +103,9 @@ class AirdropArsenalSessionTests(unittest.TestCase):
                     receive(0x6565)
                     send(0x6566,b'\0')
                     for message in (0x6544,0x656d):receive(message)
+                    for message in (0x654b,0x6554,0x656e,0x656d,0x6542):receive(message)
                     send(0x2a,struct.pack('>I3i',2,325950,271700,6501))
+                    for message in (0x6544,0x656d):receive(message)
                     for stack in expected.ground_loot.stacks.values():
                         self.assertEqual(receive(0x821),stack.spawn()[1])
                     send(0x3e80,drop(0,container=1,slot=1))

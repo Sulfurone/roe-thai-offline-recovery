@@ -11,7 +11,7 @@ echo Thai offline roaming arsenal: 20 firearms at the test range plus a new
 echo weapon/ammo cluster every 600m of traveled ground along your path.
 echo Loot height follows the terrain you walk on. Clusters persist in the
 echo world profile. Keep this console open while playing. Local service duration: 12 hours.
-"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --launch --gameplay-prototype --gameplay-inventory --gameplay-ground-loot --gameplay-arsenal --gameplay-scatter-loot --gameplay-world-file "%~dp0profiles\uid-1-offline-scatter.json" --gameplay-typed-uids --gameplay-initialize-vehicle --gameplay-vehicle-config 101 --probe-auth-response --compact-responses ^
+"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --launch --environment-hour 12 --gameplay-prototype --gameplay-inventory --gameplay-ground-loot --gameplay-arsenal --gameplay-scatter-loot --gameplay-world-file "%~dp0profiles\uid-1-offline-scatter.json" --gameplay-typed-uids --gameplay-initialize-vehicle --gameplay-vehicle-config 101 --probe-auth-response --compact-responses ^
   --world-body-file "%~dp0private\typed-gameplay\world.bin" ^
   --team-body-file "%~dp0private\typed-gameplay\team.bin" ^
   --enter-body-file "%~dp0private\typed-gameplay\enter.bin" ^
