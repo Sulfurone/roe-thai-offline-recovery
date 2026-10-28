@@ -151,6 +151,8 @@ class OfflineGroundLoot:
             self.last_rejection={'reason':'occupied_or_full','entity':entity}
             return self.error(entity)
         inventory.items[key]=(replace(target,count=target.count+stack.item.count) if target else stack.item)
+        if is_weapon(stack.item):
+            inventory.weapon_magazines[stack.item.uid]=stack.magazine
         inventory.next_uid=max(inventory.next_uid,stack.item.uid+1)
         del self.stacks[entity]
         # Apply the bag delta, remove the entire single-item entity, then

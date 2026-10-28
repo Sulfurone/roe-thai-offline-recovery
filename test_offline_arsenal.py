@@ -72,7 +72,7 @@ class ArsenalTests(unittest.TestCase):
             game.handle(0x3e80,drop(1,container=1,slot=1))
             pistol,replies=self.pick(game,20002)
             self.assertEqual((game.inventory.weapon_slot(),game.magazine),(3,0))
-            self.assertEqual(len(replies[0][1]),63)  # one kind-2 original object
+            self.assertEqual(len(replies[0][1]),91)  # unique gun with its loaded-ammo row
             self.assertEqual(replies[2][1][8],2)
             self.pick(game,30003)
             game.handle(0x49e,struct.pack('>I',3))

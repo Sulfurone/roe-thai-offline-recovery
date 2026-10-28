@@ -72,7 +72,6 @@ class GroundLootSessionTests(unittest.TestCase):
                     receive(0x821)
                     self.assertEqual(struct.unpack_from('>I',receive(0x3e82),18)[0],160)
                     self.assertEqual(struct.unpack('>BIIB',receive(0x3e81))[:2],(2,0))
-                    receive(0x4a0)
                     send(0x3b63,request(0x400002))
                     self.assertEqual(struct.unpack_from('>I',receive(0x3e82),18)[0],180)
                     receive(0x82b)

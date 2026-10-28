@@ -263,12 +263,9 @@ class OfflineGameplay:
             return self.inventory.delta(keys or [(2,0)])
         # Thai 0x3E82: count byte; slot ushort; container byte; OBJECT_INFO;
         # current-map flag. This updates one bag slot without resetting guns.
-        kind,template,uid = (3,30001,0x100102) if self.reserve else (0,0,0)
+        item=Item(3,30001,0x100102,self.reserve) if self.reserve else Item(0,0,0,0)
         body = struct.pack('>BHB',1,0,2)
-        body += struct.pack('>BBIQIIBBIH',kind,0,template,uid,self.reserve,0,0,0,0,0)
-        if kind == 0:
-            body += b'\0'  # Native empty-object union has one dummy byte.
-        body += struct.pack('>IB',0,1)
+        body += item.wire()+b'\1'
         return 0x3e82,body
 
     def owner_sync(self, owner):
@@ -573,11 +570,8 @@ class OfflineGameplay:
                     if key[0]==1 and self.weapon_key() is None:
                         self.selected_slot=key[1]
                     self.refresh_magazine()
-                    if self.inventory.weapon_slot() is not None:
-                        replies.append(self.ammo_sync())
             return replies
         if message==0x3e80 and self.inventory is not None:
-            previous_weapon=self.inventory.weapon_slot()
             if body[:1]==b'\2' and self.ground_loot is not None:
                 magazine=(self.weapon_magazine((body[1],struct.unpack_from('>H',body,2)[0]))
                           if len(body)>=15 else 0)
@@ -608,12 +602,8 @@ class OfflineGameplay:
             for uid in [uid for uid in self.inventory.weapon_magazines if uid not in survivors]:
                 del self.inventory.weapon_magazines[uid]
             self.refresh_magazine()
-            if previous_weapon is not None and not survivors:
-                replies.append(self.ammo_sync(previous_weapon))
-                if self.selected_slot==previous_weapon:
-                    self.selected_slot=0
-            if any(msg==0x3e82 for msg,_ in replies) and survivors:
-                replies.append(self.ammo_sync())
+            if not survivors:
+                self.selected_slot=0
             return replies
         if message in (0x049e,0x049c) and self.valid_length(body,4):
             slot = struct.unpack_from('>I',body)[0]
@@ -621,15 +611,22 @@ class OfflineGameplay:
                 if slot in (0,1,2,3,4,5,6):
                     self.selected_slot = slot
                     self.refresh_magazine()
-                return [self.ammo_sync(slot)] if self.has_weapon(slot) else []
+                # This reports the active slot, not a reload request. 4A0's
+                # native callback emits WEAPON_RELOADED even for equal rounds.
+                # Inventory DTO row 7 already initializes each gun's magazine.
+                return []
             if not self.has_weapon(slot):
+                return [(0x049d,struct.pack('>II',slot,1))]
+            if slot!=self.selected_slot:
                 return [(0x049d,struct.pack('>II',slot,1))]
             key=(1,slot)
             item=self.inventory.items[key] if self.inventory is not None else None
             spec=WEAPONS[item.template] if item is not None else WEAPONS[10201]
             available=self.inventory.reserve_for(spec.ammunition) if self.inventory is not None else self.reserve
             current=self.weapon_magazine(key)
-            amount = min(spec.capacity-current,available)
+            amount = min(max(0,spec.capacity-current),available)
+            if amount==0:
+                return [(0x049d,struct.pack('>II',slot,0))]
             if self.inventory is None:
                 self.magazine += amount
             else:
@@ -651,7 +648,9 @@ class OfflineGameplay:
                                      max(0,self.weapon_magazine((1,self.selected_slot))-1))
             if self.inventory is None:
                 self.magazine=max(0,self.magazine-1)
-            return [self.ammo_sync()]
+            # The native firing path consumes its own displayed round. An
+            # equal 4A0 receipt emits WEAPON_RELOADED and can end animations.
+            return []
         if message == 0x6549 and self.valid_length(body,61):
             uid = struct.unpack_from('>Q',body)[0]
             position = struct.unpack_from('>3i',body,13)

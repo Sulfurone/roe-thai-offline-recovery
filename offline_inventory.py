@@ -36,21 +36,35 @@ class Item:
     count: int
     parts: tuple = ()
 
-    def wire(self):
+    def wire(self,magazine=0):
         spec=EXTRA_ITEMS.get(self.template)
-        # OBJECT_INFO's union tag is not ItemTable.mCategory. Armour uses
-        # the unique-equipment branch whose first DWORD is current durability.
-        # Medicines use the stack branch's leading ushort quantity.
-        wire_kind=1 if self.kind==20 else 2 if self.kind==7 else self.kind
+        # OBJECT_INFO has only empty / unique / stack union branches. These
+        # are unrelated to ItemTable.mCategory (ammo=3, parts=4, etc.).
+        weapon=is_weapon(self)
+        wire_kind=0 if self.kind==0 else 1 if weapon or self.kind==20 else 2
         base=struct.pack('>BBIQIIBBIH',wire_kind,0,self.template,self.uid,
                          self.count,0,0,0,0,0)
-        # Native D6B220: DWORD, seven part template IDs (D85180),
-        # bounded auxiliary array count, final DWORD. Keep opaque fields zero.
-        installed=dict(self.parts)
-        extra=(struct.pack('>10I',spec.durability if self.kind==20 and spec else 0,
-                           *(installed[i].template if i in installed else 0 for i in range(7)),0,0)
-               if wire_kind==1 else (struct.pack('>H',self.count if self.kind==7 else 0)+bytes(22)
-               if wire_kind==2 else (b'\0' if wire_kind==0 else b'')))
+        if wire_kind==1:
+            # Native F61EC0 reads attachments from the bounded 12-byte rows,
+            # NOT the preceding seven opaque DWORDs. Row 7 carries ammo type
+            # and loaded rounds. Omitting it resets the native gun to zero.
+            rows=[(index,part.template,0) for index,part in sorted(self.parts)]
+            if weapon:
+                if type(magazine) is not int or not 0<=magazine<=WEAPONS[self.template].capacity:
+                    raise ValueError('Loaded rounds exceed the weapon capacity')
+                rows.append((7,WEAPONS[self.template].ammunition,magazine))
+            # F61EC0 calls native 1118C80 for these seven weapon attributes.
+            # Confirmed fields are range [0], damage [4], capacity [5]. Keep
+            # the remaining, still unidentified attributes at the old zero.
+            attributes=((30000 if 10401<=self.template<=10403 else 100000,0,0,0,20,
+                         WEAPONS[self.template].capacity,0) if weapon else (0,)*7)
+            extra=struct.pack('>9I',spec.durability if self.kind==20 and spec else 0,
+                              *attributes,len(rows))
+            extra+=b''.join(struct.pack('>3I',*row) for row in rows)+bytes(4)
+        elif wire_kind==2:
+            extra=struct.pack('>H',self.count)+bytes(22)
+        else:
+            extra=b'\0'
         return base+extra+bytes(4)
 
 
@@ -129,8 +143,11 @@ class OfflineInventory:
     def full_body(self):
         body=struct.pack('>I',len(self.items))
         for (container,slot),item in sorted(self.items.items()):
-            body+=bytes((container,slot))+item.wire()
+            body+=bytes((container,slot))+self.item_wire(item)
         return body+bytes(8)+b'\1'
+
+    def item_wire(self,item):
+        return item.wire(self.weapon_magazines.get(item.uid,0))
 
     def delta(self,keys):
         keys=sorted(set(keys))
@@ -139,7 +156,7 @@ class OfflineInventory:
             raise ValueError('Inventory delta exceeds the local slot bound')
         body=bytes((len(keys),))
         for container,slot in keys:
-            body+=struct.pack('>HB',slot,container)+self.items.get((container,slot),EMPTY).wire()
+            body+=struct.pack('>HB',slot,container)+self.item_wire(self.items.get((container,slot),EMPTY))
         return 0x3e82,body+b'\1'
 
     @staticmethod

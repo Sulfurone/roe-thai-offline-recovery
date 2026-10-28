@@ -37,7 +37,7 @@ class EquipmentActionsTests(unittest.TestCase):
             replies=iv.handle(part_request(part.uid,*key,gun.uid,3,2))
             self.assertEqual([m for m,b in replies],[0x3e82,0x3e81])
             self.assertEqual(dict(iv.items[1,1].parts)[2],part)
-            self.assertEqual(struct.unpack_from('>I',iv.items[1,1].wire(),30+4+2*4)[0],part.template)
+            self.assertEqual(struct.unpack_from('>3I',iv.item_wire(iv.items[1,1]),66),(2,part.template,0))
         self.assertEqual(iv.items[2,2],red)  # previous scope returns to the source slot
         self.assertNotIn((2,1),iv.items)
         iv.handle(part_request(gun.uid,3,2,0,2,1))

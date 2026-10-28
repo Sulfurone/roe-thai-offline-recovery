@@ -43,6 +43,5 @@ if defined ROE_EXPERIMENTAL_BOTS set ROE_BOT_ARGS=--world-bots 1 --world-bot-pro
   --push-after-team 0x0516:"%~dp0private\native-roster\movement-grounded-delta.bin" ^
   --push-delay 3.0 ^
   --push-after-map-load 0x654b:"%~dp0private\typed-gameplay\vehicle-cross-map.bin" ^
-  --push-after-player-ready 0x05fb:"%~dp0private\native-roster\inventory-m4a1-candidate.bin" ^
-  --push-after-player-ready 0x04a0:"%~dp0private\typed-gameplay\ammo.bin"
+  --push-after-player-ready 0x05fb:"%~dp0private\native-roster\inventory-m4a1-candidate.bin"
 pause

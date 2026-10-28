@@ -74,9 +74,7 @@ class GameplaySessionTests(unittest.TestCase):
                     send(0xdcd,bytes(4))
                     self.assertEqual(receive(0x654b),spawn_file.read_bytes())
                     send(0x49e,struct.pack('>I',1))
-                    self.assertEqual(struct.unpack('>QII',receive(0x4a0)),(ACTOR_UID,1,29))
                     send(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,7,0))
-                    self.assertEqual(struct.unpack('>QII',receive(0x4a0)),(ACTOR_UID,1,28))
                     # A nonzero stop packet must leave the next response as
                     # reload success, not an extra erroneous ammo decrement.
                     send(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,7,1))
@@ -89,17 +87,13 @@ class GameplaySessionTests(unittest.TestCase):
                     split=receive(0x3e82)
                     self.assertEqual(split[0],2)
                     self.assertEqual(struct.unpack_from('>I',split,18)[0],100)
-                    self.assertEqual(struct.unpack_from('>I',split,55)[0],18)
+                    self.assertEqual(struct.unpack_from('>H',split,95)[0],18)
                     self.assertEqual(struct.unpack('>BIIB',receive(0x3e81))[:2],(1,0))
-                    receive(0x4a0)
                     send(0x3e80,struct.pack('>BBHBHHB',1,1,1,1,2,1,1))
                     receive(0x3e82)
                     receive(0x3e81)
-                    self.assertEqual(struct.unpack('>QII',receive(0x4a0))[1:],(2,30))
                     send(0x49e,struct.pack('>I',2))
-                    self.assertEqual(struct.unpack('>QII',receive(0x4a0))[1:],(2,30))
                     send(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,8,0))
-                    self.assertEqual(struct.unpack('>QII',receive(0x4a0))[1:],(2,29))
                     send(0x49c,struct.pack('>I',2))
                     self.assertEqual(struct.unpack('>II',receive(0x49d)),(2,0))
                     self.assertEqual(struct.unpack('>QII',receive(0x4a0))[1:],(2,30))
@@ -132,7 +126,9 @@ class GameplaySessionTests(unittest.TestCase):
                 raise errors.get()
             events=[json.loads(line) for line in output.getvalue().splitlines()]
             responses=[row for row in events if row['event']=='gameplay_response_sent']
-            self.assertEqual([row['magazine'] for row in responses if row['request_id']==0x11d3],[28,29])
+            # Native firing predicts its own ammo. Silent shot/switch handling
+            # is checked by the next strictly ordered reload response above.
+            self.assertFalse(any(row['request_id'] in (0x11d3,0x49e) for row in responses))
             saved=json.loads((recovery/'saved-inventory.json').read_text(encoding='utf-8'))
             self.assertEqual(saved['selected_slot'],2)
             self.assertEqual([x['count'] for x in saved['items'] if x['kind']==3],[99,18])

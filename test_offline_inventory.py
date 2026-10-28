@@ -16,7 +16,10 @@ def transfer(source,destination,quantity,current=1):
 class InventoryTests(unittest.TestCase):
     def test_initial_payload_matches_original_native_generated_fixture(self):
         fixture=Path(__file__).parent/'private/native-roster/inventory-m4a1-candidate.bin'
-        self.assertEqual(OfflineInventory().full_body(),fixture.read_bytes())
+        # The archived initial candidate used category 3 as the ammo union,
+        # which decoded but constructed one round. Keep it as failure evidence.
+        self.assertNotEqual(OfflineInventory().full_body(),fixture.read_bytes())
+        self.assertEqual(OfflineInventory().items[2,0].wire()[0],2)
 
     def test_split_merge_and_move_conserve_ammunition_and_identity(self):
         inventory=OfflineInventory()
@@ -58,7 +61,8 @@ class InventoryTests(unittest.TestCase):
         game=OfflineGameplay(inventory_enabled=True,magazine=29,reserve=2)
         game.handle(0x3e80,transfer((2,0),(2,5),1))
         game.handle(0x3e80,transfer((1,1),(1,2),1))
-        self.assertEqual(struct.unpack('>QII',game.handle(0x49e,struct.pack('>I',2))[0][1])[1:],(2,29))
+        self.assertEqual(game.handle(0x49e,struct.pack('>I',2)),[])
+        self.assertEqual(game.magazine,29)
         shot=struct.pack('>6fIB',1,2,3,1,102,3,1,0)
         game.handle(0x11d3,shot)
         replies=game.handle(0x49c,struct.pack('>I',2))

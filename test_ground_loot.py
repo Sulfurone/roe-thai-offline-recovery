@@ -35,7 +35,7 @@ class GroundLootTests(unittest.TestCase):
         self.assertEqual(game.reserve,180)
         self.assertEqual(game.ground_loot.stacks,{})
         replies=game.handle(0x3e80,drop()+bytes(8))
-        self.assertEqual([m for m,_ in replies],[0x821,0x3e82,0x3e81,0x4a0])
+        self.assertEqual([m for m,_ in replies],[0x821,0x3e82,0x3e81])
         self.assertEqual(game.reserve,160)
         stack=next(iter(game.ground_loot.stacks.values()))
         self.assertEqual(stack.position,game.player_position)
@@ -99,7 +99,7 @@ class GroundLootTests(unittest.TestCase):
         weapon=game.inventory.items[1,1]
         actual=bytes.fromhex('020100010000000000000000000001')
         replies=game.handle(0x3e80,actual)
-        self.assertEqual([message for message,_ in replies],[0x821,0x3e82,0x3e81,0x4a0])
+        self.assertEqual([message for message,_ in replies],[0x821,0x3e82,0x3e81])
         self.assertNotIn((1,1),game.inventory.items)
         self.assertEqual((game.ground_loot.stacks[0x400002].item,game.ground_loot.stacks[0x400002].magazine),(weapon,30))
         ammo=game.inventory.items[2,0]

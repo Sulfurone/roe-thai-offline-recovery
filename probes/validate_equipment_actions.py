@@ -68,8 +68,9 @@ for template in (40303,40305):
     for packet in iv.handle(request):check(*packet)
     check(*iv.delta([(1,1)]))
     native=bytes(c.uc.mem_read(c.ROOT_OBJECT+14,0x142))
-    if struct.unpack_from('<7I',native,0xa2)!=(0,0,template,0,0,0,0):
-        raise ValueError('Selected scope does not reach the original seven-part array')
+    if (struct.unpack_from('<I',native,0xbe)[0]!=2
+            or struct.unpack_from('<3I',native,0xc2)!=(2,template,0)):
+        raise ValueError('Selected scope does not reach the original bounded attachment rows')
     code,wire=c.pack_type(0xd6b670,native)
     if code or wire!=iv.items[1,1].wire():
         raise ValueError('Original item writer does not reproduce installed gun')

@@ -82,15 +82,12 @@ class WorldReconnectTests(unittest.TestCase):
                             receive(0x821)
                             receive(0x3e82)
                             receive(0x3e81)
-                            receive(0x4a0)
                             for shot in (1,2):
                                 send(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,shot,0))
-                                receive(0x4a0)
                             send(0x3e80,drop(1,container=1,slot=1))
                             receive(0x821)
                             receive(0x3e82)
                             receive(0x3e81)
-                            self.assertEqual(struct.unpack('>QII',receive(0x4a0))[1:],(1,0))
                             # The combined profile exists before the success
                             # packets are delivered, not at process shutdown.
                             saved=json.loads(profile.read_text(encoding='utf-8'))
@@ -111,11 +108,8 @@ class WorldReconnectTests(unittest.TestCase):
                             receive(0x3e82)
                             receive(0x82b)
                             self.assertEqual(struct.unpack('>IIBIII',receive(0x3b64))[2:],(1,10201,1,0))
-                            self.assertEqual(struct.unpack('>QII',receive(0x4a0))[1:],(2,28))
                             send(0x49e,struct.pack('>I',2))
-                            receive(0x4a0)
                             send(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,7,0))
-                            receive(0x4a0)
                             send(0x49c,struct.pack('>I',2))
                             receive(0x49d)
                             receive(0x4a0)
