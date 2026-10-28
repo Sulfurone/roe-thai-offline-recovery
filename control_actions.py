@@ -42,6 +42,7 @@ class ControlSession:
         self.gameplay = gameplay
         self.vehicle_template = vehicle_template
         self.vehicles = {}
+        self.next_vehicle_uid=TYPED_VEHICLE_UID+0x1000
         self.peer_positions = {}
         self.active_vehicle = None
         self.client_boarding=client_boarding
@@ -54,9 +55,11 @@ class ControlSession:
 
     def snapshot(self):
         game = self.gameplay
+        position_ready=bool(game and (not game.require_self_position_for_drop or game.has_fresh_self_position()
+                            or game.seated and self.active_vehicle is not None))
         return dict(connected=True, ready=bool(game and game.actor_ready),
                     seated=bool(game and game.seated),
-                    position=list(game.player_position) if game and game.actor_ready else None,
+                    position=list(game.player_position) if game and game.actor_ready and position_ready else None,
                     weather_id=self.weather_id,
                     ground_items=len(game.ground_loot.stacks) if game and game.ground_loot else 0,
                     weapons_enabled=bool(game and game.ground_loot),
@@ -78,6 +81,8 @@ class ControlSession:
             raise ValueError('请先离开载具')
         if game.deployment_phase not in ('ground', 'landed'):
             raise ValueError('请在地面刷新物品')
+        if game.require_self_position_for_drop and not game.has_fresh_self_position():
+            raise ValueError('当前位置尚未同步，暂缓刷新物品和车辆')
         x, y, z = game.player_position
         distance = command['distance'] * 100
         if command['action']=='item':
@@ -144,12 +149,15 @@ class ControlSession:
             raise ValueError('此入口未提供吉普车样本')
         if len(self.vehicles) >= 16:
             raise ValueError('本轮最多刷新 16 辆吉普车')
-        uid = TYPED_VEHICLE_UID + 0x1000 + len(self.vehicles)
+        uid = self.next_vehicle_uid
+        if uid>=2**64:
+            raise ValueError('载具实体编号已用尽')
         body = vehicle_spawn(self.vehicle_template, uid, position,config)
         car = OfflineGameplay(actor_uid=game.actor_uid, vehicle_uid=uid, initialize_vehicle=True,vehicle_config=config)
         car.player_position, car.actor_ready = game.player_position, True
         car.observe_spawn(0x654b, body)
         self.vehicles[uid] = car
+        self.next_vehicle_uid+=1
         return [(0x654b, body)] + car.initialize_vehicle_once()
 
     def handle(self, message, body):

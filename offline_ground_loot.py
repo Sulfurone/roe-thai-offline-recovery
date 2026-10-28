@@ -10,7 +10,9 @@ from offline_inventory import Item,MAX_AMMO,supported,stack_limit,item_fields,re
 from offline_weapons import WEAPONS,AMMUNITION,is_weapon
 from offline_items import EXTRA_ITEMS,is_extra
 
-MAX_GROUND_STACKS=128
+# Server working-set bound for independent 0x821 entities. This is unrelated
+# to the original inventory delta's fixed 128-row array.
+MAX_GROUND_STACKS=512
 PICKUP_DISTANCE=500  # Original client EntityTable.m_nMaxOpDistance, cm (both supported items).
 
 

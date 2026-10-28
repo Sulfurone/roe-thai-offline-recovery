@@ -6,7 +6,7 @@ from offline_inventory import OfflineInventory
 from offline_ground_loot import OfflineGroundLoot
 from offline_weapons import is_weapon
 
-MAX_WORLD_BYTES=128*1024
+MAX_WORLD_BYTES=512*1024
 
 
 def snapshot(inventory,ground,magazine,selected_slot):

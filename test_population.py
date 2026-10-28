@@ -100,16 +100,81 @@ class PopulationTests(unittest.TestCase):
         for index in range(40):
             game.player_position = (100000 + index * 5000, 200000, 7250)
             population.tick()
-        self.assertLessEqual(len(game.ground_loot.stacks), 112)
-        self.assertEqual(population.auto_vehicles, 12)
+        self.assertLessEqual(len(game.ground_loot.stacks), WorldPopulation.AUTO_GROUND_CAP)
+        self.assertLessEqual(population.auto_vehicles, 12)
         self.assertLess(len(population.visited), 40)
+
+    def test_streaming_reclaims_far_automatic_objects_and_keeps_spawning(self):
+        game=ready_game()
+        control=ControlSession(game,jeep_template())
+        population=WorldPopulation(control,Surface(),42,extra_items=True)
+        all_uids=set()
+        saw_removals=False
+        for x in range(30000,390000,30000):
+            game.player_position=(x,200000,7250)
+            before=set(control.vehicles)
+            packets=population.tick()
+            self.assertIn(0x821,[m for m,_ in packets])
+            added=set(control.vehicles)-before
+            self.assertFalse(added & all_uids)
+            all_uids.update(added)
+            saw_removals|=any(m==0x654c for m,_ in packets)
+            self.assertLessEqual(len(game.ground_loot.stacks),WorldPopulation.AUTO_GROUND_CAP)
+            self.assertLessEqual(len(control.vehicles),12)
+            self.assertLess(len(population.spots),400)
+        self.assertTrue(saw_removals)
+        self.assertGreater(len(all_uids),12)
+
+    def test_unloaded_region_revisits_and_common_optic_is_attempted(self):
+        game=ready_game()
+        population=WorldPopulation(ControlSession(game),Surface(),42,vehicles=False,extra_items=True)
+        first=(100000,200000,7250)
+        game.player_position=first
+        population.tick()
+        first_ids=set(population.auto_item_ids)
+        self.assertTrue(any(s.item.template in (40303,40304,40305) for s in game.ground_loot.stacks.values()))
+        game.player_position=(300000,200000,7250)
+        population.tick()
+        self.assertFalse(first_ids & set(game.ground_loot.stacks))
+        game.player_position=first
+        packets=population.tick()
+        self.assertIn(0x821,[m for m,_ in packets])
+        self.assertTrue(all(uid not in first_ids for uid in population.auto_item_ids))
+
+    def test_streaming_preserves_manual_loot_and_current_car_while_driving(self):
+        game=ready_game()
+        control=ControlSession(game,jeep_template())
+        population=WorldPopulation(control,Surface(),42,extra_items=True)
+        game.player_position=(100000,200000,7250)
+        population.tick()
+        manual=game.ground_loot.stacks[0x400001]
+        driver=next(iter(control.vehicles))
+        control.active_vehicle=driver
+        control.vehicles[driver].seated=True
+        game.seated=True
+        game.player_position=(300000,200000,7250)
+        packets=population.tick()
+        self.assertIn(0x821,[m for m,_ in packets])
+        self.assertIn(driver,control.vehicles)
+        self.assertEqual(game.ground_loot.stacks[manual.entity],manual)
+        self.assertNotIn((0x654c,struct.pack('>Q',driver)),packets)
+
+    def test_vehicle_allocator_never_reuses_a_retired_car_uid(self):
+        game=ready_game()
+        control=ControlSession(game,jeep_template())
+        for _ in range(3):control.spawn_vehicle(game.player_position)
+        previous=set(control.vehicles)
+        del control.vehicles[min(previous)]
+        control.spawn_vehicle(game.player_position)
+        self.assertEqual(len(control.vehicles),3)
+        self.assertGreater(max(control.vehicles),max(previous))
 
     def test_denser_default_loot_can_be_picked_with_live_camera_after_walking(self):
         game=ready_game()
         game.player_position=(100000,200000,7250)
         population=WorldPopulation(ControlSession(game),Surface(),42,vehicles=False)
         messages=population.tick()
-        self.assertEqual([m for m,_ in messages],[0x821]*16)
+        self.assertEqual([m for m,_ in messages],[0x821]*32)
         ammo=next(stack for stack in game.ground_loot.stacks.values()
                   if stack.entity!=0x400001 and stack.item.kind==3)
         before=sum(item.count for item in game.inventory.items.values() if item.kind==3)

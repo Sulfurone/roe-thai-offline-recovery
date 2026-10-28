@@ -25,10 +25,13 @@ from offline_motion import actor_motion, aircraft_spawn_heading
 from offline_population import WorldPopulation
 from offline_bots import BotRoster
 from offline_posture import posture_speed_delta,CROUCH_CM_PER_SECOND,PRONE_CM_PER_SECOND
+from self_position import PositionInstallation,recover_previous
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--self-position-observer',action='store_true',
+                        help='Opt-in reversible self-read coordinate DLL; requires a local build and closed game')
     parser.add_argument('--seconds', type=int, default=75)
     parser.add_argument('--port', type=int, default=8001,
                         help='Loopback port for this experiment (old clients use 8001)')
@@ -81,7 +84,7 @@ def main():
                         help='Privately extracted Thai QSHM, road mask and scene catalogues for indoor/roadside placement')
     parser.add_argument('--world-seed', type=int,
                         help='Population seed, 0..4294967295; default chooses a fresh seed per run')
-    parser.add_argument('--world-loot-clusters',type=int,default=8,
+    parser.add_argument('--world-loot-clusters',type=int,default=16,
                         help='Weapon/ammo pairs attempted per exploration region, 1..16 (default 8)')
     parser.add_argument('--world-vehicle-clusters',type=int,default=3,
                         help='Roadside cars attempted per exploration region, 1..4 (default 3)')
@@ -307,6 +310,8 @@ def main():
         parser.error('--gameplay-scatter-loot requires --gameplay-ground-loot')
     if args.gameplay_posture_speeds and not args.gameplay_prototype:
         parser.error('--gameplay-posture-speeds requires --gameplay-prototype')
+    if args.self_position_observer and not args.gameplay_prototype:
+        parser.error('--self-position-observer requires --gameplay-prototype')
     if args.gameplay_ground_loot and (not args.gameplay_prototype or not args.gameplay_inventory
             or args.gameplay_state_file):
         parser.error('Ground loot requires the prototype/inventory options without an inventory-only profile')
@@ -430,6 +435,13 @@ def main():
         listener.settimeout(1)
         emit('listening', address=f'127.0.0.1:{args.port}',
              key_status='Unverified test session key')
+        observer=None
+        if args.self_position_observer:
+            recover_previous(root/'32838',root/'recovery/private/self-position')
+            observer=resources.enter_context(PositionInstallation(root/'32838',
+                root/'recovery/private/self-position'/('session-'+stamp)))
+            emit('self_position_observer_prepared',output=str(observer.output),
+                 scope='Local self-memory reads only; original DataEngine exports forwarded')
         control = ControlHub() if args.control_ui_port is not None or args.ingame_control or args.ingame_overlay else None
         mailbox = None
         if args.ingame_control or args.ingame_overlay:
@@ -599,6 +611,14 @@ def main():
                         mailbox.publish(control.snapshot())
                 try:
                     while time.monotonic() < deadline:
+                        if observer is not None and gameplay is not None and loaded_pushes_sent:
+                            gameplay.require_self_position_for_drop=True
+                            current_position=observer.feed.take()
+                            if current_position is not None and gameplay.accept_self_position(current_position):
+                                if time.monotonic()-getattr(observer,'last_report',0)>=1:
+                                    emit('self_position_updated',position=current_position,
+                                         sequence=observer.feed.sequence,client_pid=observer.feed.pid)
+                                    observer.last_report=time.monotonic()
                         send_control_commands()
                         if population is not None and state == 'transport_ready' and loaded_pushes_sent:
                             population_replies=population.tick()
@@ -716,7 +736,8 @@ def main():
                                         and gameplay.ground_loot.last_rejection is not None):
                                     emit('pickup_rejected',**gameplay.ground_loot.last_rejection)
                                 if message_id==0x3e80 and gameplay.last_drop_event:
-                                    emit('ground_drop_created',**gameplay.last_drop_event)
+                                    emit('ground_drop_created' if gameplay.last_drop_event.get('accepted',True)
+                                         else 'ground_drop_rejected',**gameplay.last_drop_event)
                                 if (control is not None and control_ready_after is None
                                         and gameplay.actor_ready):
                                     control_ready_after = time.monotonic() + 2

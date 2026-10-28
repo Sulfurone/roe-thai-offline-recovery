@@ -17,8 +17,11 @@ import struct
 
 class WorldPopulation:
     CELL = 15000  # centimetres
+    UNLOAD_DISTANCE=45000
+    AUTO_GROUND_CAP=384
+    EXTRA_PER_GROUP=4
 
-    def __init__(self, control, terrain, seed=1, loot=True, vehicles=True, bots=None, clusters=8,
+    def __init__(self, control, terrain, seed=1, loot=True, vehicles=True, bots=None, clusters=16,
                  vehicle_clusters=3,extra_items=False):
         if type(clusters) is not int or not 1<=clusters<=16:
             raise ValueError('Population density must be 1..16 weapon/ammo pairs per region')
@@ -29,6 +32,8 @@ class WorldPopulation:
         self.visited = set()
         self.spots = []
         self.auto_vehicles = 0
+        self.auto_item_ids=set()
+        self.auto_vehicle_ids=set()
         self.bots = bots
         self.clusters=clusters
         self.vehicle_clusters=vehicle_clusters
@@ -85,23 +90,27 @@ class WorldPopulation:
 
     def tick(self):
         game = self.control.gameplay
-        if not game or not game.actor_ready or game.seated:
+        if (not game or not game.actor_ready
+                or game.seated and self.control.active_vehicle is None):
+            return []
+        if (game.require_self_position_for_drop and not game.has_fresh_self_position()
+                and self.control.active_vehicle is None):
             return []
         position = game.player_position
         ground = self.terrain.height_at(*position[:2])
         if ground is None or not math.isfinite(ground) or not -100 <= position[2] - ground <= 1500:
             return []  # do not populate during flight/early descent
+        replies=self.unload_far(position)
         cell = position[0] // self.CELL, position[1] // self.CELL
         if cell in self.visited or len(self.visited) >= 1024:
-            return self.bots.tick(self) if self.bots else []
+            return replies+(self.bots.tick(self) if self.bots else [])
         self.visited.add(cell)
         rng = random.Random((self.seed ^ cell[0] * 73856093 ^ cell[1] * 19349663) & (2**64 - 1))
-        replies = []
         world = game.ground_loot
         if self.loot and world and world.announced:
             for _ in range(self.clusters):
                 # Keep room for manual F6 spawning; picked items release slots.
-                if len(world.stacks) > min(110, MAX_GROUND_STACKS - 2):
+                if len(world.stacks) > min(self.AUTO_GROUND_CAP-2, MAX_GROUND_STACKS - 2):
                     break
                 spot = self.choose_spot(position, rng)
                 if spot is None:
@@ -113,6 +122,7 @@ class WorldPopulation:
                 ammo = world.add(Item(3, spec.ammunition, game.inventory.next_uid, rng.randint(60, 120)),
                                  (spot[0] + 50, spot[1], spot[2]))
                 game.inventory.next_uid += 1
+                self.auto_item_ids.update((gun.entity,ammo.entity))
                 replies.extend((gun.spawn(), ammo.spawn()))
             if self.extra_items:
                 groups=([i for i,v in EXTRA_ITEMS.items() if v.slot==11],
@@ -122,17 +132,21 @@ class WorldPopulation:
                         [i for i,v in EXTRA_ITEMS.items() if v.slot==10],
                         [i for i,v in EXTRA_ITEMS.items() if v.slot==12])
                 for choices in groups:
-                    for _ in range(2):
-                        if len(world.stacks)>=112:
+                    for number in range(self.EXTRA_PER_GROUP):
+                        if len(world.stacks)>=self.AUTO_GROUND_CAP:
                             break
                         spot=self.choose_spot(position,rng)
                         if spot is None:
                             continue
-                        template=rng.choice(choices)
+                        # Each region attempts a common M4-compatible optic;
+                        # two unconstrained draws could both be non-optics.
+                        template=(40305 if number==0 and 40305 in choices else
+                                  rng.choice((40303,40304)) if number==1 and 40305 in choices else rng.choice(choices))
                         spec=EXTRA_ITEMS[template]
                         quantity=rng.randint(2,5) if spec.kind==7 else 1
                         item=world.add(Item(spec.kind,template,game.inventory.next_uid,quantity),spot)
                         game.inventory.next_uid+=1
+                        self.auto_item_ids.add(item.entity)
                         replies.append(item.spawn())
         if self.vehicles and self.control.vehicle_template is not None:
             for _ in range(self.vehicle_clusters):
@@ -141,7 +155,39 @@ class WorldPopulation:
                 spot = self.choose_spot(position, rng, vehicle=True)
                 if spot is not None:
                     replies.extend(self.control.spawn_vehicle(spot,rng.choice(sorted(LAND_VEHICLES)) if self.extra_items else 101))
+                    self.auto_vehicle_ids.add(self.control.next_vehicle_uid-1)
                     self.auto_vehicles += 1
         if self.bots is not None:
             replies.extend(self.bots.spawn(self, position, rng))
+        return replies
+
+    def unload_far(self,position):
+        """Bound the nearby working set, preserving manual loot and the driver.
+
+        Re-entering an unloaded region can populate it again. UID allocators
+        remain monotonic; removing a car must never reuse another car's UID.
+        """
+        replies=[]
+        world=self.control.gameplay.ground_loot
+        if world is not None:
+            self.auto_item_ids.intersection_update(world.stacks)
+            for entity in sorted(self.auto_item_ids):
+                stack=world.stacks[entity]
+                if math.dist(position[:2],stack.position[:2])>self.UNLOAD_DISTANCE:
+                    replies.append((0x82b,struct.pack('>Q',entity)))
+                    del world.stacks[entity]
+                    self.auto_item_ids.remove(entity)
+        self.auto_vehicle_ids.intersection_update(self.control.vehicles)
+        for uid in sorted(self.auto_vehicle_ids):
+            car=self.control.vehicles[uid]
+            if (uid!=self.control.active_vehicle and not car.seated
+                    and math.dist(position[:2],car.vehicle_position[:2])>self.UNLOAD_DISTANCE):
+                replies.append((0x654c,struct.pack('>Q',uid)))
+                del self.control.vehicles[uid]
+                self.auto_vehicle_ids.remove(uid)
+        self.auto_vehicles=len(self.auto_vehicle_ids)
+        self.spots=[p for p in self.spots if math.dist(position[:2],p)<=self.UNLOAD_DISTANCE]
+        self.visited={cell for cell in self.visited
+                      if math.dist(position[:2],((cell[0]+.5)*self.CELL,(cell[1]+.5)*self.CELL))
+                      <=self.UNLOAD_DISTANCE+2*self.CELL}
         return replies

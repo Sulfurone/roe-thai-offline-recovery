@@ -87,6 +87,9 @@ class OfflineGameplay:
     pickup_drop_anchor: tuple | None = field(default=None,init=False)
     pickup_drop_time: float = field(default=0,init=False)
     last_drop_event: dict | None = field(default=None,init=False)
+    require_self_position_for_drop: bool = False
+    self_position: tuple | None = field(default=None,init=False)
+    self_position_at: float | None = field(default=None,init=False)
 
     def __post_init__(self):
         if not math.isfinite(self.auto_board_delay) or not 0<=self.auto_board_delay<=30:
@@ -508,6 +511,20 @@ class OfflineGameplay:
         self.inventory.next_uid+=1
         return [weapon.spawn(),ammo.spawn()]
 
+    def accept_self_position(self,position,now=None):
+        if (not self.actor_ready or self.seated or len(position)!=3
+                or any(type(v) is not int or abs(v)>=2000000 for v in position)):
+            return False
+        self.self_position=tuple(position)
+        self.self_position_at=time.monotonic() if now is None else now
+        self.player_position=tuple(position)
+        return True
+
+    def has_fresh_self_position(self,now=None):
+        now=time.monotonic() if now is None else now
+        return (self.self_position is not None and self.self_position_at is not None
+                and 0<=now-self.self_position_at<=1)
+
     def _handle(self, message, body):
         self.last_drop_event=None
         if message == 0x6f57 and self.door_interactions:
@@ -565,16 +582,25 @@ class OfflineGameplay:
                 magazine=(self.weapon_magazine((body[1],struct.unpack_from('>H',body,2)[0]))
                           if len(body)>=15 else 0)
                 anchor=self.pickup_drop_anchor
+                fresh_self=self.has_fresh_self_position()
+                if self.require_self_position_for_drop and not fresh_self:
+                    self.last_drop_event=dict(accepted=False,reason='self_position_not_fresh')
+                    key=(body[1],struct.unpack_from('>H',body,2)[0]) if len(body) in (15,23) else None
+                    restore_slot=([self.inventory.delta([key])]
+                                  if key in self.inventory.items and self.inventory.valid_slot(key) else [])
+                    return restore_slot+[self.inventory.reply(2,1)]
                 use_anchor=(anchor is not None and 0<=time.monotonic()-self.pickup_drop_time<=30
                             and math.dist(anchor,self.player_position)>500)
-                position=anchor if use_anchor else self.player_position
+                position=((*self.self_position[:2],self.self_position[2]+30) if fresh_self else
+                          anchor if use_anchor else self.player_position)
                 replies=self.ground_loot.drop(body,self.inventory,self.actor_uid,position,
                                              self.actor_ready and not self.seated
                                              and not (glider is not None and glider.seated),magazine)
                 if any(msg==0x821 for msg,_ in replies):
                     stack=list(self.ground_loot.stacks.values())[-1]
                     self.last_drop_event=dict(entity=stack.entity,template=stack.item.template,
-                        position=list(stack.position),source='recent_pickup_camera_floor' if use_anchor else 'actor_keyframe')
+                        position=list(stack.position),source='client_self_read' if fresh_self else
+                        'recent_pickup_camera_floor' if use_anchor else 'actor_keyframe')
             else:
                 replies=self.inventory.handle(body)
             self.reserve=self.inventory.reserve

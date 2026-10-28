@@ -6,11 +6,13 @@ This is an experimental, community-maintained reconstruction for the original Ga
 
 ## 当前进度与边界
 
-蹲姿/趴姿速度调校已获用户实机确认：蹲趴速度合适，站立和跳跃正常。仅更新对应姿势记录，离线调校为2.8/1.2米每秒，站立及下落参数保持。最新本地148项、公开90项通过，见[姿势速度说明](MOVEMENT_POSTURES.md)。
+只读脚点、丢弃再拾取和沿途高密度物资已获用户实机确认，见[实时位置与流式生成](POSITION_STREAMING.md)。主入口需先构建自有只读观测库；原DLL按哈希备份、转发和恢复。背包增量仍为128行；地面实体为自动384/总512，远处自动对象会回收。
 
-物品目录已扩为24项，新增药品和三级头盔/防弹衣；F6有装备页和8种原车型选择。新候选支持兼容配件安装/替换/拆卸、随整枪保存，以及近期拾取后的丢弃落点修正，见[装备操作说明](EQUIPMENT_ACTIONS.md)。先前所测试物品拾取和车辆上车/驾驶/下车已获用户确认；本轮新增内容尚待实机。治疗、护甲伤害、完整配件属性、实时坐标同步及投掷仍未恢复，见[扩展物资说明](EXPANDED_LOOT.md)。
+蹲趴速度、站立/跳跃仍维持已验收配置。本地159项检查通过。配件安装仍异常，弹药数量与切枪瞬间换弹是最新待修问题。
 
-- 门开关及高密度屋内物资拾取已获用户实机确认。物资提高到每区8组枪弹，车辆每区尝试3辆，F6载具页显示最近位置。本轮所测试车辆已确认上车/驾驶/下车正常；全部车型/座位和停车精度仍需逐项验收，见 [世界生成说明](WORLD_POPULATION.md)。
+物品目录24项，药品/护甲拾取装备及实时脚点后的丢弃再拾取已获确认，F6有装备和8种原车型选择。配件安装仍异常，弹药数量和切枪换弹正在修复。治疗、护甲伤害、投掷及完整战斗未恢复，见[装备操作说明](EQUIPMENT_ACTIONS.md)。
+
+- 门开关及高密度屋内物资拾取已获用户实机确认。物资提高到每区16组枪弹，车辆每区尝试3辆，F6载具页显示最近位置。本轮所测试车辆已确认上车/驾驶/下车正常；全部车型/座位和停车精度仍需逐项验收，见 [世界生成说明](WORLD_POPULATION.md)。
 - 机器人前三轮均未被用户看到；最新完整资料也尚未解决显示问题，不能称AI已恢复。已补外观、实际出生坐标和运行资料，继续排查；尚无战斗AI、攻击、伤害或击杀。
 - 最新反馈补充两项缺陷：飞机模型横飞、步行后刷新坐标滞留。已加入按航线调整生成旋转、完整轨迹末点解析和可选移动确认；原生参数与加密链路验证通过，修复版实机正在验证。此前“正常”确认覆盖白天可飞、跳伞和落地移动，不代表这两项问题不存在。
 - `start_ingame_control.cmd` 组合原生跳伞、正午与游戏窗口悬浮菜单；用户已实机确认白天飞行、跳伞和落地移动正常。已确认的正午地面菜单保留为 `start_ingame_ground.cmd`。菜单可选天气、武器/弹药和吉普车，显示、F6 和下拉选择也已确认。它是独立 Windows 窗口，原生 Lua 面板两轮加载均失败，见 [游戏菜单说明](ingame/README.md)。
@@ -39,11 +41,18 @@ git clone https://github.com/Sulfurone/roe-thai-offline-recovery.git recovery
 cd recovery
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m unittest test_offline_gameplay test_opening_airdrop test_scatter_loot test_aircraft_launcher_phases test_environment_schedule test_environment_session test_control_panel test_control_panel_session test_ingame_bridge test_ingame_session test_offline_motion test_population test_client_map test_extra_items test_equipment_actions -q
+.\.venv\Scripts\python.exe -m unittest test_offline_gameplay test_opening_airdrop test_scatter_loot test_aircraft_launcher_phases test_environment_schedule test_environment_session test_control_panel test_control_panel_session test_ingame_bridge test_ingame_session test_offline_motion test_population test_client_map test_extra_items test_equipment_actions test_self_position -q
 $env:ROE_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
 ```
 
-上述 **90 项**检查使用合成状态，无须客户端和私人抓包。仓库还保留其他测试；本地材料齐全时全套为148项，其中一部分需要本地生成的协议样本、角色数据、原客户端内存镜像或原版资源，干净克隆后不能直接全部运行。
+上述101项检查使用合成状态，无须客户端和私人抓包。仓库还保留其他测试；本地材料齐全时全套159项，一部分需要本地生成的协议样本、角色数据、原客户端内存镜像或资源，干净克隆后不能直接全部运行。
+
+主入口的只读脚点模块还需自行构建（Windows/x86），见[构建说明](POSITION_STREAMING.md)：
+
+```powershell
+python -m pip install --target build-tools ziglang==0.14.0
+python self_position.py build
+```
 
 资源研究示例（只读取原归档，输出在仓库忽略的目录中）：
 

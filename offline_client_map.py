@@ -156,7 +156,7 @@ class ThaiClientMap:
     def spawn_spot(self, position, rng, kind, occupied):
         x,y,_ = position
         if kind == 'loot':
-            choices = sorted(self.doors,key=lambda p:math.hypot(p[0]-x,p[1]-y))[:16]
+            choices = sorted(self.doors,key=lambda p:math.hypot(p[0]-x,p[1]-y))[:32]
             rng.shuffle(choices)
             for door in choices:
                 px,py,z,dx,dy=door[:5]
@@ -165,7 +165,7 @@ class ThaiClientMap:
                 inward = rng.uniform(90,door[5] if len(door)>5 else 220)
                 side = rng.uniform(-60,60)
                 spot = (round(px+dx*inward-dy*side),round(py+dy*inward+dx*side),round(z)+10)
-                if all(math.hypot(spot[0]-a,spot[1]-b) >= 150 for a,b in occupied):
+                if all(math.hypot(spot[0]-a,spot[1]-b) >= 120 for a,b in occupied):
                     return spot
             return None
         if kind == 'peer':

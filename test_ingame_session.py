@@ -166,9 +166,9 @@ class IngameSessionTests(unittest.TestCase):
                                          +[(i,120,120) for i in range(24,28)])
                         send(0x002a,struct.pack('>I3i',1,325850,271700,6501))
                     if population:
-                        generated = [receive_raw() for _ in range(40)]
+                        generated = [receive_raw() for _ in range(68)]
                         self.assertEqual([m for m, _ in generated],
-                            [0x821]*28 + [0x654b, 0x6554, 0x656e]*3 + [0x565, 0xbe7, 0x27])
+                            [0x821]*56 + [0x654b, 0x6554, 0x656e]*3 + [0x565, 0xbe7, 0x27])
                         bot_uid = struct.unpack_from('>Q', generated[-2][1], 8)[0]
                         self.assertNotEqual(bot_uid, 256)
                     if interface == '--ingame-overlay':

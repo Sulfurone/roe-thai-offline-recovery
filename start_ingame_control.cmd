@@ -18,14 +18,14 @@ if not errorlevel 1 (
 echo Thai daytime parachute and in-game overlay: F6 opens or collapses weather, weapon and Jeep controls.
 echo This is a native Windows overlay attached to the game window.
 echo Daytime: synchronize lobby time, then set noon after player readiness.
-echo Motion recovery: acknowledge walking reports; local generated-car boarding follows the loaded client selection.
+echo Motion recovery: self-read position observer, walking receipts and loaded-client vehicle boarding.
 echo Aircraft opening uses the verified west-to-east route. Use the native jump key.
 echo The menu starts compact; F6 opens it when you need it.
 echo Keep this console open while playing.
-echo Exploration population: eight weapon/ammo pairs, equipment and three mixed roadside vehicles per region.
+echo Streaming population: sixteen weapon/ammo pairs, four of each equipment group and three mixed roadside vehicles per region.
 set "ROE_BOT_ARGS="
 if defined ROE_EXPERIMENTAL_BOTS set ROE_BOT_ARGS=--world-bots 1 --world-bot-profile "%~dp0private\typed-gameplay\bot-basic-profile.bin"
-"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --port 8003 --single-session --launch --ingame-overlay --gameplay-doors --world-populate --world-extra-items --control-client-boarding --world-client-map "%~dp0private\client-map\World_EU_KillZone_2048_RemainingFiles" %ROE_BOT_ARGS% --gameplay-motion-ack --gameplay-posture-speeds --aircraft-align-heading --ingame-menu-collapsed --world-time-tail-bytes 18 --environment-hour 12 --environment-trigger player-ready --environment-ready-delay 3 --control-vehicle-template "%~dp0private\typed-gameplay\vehicle-jeep-near.bin" --gameplay-prototype --gameplay-auto-seat --gameplay-auto-board-delay 2 --gameplay-initialize-vehicle --gameplay-aircraft-route-speed 5000 --gameplay-aircraft-route-end 409400 204800 75000 --gameplay-vehicle-config 4 --gameplay-inventory --gameplay-ground-loot --gameplay-typed-uids --probe-auth-response --compact-responses ^
+"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --port 8003 --single-session --launch --self-position-observer --ingame-overlay --gameplay-doors --world-populate --world-extra-items --control-client-boarding --world-client-map "%~dp0private\client-map\World_EU_KillZone_2048_RemainingFiles" %ROE_BOT_ARGS% --gameplay-motion-ack --gameplay-posture-speeds --aircraft-align-heading --ingame-menu-collapsed --world-time-tail-bytes 18 --environment-hour 12 --environment-trigger player-ready --environment-ready-delay 3 --control-vehicle-template "%~dp0private\typed-gameplay\vehicle-jeep-near.bin" --gameplay-prototype --gameplay-auto-seat --gameplay-auto-board-delay 2 --gameplay-initialize-vehicle --gameplay-aircraft-route-speed 5000 --gameplay-aircraft-route-end 409400 204800 75000 --gameplay-vehicle-config 4 --gameplay-inventory --gameplay-ground-loot --gameplay-typed-uids --probe-auth-response --compact-responses ^
   --world-body-file "%~dp0private\typed-gameplay\world.bin" ^
   --team-body-file "%~dp0private\typed-gameplay\team.bin" ^
   --enter-body-file "%~dp0private\typed-gameplay\enter.bin" ^

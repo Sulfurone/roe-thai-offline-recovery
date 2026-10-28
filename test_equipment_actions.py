@@ -100,12 +100,12 @@ class EquipmentActionsTests(unittest.TestCase):
         population=WorldPopulation(ControlSession(game),Surface(),42,vehicles=False,extra_items=True)
         population.tick()
         specs=[EXTRA_ITEMS[s.item.template] for s in game.ground_loot.stacks.values() if s.item.template in EXTRA_ITEMS]
-        self.assertEqual(sum(s.kind==7 for s in specs),2)
-        for slot in (10,11,12):self.assertEqual(sum(s.slot==slot for s in specs),2)
+        self.assertEqual(sum(s.kind==7 for s in specs),4)
+        for slot in (10,11,12):self.assertEqual(sum(s.slot==slot for s in specs),4)
         for i in range(20):
             game.player_position=(100000+i*15000,200000,7250)
             population.tick()
-        self.assertLessEqual(len(game.ground_loot.stacks),112)
+        self.assertLessEqual(len(game.ground_loot.stacks),WorldPopulation.AUTO_GROUND_CAP)
 
     def test_medicine_stacks_and_armor_go_to_original_slots(self):
         game=ready_game()
