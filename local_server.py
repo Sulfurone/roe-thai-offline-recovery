@@ -24,6 +24,7 @@ from ingame_overlay import OverlayProcess
 from offline_motion import actor_motion, aircraft_spawn_heading
 from offline_population import WorldPopulation
 from offline_bots import BotRoster
+from offline_hit_reports import character_hit
 from offline_posture import posture_speed_delta,CROUCH_CM_PER_SECOND,PRONE_CM_PER_SECOND
 from self_position import PositionInstallation,recover_previous
 
@@ -702,6 +703,15 @@ def main():
                                 raw.write(application)
                             message_id = struct.unpack_from('>H', application, 4)[0] if len(application) >= 6 else None
                             emit('application_message', bytes=len(application), message_id=message_id)
+                            if gameplay is not None and message_id==0x11e9:
+                                hit=character_hit(application[26:])
+                                if hit is None:
+                                    emit('character_hit_report_rejected',body_bytes=len(application[26:]))
+                                else:
+                                    emit('character_hit_report',sequence=hit.sequence,
+                                         target_uid=hit.target_uid,impact=hit.impact,
+                                         source_position=hit.source_position,part=hit.part,
+                                         damage_applied=False)
                             if args.gameplay_motion_ack and gameplay is not None and loaded_pushes_sent and message_id == 0x002a:
                                 motion = actor_motion(application[26:])
                                 if motion is not None and motion[1] is not None:

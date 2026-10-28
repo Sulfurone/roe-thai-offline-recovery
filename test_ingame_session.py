@@ -18,6 +18,7 @@ from offline_gameplay import JEEP_UID,OfflineGameplay
 from offline_inventory import Item
 from test_throwables import start as throw_start,finish as throw_finish
 from test_medicine import request as medicine_request
+from test_hit_reports import hit_body
 from test_offline_motion import move_body, plane_body
 from test_control_panel import jeep_template
 from offline_bots import POSITION_MARKER
@@ -49,7 +50,10 @@ class IngameSessionTests(unittest.TestCase):
     def test_timed_medical_use_and_hp_delta_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',vitals=True,medicine=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False):
+    def test_collision_reports_are_diagnostic_without_invented_hp_or_ammo_changes(self):
+        self.run_session('--ingame-overlay',vitals=True,hit_reports=True)
+
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -104,8 +108,10 @@ class IngameSessionTests(unittest.TestCase):
                 except BaseException as error:
                     errors.put(error)
 
+            games=[]
             def construct_game(**kwargs):
                 game=OfflineGameplay(**kwargs)
+                games.append(game)
                 if throws:game.inventory.items[1,5]=Item(5,50001,0x100110,3)
                 if medicine:
                     game.inventory.items[2,3]=Item(7,70001,0x100110,2)
@@ -114,7 +120,7 @@ class IngameSessionTests(unittest.TestCase):
 
             with patch.object(local_server, '__file__', str(root / 'recovery/local_server.py')), \
                     patch('sys.argv', argv), \
-                    (patch.object(local_server,'OfflineGameplay',side_effect=construct_game) if throws or medicine else contextlib.nullcontext()), \
+                    (patch.object(local_server,'OfflineGameplay',side_effect=construct_game) if throws or medicine or hit_reports else contextlib.nullcontext()), \
                     patch.object(local_server, 'ControlServer', side_effect=AssertionError('Native mode must not start HTTP')), \
                     patch.object(local_server, 'OverlayProcess', return_value=contextlib.nullcontext()) as overlay, \
                     contextlib.redirect_stdout(output), contextlib.ExitStack() as cleanup:
@@ -295,11 +301,27 @@ class IngameSessionTests(unittest.TestCase):
                         self.assertEqual(receive()[0],0x3e82)
                         self.assertGreaterEqual(time.monotonic()-started,2.8)
                         self.assertEqual(receive_raw(),(0x1069,struct.pack('>QBBBII',256,0,1,0,500,1000)))
+                    if hit_reports:
+                        before=(games[0].vitals.current,games[0].magazine)
+                        send(0x11e9,hit_body()+b'\x18'*8)
+                        send(0x11e9,hit_body()[:-1])
+                        client.settimeout(.2)
+                        with self.assertRaises(socket.timeout):read_frame(client)
+                        client.settimeout(4)
+                        self.assertEqual((games[0].vitals.current,games[0].magazine),before)
                     client.sendall(frame(13))
                 thread.join(5)
                 self.assertFalse(thread.is_alive())
             if not errors.empty():
                 raise errors.get()
+            if hit_reports:
+                rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
+                reports=[r for r in rows if r.get('event')=='character_hit_report']
+                rejected=[r for r in rows if r.get('event')=='character_hit_report_rejected']
+                self.assertEqual(len(reports),1)
+                self.assertEqual(reports[0]['target_uid'],0x1000000001100)
+                self.assertIs(reports[0]['damage_applied'],False)
+                self.assertEqual(len(rejected),1)
             if posture:
                 self.assertEqual(output.getvalue().count('"event": "posture_speed_delta_sent"'),1)
             if interface == '--ingame-overlay':
