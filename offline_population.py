@@ -1,4 +1,4 @@
-"""Exploration-time synthetic loot/Jeep placement using own-client terrain.
+"""Exploration-time synthetic loot/land vehicles using own-client terrain.
 
 This is a finite local scenario, not the original map's authored spawn data.
 Heightfield checks cannot detect buildings, trees or other map props.
@@ -10,6 +10,8 @@ from offline_ground_loot import MAX_GROUND_STACKS
 from offline_inventory import Item
 from offline_weapons import WEAPONS
 from offline_motion import actor_motion
+from offline_items import EXTRA_ITEMS
+from offline_vehicles import LAND_VEHICLES
 import struct
 
 
@@ -17,7 +19,7 @@ class WorldPopulation:
     CELL = 15000  # centimetres
 
     def __init__(self, control, terrain, seed=1, loot=True, vehicles=True, bots=None, clusters=8,
-                 vehicle_clusters=3):
+                 vehicle_clusters=3,extra_items=False):
         if type(clusters) is not int or not 1<=clusters<=16:
             raise ValueError('Population density must be 1..16 weapon/ammo pairs per region')
         if type(vehicle_clusters) is not int or not 1<=vehicle_clusters<=4:
@@ -30,6 +32,7 @@ class WorldPopulation:
         self.bots = bots
         self.clusters=clusters
         self.vehicle_clusters=vehicle_clusters
+        self.extra_items=extra_items
         if bots is not None:
             control.peer_positions=bots.actors
         if hasattr(terrain,'spawn_spot'):
@@ -111,13 +114,29 @@ class WorldPopulation:
                                  (spot[0] + 50, spot[1], spot[2]))
                 game.inventory.next_uid += 1
                 replies.extend((gun.spawn(), ammo.spawn()))
+            if self.extra_items:
+                groups=([i for i,v in EXTRA_ITEMS.items() if v.kind==20],
+                        [i for i,v in EXTRA_ITEMS.items() if v.kind==5],
+                        [i for i,v in EXTRA_ITEMS.items() if v.kind==4])
+                for choices in groups:
+                    for _ in range(2):
+                        if len(world.stacks)>=112:
+                            break
+                        spot=self.choose_spot(position,rng)
+                        if spot is None:
+                            continue
+                        template=rng.choice(choices)
+                        spec=EXTRA_ITEMS[template]
+                        item=world.add(Item(spec.kind,template,game.inventory.next_uid,1),spot)
+                        game.inventory.next_uid+=1
+                        replies.append(item.spawn())
         if self.vehicles and self.control.vehicle_template is not None:
             for _ in range(self.vehicle_clusters):
                 if self.auto_vehicles>=12 or len(self.control.vehicles)>=16:
                     break
                 spot = self.choose_spot(position, rng, vehicle=True)
                 if spot is not None:
-                    replies.extend(self.control.spawn_vehicle(spot))
+                    replies.extend(self.control.spawn_vehicle(spot,rng.choice(sorted(LAND_VEHICLES)) if self.extra_items else 101))
                     self.auto_vehicles += 1
         if self.bots is not None:
             replies.extend(self.bots.spawn(self, position, rng))

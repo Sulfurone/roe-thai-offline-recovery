@@ -11,6 +11,8 @@ import time
 
 from offline_environment import NATIVE_WEATHER_IDS
 from offline_weapons import WEAPONS
+from offline_items import EXTRA_ITEMS
+from offline_vehicles import LAND_VEHICLES
 
 WEATHER_NAMES = dict(zip(sorted(NATIVE_WEATHER_IDS), (
     '原生默认', '晴天', '小雨', '大雨', '雷雨', '雷电', '阴天', '大风',
@@ -56,10 +58,18 @@ def validate_command(data):
     if action == 'vehicle':
         if set(data) - {'action', 'config', 'distance'}:
             raise ValueError('未知载具参数')
-        if integer(data, 'config', 101, 101, 101) != 101:
-            raise ValueError('当前仅支持吉普车')
-        return dict(action=action, config=101,
+        config=integer(data,'config',min(LAND_VEHICLES),max(LAND_VEHICLES),101)
+        return dict(action=action, config=config,
                     distance=integer(data, 'distance', 5, 20, 6))
+    if action=='item':
+        if set(data)-{'action','template','count','distance'}:
+            raise ValueError('未知物品参数')
+        template=integer(data,'template',1,999999)
+        if template not in EXTRA_ITEMS:
+            raise ValueError('不支持的物品')
+        return dict(action=action,template=template,
+                    count=integer(data,'count',1,min(5,EXTRA_ITEMS[template].max_stack),1),
+                    distance=integer(data,'distance',2,20,3))
     raise ValueError('未知操作')
 
 
@@ -101,7 +111,7 @@ class ControlHub:
                 raise RuntimeError('等待游戏进入地图后再操作')
             if command['action'] != 'weather' and self.state['seated']:
                 raise RuntimeError('请先离开载具，再刷新物品')
-            capability = {'weapon': 'weapons_enabled', 'vehicle': 'vehicles_enabled'}.get(command['action'])
+            capability = {'weapon': 'weapons_enabled','item':'weapons_enabled', 'vehicle': 'vehicles_enabled'}.get(command['action'])
             if capability and not self.state[capability]:
                 raise RuntimeError('当前入口未启用此功能，请使用控制台专用入口')
             if len(self.pending) >= 24:

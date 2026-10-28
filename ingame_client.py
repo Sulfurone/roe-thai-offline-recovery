@@ -78,6 +78,8 @@ class MailboxClient:
             values = command['weather_id'], command['transition'], 0, 0
         elif action == 'weapon':
             values = command['template'], command['ammo'], command['distance'], command['count']
+        elif action=='item':
+            values=command['template'],0,command['distance'],command['count']
         else:
             values = command['config'], 0, command['distance'], 0
         line = '\t'.join(map(str, (self.token, sequence, action, *values))) + '\n'

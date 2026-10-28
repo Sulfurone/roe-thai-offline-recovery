@@ -16,6 +16,7 @@ from offline_doors import DoorState
 from offline_inventory import Item,OfflineInventory
 from offline_ground_loot import OfflineGroundLoot,MAX_GROUND_STACKS
 from offline_weapons import WEAPONS,AMMUNITION,is_weapon
+from offline_vehicles import LAND_VEHICLES
 import offline_world_state
 
 ACTOR_UID = 256
@@ -26,7 +27,8 @@ TYPED_VEHICLE_UID = 0x0005000000200101
 # Original EuVehicleTable rows, decoded with the 0x74FEF0 reflection schema.
 # id: (initial HP, initial oil, get-on distance in cm). Oil is zero in this
 # Thai table, including max oil; do not invent a modern fuel mechanic.
-VEHICLE_DEFAULTS = {101:(24000,0,500),3:(100,0,0),4:(100,0,0)}
+VEHICLE_DEFAULTS = {i:(v.hp,0,v.geton_distance) for i,v in LAND_VEHICLES.items()}
+VEHICLE_DEFAULTS.update({3:(100,0,0),4:(100,0,0)})
 
 
 @dataclass
@@ -614,7 +616,8 @@ class OfflineGameplay:
                     return self.board()
         if message == 0x6541 and self.valid_length(body,12):
             uid,seat = struct.unpack_from('>QI',body)
-            if uid != self.vehicle_uid or seat > 4:
+            seats=LAND_VEHICLES[self.vehicle_config].seats if self.vehicle_config in LAND_VEHICLES else 4
+            if uid != self.vehicle_uid or seat > seats:
                 return []
             distance=VEHICLE_DEFAULTS[self.vehicle_config][2]
             if distance<=0 or sum((a-b)**2 for a,b in zip(self.player_position,self.vehicle_position)) > distance**2:
@@ -626,18 +629,18 @@ class OfflineGameplay:
                     return []
                 return self.leave()+self.deploy_glider() if self.seated else []
             return self.leave()
-        if message==0x6547 and self.valid_length(body,4) and self.vehicle_config==101 and self.seated:
+        if message==0x6547 and self.valid_length(body,4) and self.vehicle_config in LAND_VEHICLES and self.seated:
             # Original 0x1288750 sends a one-based destination seat.
             # Callback 0x1288620 consumes vehicle/actor IDs, old/new seats,
             # then error; it converts both seats back to zero-based.
             destination=struct.unpack_from('>I',body)[0]
             previous=self.seat
-            error=0 if 1<=destination<=4 else 1
+            error=0 if 1<=destination<=LAND_VEHICLES[self.vehicle_config].seats else 1
             if not error:
                 self.seat=destination
             return [(0x6548,struct.pack('>QQIII',self.vehicle_uid,self.actor_uid,
                                        previous,destination,error))]
-        if message == 0x6572 and self.valid_length(body,14) and self.vehicle_config==101:
+        if message == 0x6572 and self.valid_length(body,14) and self.vehicle_config in LAND_VEHICLES:
             # Native request 0x12888F0 and broadcast callback 0x1288BC0
             # share frame DWORD / time BYTE / vehicle QWORD / input BYTE.
             # Preserve the original input; never synthesize a drive command.

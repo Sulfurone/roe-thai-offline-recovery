@@ -1,16 +1,26 @@
-"""Bounded original-Thai inventory transfers for supported firearms and ammunition.
+"""Bounded original-Thai inventory transfers and a small equipment catalogue.
 
-Only the verified weapon/ammunition object variants are encoded. Unknown
-items, external containers, use and world-drop operations are rejected.
+Known firearms/ammunition and whitelisted generic item variants are encoded.
+External containers, attachment installation and item-use operations remain
+separate protocols. Ground drop is implemented by offline_ground_loot.
 """
 from dataclasses import dataclass,replace
 import struct
 from offline_weapons import WEAPONS,AMMUNITION,AMMO_STACK_MAX,is_weapon
+from offline_items import EXTRA_ITEMS,is_extra
 
 WEAPON_TEMPLATE=10201
 AMMO_TEMPLATE=30001
 MAX_AMMO=AMMO_STACK_MAX
 MAX_RESERVE=128*MAX_AMMO
+
+
+def stack_limit(item):
+    return EXTRA_ITEMS[item.template].max_stack if is_extra(item) else MAX_AMMO if item.kind==3 and item.template in AMMUNITION else 1
+
+
+def supported(item):
+    return is_weapon(item) or is_extra(item) or (item.kind==3 and item.template in AMMUNITION and 0<item.count<=MAX_AMMO)
 
 
 @dataclass(frozen=True)
@@ -45,11 +55,13 @@ class OfflineInventory:
     @staticmethod
     def valid_slot(key):
         container,slot=key
-        return (container==1 and slot in (1,2,3)) or (container==2 and 0<=slot<128)
+        return (container==1 and slot in (1,2,3,5,11)) or (container==2 and 0<=slot<128)
 
     @classmethod
     def fits(cls,key,item):
-        return cls.valid_slot(key) and (key[0]==2 or is_weapon(item) and key[1] in WEAPONS[item.template].slots)
+        return cls.valid_slot(key) and (key[0]==2
+            or is_weapon(item) and key[1] in WEAPONS[item.template].slots
+            or is_extra(item) and EXTRA_ITEMS[item.template].slot==key[1])
 
     @property
     def reserve(self):
@@ -75,7 +87,8 @@ class OfflineInventory:
 
     def delta(self,keys):
         keys=sorted(set(keys))
-        if len(keys)>129 or any(not self.valid_slot(key) for key in keys):
+        # Original delta DTO has 128 native rows before its final owner flag.
+        if len(keys)>128 or any(not self.valid_slot(key) for key in keys):
             raise ValueError('Inventory delta exceeds the local slot bound')
         body=bytes((len(keys),))
         for container,slot in keys:
@@ -106,8 +119,8 @@ class OfflineInventory:
                 updated[source]=replace(item,count=item.count-quantity)
                 updated[destination]=replace(item,count=quantity,uid=self.next_uid)
                 self.next_uid+=1
-        elif item.kind==target.kind==3 and item.template==target.template:
-            if target.count+quantity>MAX_AMMO:
+        elif item.kind==target.kind and item.template==target.template and stack_limit(item)>1:
+            if target.count+quantity>stack_limit(item):
                 return [self.reply(1,1)]
             updated[destination]=replace(target,count=target.count+quantity)
             if quantity==item.count:
@@ -174,7 +187,7 @@ class OfflineInventory:
                                       ('selected_slot',0,6),('next_uid',1,2**64-1)]:
             if type(data[field]) is not int or not minimum<=data[field]<=maximum:
                 raise ValueError(f'Invalid offline profile {field}')
-        if not isinstance(data['items'],list) or len(data['items'])>129:
+        if not isinstance(data['items'],list) or len(data['items'])>133:
             raise ValueError('Too many offline inventory entries')
         inventory=cls(0)
         inventory.items={}
@@ -190,7 +203,7 @@ class OfflineInventory:
             if (not inventory.fits(key,item) or key in inventory.items
                     or not 0<item.uid<inventory.next_uid or item.uid in uids):
                 raise ValueError('Invalid or duplicate offline item identity/slot')
-            if not (is_weapon(item) or (item.kind==3 and item.template in AMMUNITION and 0<item.count<=MAX_AMMO)):
+            if not supported(item):
                 raise ValueError('Unsupported offline item type/count')
             inventory.items[key]=item
             uids.add(item.uid)

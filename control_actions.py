@@ -10,10 +10,12 @@ from offline_gameplay import OfflineGameplay, TYPED_VEHICLE_UID, TYPED_ACTOR_UID
 from offline_ground_loot import MAX_GROUND_STACKS
 from offline_inventory import Item
 from offline_weapons import WEAPONS
+from offline_vehicles import LAND_VEHICLES
+from offline_items import EXTRA_ITEMS
 import offline_world_state
 
 
-def vehicle_spawn(template, uid, position):
+def vehicle_spawn(template, uid, position, config=101):
     """Clone a locally prepared, original-codec-validated Jeep spawn body."""
     if not 40 <= len(template) <= 65536:
         raise ValueError('吉普车样本长度无效')
@@ -23,22 +25,27 @@ def vehicle_spawn(template, uid, position):
         raise ValueError('吉普车样本名称边界无效')
     if struct.unpack_from('>I', template, start)[0] != 101:
         raise ValueError('载具样本必须是 config 101 吉普车')
+    if config not in LAND_VEHICLES:
+        raise ValueError('不支持的地面载具')
     if len(position) != 3 or any(type(v) is not int or abs(v) >= 2_000_000 for v in position):
         raise ValueError('载具坐标越界')
     body = bytearray(template)
     struct.pack_into('>Q', body, 0, uid)
-    struct.pack_into('>I', body, start + 8, 24000)
+    struct.pack_into('>I', body, start, config)
+    struct.pack_into('>I', body, start + 8, LAND_VEHICLES[config].hp)
     struct.pack_into('>3i', body, start + 12, *position)
     return bytes(body)
 
 
 class ControlSession:
-    def __init__(self, gameplay=None, vehicle_template=None):
+    def __init__(self, gameplay=None, vehicle_template=None,client_boarding=False):
         self.gameplay = gameplay
         self.vehicle_template = vehicle_template
         self.vehicles = {}
         self.peer_positions = {}
         self.active_vehicle = None
+        self.client_boarding=client_boarding
+        self.last_board_event=None
         self.weather_id = None
         self.placement_map = None
         self.placement_random = random.Random()
@@ -54,7 +61,7 @@ class ControlSession:
                     ground_items=len(game.ground_loot.stacks) if game and game.ground_loot else 0,
                     weapons_enabled=bool(game and game.ground_loot),
                     vehicles_enabled=bool(game and self.vehicle_template),
-                    vehicles=[dict(uid=str(uid), name='吉普车', position=list(car.vehicle_position),
+                    vehicles=[dict(uid=str(uid), name=LAND_VEHICLES[car.vehicle_config].name, position=list(car.vehicle_position),
                                    seated=car.seated) for uid, car in self.vehicles.items()],
                     peers=[dict(name=f'OfflineBot{uid-TYPED_ACTOR_UID-0x1000+1}',position=list(actor['position']))
                            for uid,actor in self.peer_positions.items()])
@@ -73,6 +80,24 @@ class ControlSession:
             raise ValueError('请在地面刷新物品')
         x, y, z = game.player_position
         distance = command['distance'] * 100
+        if command['action']=='item':
+            world=game.ground_loot
+            if world is None or not world.announced:
+                raise ValueError('地面物品功能尚未就绪')
+            spec=EXTRA_ITEMS[command['template']]
+            previous=json.dumps(offline_world_state.snapshot(game.inventory,world,game.magazine,game.selected_slot))
+            announced=world.announced
+            try:
+                stack=world.add(Item(spec.kind,command['template'],game.inventory.next_uid,command['count']),
+                                (x+distance,y,z))
+                game.inventory.next_uid+=1
+                game.save_state()
+            except (OSError,ValueError):
+                game.inventory,game.ground_loot,game.magazine,game.selected_slot=offline_world_state.restore(json.loads(previous))
+                game.ground_loot.announced=announced
+                game.reserve=game.inventory.reserve
+                raise
+            return [stack.spawn()],f'已发送{spec.name} × {command["count"]}'
         if command['action'] == 'weapon':
             if game.ground_loot is None or not game.ground_loot.announced:
                 raise ValueError('地面物品功能尚未就绪')
@@ -106,13 +131,13 @@ class ControlSession:
                 [car.vehicle_position[:2] for car in self.vehicles.values()])
             if spot is None:
                 raise ValueError('附近道路没有合适的停车位置')
-            replies=self.spawn_vehicle(spot)
+            replies=self.spawn_vehicle(spot,command['config'])
             actual=round(math.dist(game.player_position[:2],spot[:2])/100)
-            return replies,f'已发送路边吉普车，距角色约 {actual} 米；X {spot[0]/100:.1f}，Y {spot[1]/100:.1f}'
-        replies = self.spawn_vehicle((x + distance, y, z + 100))
-        return replies, f"已发送吉普车，距角色 {command['distance']} 米"
+            return replies,f'已发送路边{LAND_VEHICLES[command["config"]].name}，距角色约 {actual} 米；X {spot[0]/100:.1f}，Y {spot[1]/100:.1f}'
+        replies = self.spawn_vehicle((x + distance, y, z + 100),command['config'])
+        return replies, f"已发送{LAND_VEHICLES[command['config']].name}，距角色 {command['distance']} 米"
 
-    def spawn_vehicle(self, position):
+    def spawn_vehicle(self, position,config=101):
         """Shared allocator/routing for manually and automatically placed Jeeps."""
         game = self.gameplay
         if self.vehicle_template is None:
@@ -120,8 +145,8 @@ class ControlSession:
         if len(self.vehicles) >= 16:
             raise ValueError('本轮最多刷新 16 辆吉普车')
         uid = TYPED_VEHICLE_UID + 0x1000 + len(self.vehicles)
-        body = vehicle_spawn(self.vehicle_template, uid, position)
-        car = OfflineGameplay(actor_uid=game.actor_uid, vehicle_uid=uid, initialize_vehicle=True)
+        body = vehicle_spawn(self.vehicle_template, uid, position,config)
+        car = OfflineGameplay(actor_uid=game.actor_uid, vehicle_uid=uid, initialize_vehicle=True,vehicle_config=config)
         car.player_position, car.actor_ready = game.player_position, True
         car.observe_spawn(0x654b, body)
         self.vehicles[uid] = car
@@ -130,6 +155,7 @@ class ControlSession:
     def handle(self, message, body):
         """Return None to defer to existing gameplay, or replies for a panel car."""
         game = self.gameplay
+        self.last_board_event=None
         if not game:
             return None
         car = None
@@ -144,7 +170,20 @@ class ControlSession:
         if message == 0x6541 and game.seated:
             return []
         car.player_position = game.player_position
-        replies = car.handle(message, body)
+        if message==0x6541 and self.client_boarding and len(body) in (12,20):
+            seat=struct.unpack_from('>I',body,8)[0] or 1
+            ready=(game.actor_ready and game.deployment_phase in ('ground','landed')
+                   and car.vehicle_ready and 1<=seat<=LAND_VEHICLES[car.vehicle_config].seats)
+            # The original request carries only vehicle UID and seat, no
+            # current actor position. In this opt-in single-player policy,
+            # accept the local client's selected, loaded generated vehicle.
+            # Do not turn a stale walking keyframe into an invented position.
+            self.last_board_event=dict(uid=hex(car.vehicle_uid),config=car.vehicle_config,
+                accepted=ready,last_keyframe_distance_cm=round(math.dist(game.player_position,car.vehicle_position)))
+            replies=(car.board(seat) if ready else [(0x6542,struct.pack('>QIIQII3iB',
+                car.vehicle_uid,car.vehicle_config,0,game.actor_uid,seat,1,*car.vehicle_position,0))])
+        else:
+            replies = car.handle(message, body)
         if car.seated:
             self.active_vehicle = car.vehicle_uid
             game.seated, game.seat = True, car.seat

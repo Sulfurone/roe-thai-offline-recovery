@@ -84,6 +84,10 @@ def main():
                         help='Weapon/ammo pairs attempted per exploration region, 1..16 (default 8)')
     parser.add_argument('--world-vehicle-clusters',type=int,default=3,
                         help='Roadside cars attempted per exploration region, 1..4 (default 3)')
+    parser.add_argument('--world-extra-items',action='store_true',
+                        help='Experimental residential bags, throwables, attachments and mixed land vehicles')
+    parser.add_argument('--control-client-boarding',action='store_true',
+                        help='Single-player: trust local selection of loaded generated vehicles for boarding')
     parser.add_argument('--world-bots', type=int, default=0,
                         help='Experimental default peer patrol count, 0..4; no combat AI')
     parser.add_argument('--world-bot-profile', type=Path,
@@ -491,10 +495,12 @@ def main():
                     initialize_vehicle=args.gameplay_initialize_vehicle,
                     aircraft_route_speed=args.gameplay_aircraft_route_speed,
                     auto_exit_after=args.gameplay_auto_exit_seconds) if args.gameplay_prototype else None
-                control_session = ControlSession(gameplay, control_vehicle_body) if control or args.world_populate else None
+                control_session = ControlSession(gameplay, control_vehicle_body,
+                    client_boarding=args.control_client_boarding) if control or args.world_populate else None
                 bots=BotRoster(bot_profile,args.world_bots) if bot_profile is not None else None
                 population = WorldPopulation(control_session,population_surface,args.world_seed,bots=bots,
-                    clusters=args.world_loot_clusters,vehicle_clusters=args.world_vehicle_clusters) if args.world_populate else None
+                    clusters=args.world_loot_clusters,vehicle_clusters=args.world_vehicle_clusters,
+                    extra_items=args.world_extra_items) if args.world_populate else None
                 if population is not None:
                     emit('world_population_ready',seed=args.world_seed,door_replies=args.gameplay_doors,
                          experimental_peers=args.world_bots,scope='Synthetic finite scenario, not original AI/collision')
@@ -687,6 +693,8 @@ def main():
                                 control_replies=bot_replies
                                 if control_replies is None and control_session is not None:
                                     control_replies=control_session.handle(message_id,application[26:])
+                                    if control_session.last_board_event is not None:
+                                        emit('vehicle_board_request',**control_session.last_board_event)
                                 gameplay_replies=(gameplay.handle(message_id,application[26:])
                                                   if control_replies is None else control_replies)
                                 if (message_id==0x3b63 and gameplay.ground_loot is not None

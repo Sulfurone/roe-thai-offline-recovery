@@ -58,7 +58,7 @@ class IngameSessionTests(unittest.TestCase):
                     '<HeightScale>1</HeightScale></PxHeightFieldGeometry></PxRigidStatic></root>')
                 profile = root / 'synthetic-profile.bin'
                 profile.write_bytes(struct.pack('>IIQI', 3, 1, 1, 12) + b'OfflineBot1\0' + POSITION_MARKER)
-                argv.extend(['--gameplay-doors', '--world-populate', '--world-terrain', str(terrain),
+                argv.extend(['--gameplay-doors', '--world-populate','--world-extra-items', '--world-terrain', str(terrain),
                              '--world-bots', '1', '--world-bot-profile', str(profile)])
             if interface == '--ingame-overlay':
                 world = root / 'world.bin'
@@ -153,9 +153,9 @@ class IngameSessionTests(unittest.TestCase):
                     send(0x002a, struct.pack('>I3i', 1, *initial))
                     self.assertEqual(receive()[0], 0x821)
                     if population:
-                        generated = [receive_raw() for _ in range(28)]
+                        generated = [receive_raw() for _ in range(34)]
                         self.assertEqual([m for m, _ in generated],
-                            [0x821]*16 + [0x654b, 0x6554, 0x656e]*3 + [0x565, 0xbe7, 0x27])
+                            [0x821]*22 + [0x654b, 0x6554, 0x656e]*3 + [0x565, 0xbe7, 0x27])
                         bot_uid = struct.unpack_from('>Q', generated[-2][1], 8)[0]
                         self.assertNotEqual(bot_uid, 256)
                     if interface == '--ingame-overlay':

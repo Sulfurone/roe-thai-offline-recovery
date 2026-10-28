@@ -1,4 +1,4 @@
-"""Finite original-Thai firearm and ammunition single-item ground loot.
+"""Finite original-Thai firearm, ammunition and equipment ground loot.
 
 The original 0x821 entity-type 1/subtype 2 is one ground item. Container
 loot has a separate slot-list protocol and is deliberately not encoded here.
@@ -6,8 +6,9 @@ loot has a separate slot-list protocol and is deliberately not encoded here.
 from dataclasses import dataclass,replace
 import math
 import struct
-from offline_inventory import Item,MAX_AMMO
+from offline_inventory import Item,MAX_AMMO,supported,stack_limit
 from offline_weapons import WEAPONS,AMMUNITION,is_weapon
+from offline_items import EXTRA_ITEMS,is_extra
 
 MAX_GROUND_STACKS=128
 PICKUP_DISTANCE=500  # Original client EntityTable.m_nMaxOpDistance, cm (both supported items).
@@ -80,7 +81,7 @@ class OfflineGroundLoot:
 
     @staticmethod
     def supported(item):
-        return (item.kind==3 and item.template in AMMUNITION and 0<item.count<=MAX_AMMO) or is_weapon(item)
+        return supported(item)
 
     @staticmethod
     def error(entity):
@@ -128,8 +129,13 @@ class OfflineGroundLoot:
                 'camera_distance_cm':round(camera_distance) if math.isfinite(camera_distance) else None}
             return self.error(entity)
         if automatic:
-            key=next(((1,i) for i in WEAPONS[stack.item.template].slots if (1,i) not in inventory.items),None) if is_weapon(stack.item) else next((key for key,item in sorted(inventory.items.items())
-                      if key[0]==2 and item.kind==3 and item.template==stack.item.template and item.count+stack.item.count<=MAX_AMMO),None)
+            equip=(WEAPONS[stack.item.template].slots if is_weapon(stack.item) else
+                   (EXTRA_ITEMS[stack.item.template].slot,) if is_extra(stack.item) and EXTRA_ITEMS[stack.item.template].slot else ())
+            key=next(((1,i) for i in equip if (1,i) not in inventory.items),None)
+            if key is None and stack_limit(stack.item)>1:
+                key=next((key for key,item in sorted(inventory.items.items())
+                          if item.kind==stack.item.kind and item.template==stack.item.template
+                          and item.count+stack.item.count<=stack_limit(stack.item)),None)
             if key is None:
                 key=next(((2,i) for i in range(128) if (2,i) not in inventory.items),None)
         else:
@@ -138,8 +144,8 @@ class OfflineGroundLoot:
             self.last_rejection={'reason':'destination_or_capacity','entity':entity}
             return self.error(entity)
         target=inventory.items.get(key)
-        if target is not None and (stack.item.kind!=3 or target.kind!=3 or target.template!=stack.item.template
-                                   or target.count+stack.item.count>MAX_AMMO):
+        if target is not None and (stack_limit(stack.item)<=1 or target.kind!=stack.item.kind or target.template!=stack.item.template
+                                   or target.count+stack.item.count>stack_limit(stack.item)):
             self.last_rejection={'reason':'occupied_or_full','entity':entity}
             return self.error(entity)
         inventory.items[key]=(replace(target,count=target.count+stack.item.count) if target else stack.item)
@@ -147,7 +153,7 @@ class OfflineGroundLoot:
         del self.stacks[entity]
         # Apply the bag delta, remove the entire single-item entity, then
         # emit the original pickup-template/count sound notification.
-        notice=struct.pack('>IIBII',entity,slot,stack.item.kind,stack.item.template,stack.item.count)
+        notice=struct.pack('>IIBII',entity,slot,stack.item.kind if is_weapon(stack.item) else 3,stack.item.template,stack.item.count)
         if is_weapon(stack.item):
             notice+=bytes(4)  # Original kind 1/2 union has three DWORDs.
         return [inventory.delta([key]),(0x82b,struct.pack('>Q',entity)),(0x3b64,notice)]

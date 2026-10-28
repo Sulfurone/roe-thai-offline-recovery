@@ -51,6 +51,8 @@ class IngameMailbox:
                     command = dict(action=action, weather_id=ident, transition=value)
                 elif action == 'weapon':
                     command = dict(action=action, template=ident, ammo=value, distance=distance, count=count)
+                elif action=='item':
+                    command=dict(action=action,template=ident,distance=distance,count=count)
                 elif action == 'vehicle':
                     command = dict(action=action, config=ident, distance=distance)
                 else:

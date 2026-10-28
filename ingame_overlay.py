@@ -15,6 +15,8 @@ import time
 from ingame_client import MailboxClient,nearby_hint
 from offline_control import WEATHER_NAMES, WEAPON_NAMES, AMMO_NAMES
 from offline_weapons import WEAPONS
+from offline_items import EXTRA_ITEMS
+from offline_vehicles import LAND_VEHICLES
 
 
 class OverlayProcess(AbstractContextManager):
@@ -194,8 +196,8 @@ class Overlay:
         self.body.pack(fill='both', expand=True)
         tabs = ttk.Notebook(self.body)
         tabs.pack(fill='both', expand=True)
-        weather, weapon, vehicle = [ttk.Frame(tabs, padding=14) for _ in range(3)]
-        for page, title in zip((weather, weapon, vehicle), ('天气', '武器', '载具')):
+        weather, weapon, equipment, vehicle = [ttk.Frame(tabs, padding=14) for _ in range(4)]
+        for page, title in zip((weather, weapon,equipment, vehicle), ('天气', '武器','装备', '载具')):
             tabs.add(page, text=title)
         self.weather_ids = list(WEATHER_NAMES)
         self.weather = tk.StringVar(value='晴天')
@@ -216,7 +218,12 @@ class Overlay:
         self.number(weapon, '配套弹药数量', self.ammo, 0, 999)
         self.number(weapon, '刷新距离（米）', self.distance, 2, 20)
         self.action(weapon, '刷新武器与弹药', self.send_weapon)
-        ttk.Label(vehicle, text='四座吉普车', font=('Microsoft YaHei UI', 13, 'bold')).pack(anchor='w', pady=10)
+        self.extra_item=tk.StringVar(value=EXTRA_ITEMS[200901].name)
+        self.combo(equipment,'背包、投掷物和枪械配件',self.extra_item,[s.name for s in EXTRA_ITEMS.values()])
+        self.action(equipment,'刷新所选物品',self.send_item)
+        ttk.Label(equipment,text='每次刷新一件，使用游戏原拾取操作。\n投掷与配件安装仍在恢复中。',wraplength=330).pack(anchor='w',pady=12)
+        self.vehicle_type=tk.StringVar(value=LAND_VEHICLES[101].name)
+        self.combo(vehicle,'车型',self.vehicle_type,[s.name for s in LAND_VEHICLES.values()])
         ttk.Label(vehicle, text='优先刷新在附近路边，结果会显示实际距离和坐标。\n每轮最多 16 辆。乘车时请先下车再刷新。', wraplength=330).pack(anchor='w', pady=(0, 15))
         self.vehicle_distance = tk.IntVar(value=6)
         self.number(vehicle, '刷新距离（米）', self.vehicle_distance, 5, 20)
@@ -289,9 +296,12 @@ class Overlay:
 
     def send_vehicle(self):
         try:
-            self.submit(dict(action='vehicle', config=101, distance=self.vehicle_distance.get()))
+            self.submit(dict(action='vehicle', config=next(i for i,s in LAND_VEHICLES.items() if s.name==self.vehicle_type.get()), distance=self.vehicle_distance.get()))
         except self.tk.TclError:
             self.result.set('刷新距离请输入整数。')
+
+    def send_item(self):
+        self.submit(dict(action='item',template=next(i for i,s in EXTRA_ITEMS.items() if s.name==self.extra_item.get()),count=1,distance=3))
 
     def toggle(self):
         for combo in self.combos:
