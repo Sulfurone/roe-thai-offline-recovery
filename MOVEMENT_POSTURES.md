@@ -2,7 +2,7 @@
 
 2026-10-28用户报告趴下仍像跑步一样快，蹲下也偏快。早期为恢复基本移动，下发的`movement-grounded-delta.bin`把多组姿势都设为同一个560基准；基本行走验收不能代表蹲趴速度正常。
 
-## 当前候选
+## 当前调校
 
 主入口`start_ingame_control.cmd`增加`--gameplay-posture-speeds`。场景推送完成、角色就绪后，仅发送一次9条记录的原`0x516`稀疏属性更新：
 
@@ -26,4 +26,4 @@ python -m unittest test_ingame_session.IngameSessionTests.test_posture_speed_del
 python probes/validate_posture_speeds.py
 ```
 
-最新本地139项、公开81项检查通过。候选已于18:07重启，等待实机确认蹲姿、趴姿及站立活动手感；协议检查不等于画面验收。
+最新本地139项、公开81项检查通过。第六轮18:07重启后，日志确认18:08:32只发一次9记录补丁；用户明确反馈“蹲趴速度合适，站立和跳跃正常”。本轮蹲姿、趴姿、站立和跳跃实机验收通过；精确原服数值仍未核实。
