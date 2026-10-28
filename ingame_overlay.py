@@ -170,6 +170,7 @@ class Overlay:
         self.enabled = None
         self.status = tk.StringVar(value='等待进入地图…')
         self.result = tk.StringVar(value='选择项目后点击按钮，操作结果会显示在这里。')
+        self.position_text = tk.StringVar(value='位置：等待角色上报')
         style = ttk.Style(self.root)
         style.theme_use('clam')
         style.configure('.', font=('Microsoft YaHei UI', 10))
@@ -186,6 +187,7 @@ class Overlay:
         self.toggle_button = ttk.Button(header, text='收起 · F6', command=self.toggle)
         self.toggle_button.pack(side='right')
         ttk.Label(self.shell, textvariable=self.status).pack(anchor='w', pady=(6, 12))
+        ttk.Label(self.shell, textvariable=self.position_text, foreground='#aab8c4').pack(anchor='w', pady=(0, 8))
         self.body = ttk.Frame(self.shell)
         self.body.pack(fill='both', expand=True)
         tabs = ttk.Notebook(self.body)
@@ -344,6 +346,8 @@ class Overlay:
                 self.request_toggle('registered-hotkey')
             state = self.client.state() if self.client else {}
             ready = state.get('ready') == '1'
+            if state.get('position'):
+                self.position_text.set('当前位置（米）：' + ' / '.join(f'{int(v) / 100:.1f}' for v in state['position'].split(',')))
             self.status.set('已连接 · 可操作' if ready else '界面预览 · 操作已禁用' if self.args.preview else '等待角色进入地图…')
             enabled = ready and self.client.pending is None
             if enabled != self.enabled:

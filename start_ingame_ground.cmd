@@ -18,7 +18,7 @@ echo Thai in-game overlay: F6 opens or collapses weather, weapon and Jeep contro
 echo This is a native Windows overlay attached to the game window.
 echo Daytime: synchronize lobby time, then set noon after player readiness.
 echo Keep this console open while playing.
-"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --port 8003 --single-session --launch --ingame-overlay --world-time-tail-bytes 18 --environment-hour 12 --environment-trigger player-ready --environment-ready-delay 3 --control-vehicle-template "%~dp0private\typed-gameplay\vehicle-jeep-near.bin" --gameplay-prototype --gameplay-inventory --gameplay-ground-loot --gameplay-typed-uids --probe-auth-response --compact-responses ^
+"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --port 8003 --single-session --launch --ingame-overlay --gameplay-motion-ack --world-time-tail-bytes 18 --environment-hour 12 --environment-trigger player-ready --environment-ready-delay 3 --control-vehicle-template "%~dp0private\typed-gameplay\vehicle-jeep-near.bin" --gameplay-prototype --gameplay-inventory --gameplay-ground-loot --gameplay-typed-uids --probe-auth-response --compact-responses ^
   --world-body-file "%~dp0private\typed-gameplay\world.bin" ^
   --team-body-file "%~dp0private\typed-gameplay\team.bin" ^
   --enter-body-file "%~dp0private\typed-gameplay\enter.bin" ^

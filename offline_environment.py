@@ -13,6 +13,7 @@ Synchronize the explicitly verified lobby field before testing clock delivery.
 from dataclasses import dataclass
 import struct
 import time
+from offline_motion import actor_motion
 
 
 # IDs backed by the Thai client's EnvrWeatherTable.  ID 23 is accepted by the
@@ -95,10 +96,7 @@ class EnvironmentSchedule:
 
     @staticmethod
     def valid_position(body):
-        if len(body) < 16:
-            return False
-        position = struct.unpack_from('>3i', body, 4)
-        return all(abs(value) < 2_000_000 for value in position)
+        return actor_motion(body) is not None
 
     def observe(self, message_id, body, now=None):
         """Arm once after a native current-map position report."""

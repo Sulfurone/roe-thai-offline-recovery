@@ -67,6 +67,9 @@ class IngameMailbox:
         seq, status, message = self.last_result
         message = message.replace('\n', ' ').replace('\r', ' ')[:240]
         body = f'token={self.token}\nready={int(snapshot["ready"])}\nseq={seq}\nstatus={status}\nmessage={message}\n'
+        position = snapshot.get('position')
+        if position is not None:
+            body += 'position=' + ','.join(map(str, position)) + '\n'
         if body != self.last_status:
             pending = self.status_path.with_suffix('.tmp')
             pending.write_text(body, encoding='utf-8')

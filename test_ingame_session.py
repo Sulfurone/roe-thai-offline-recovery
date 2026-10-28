@@ -15,6 +15,7 @@ from unittest.mock import patch
 import local_server
 from ingame_client import MailboxClient
 from offline_gameplay import JEEP_UID
+from test_offline_motion import move_body, plane_body
 from test_control_panel import jeep_template
 from tpdu import decrypt, encrypt, frame, read_frame
 
@@ -52,10 +53,10 @@ class IngameSessionTests(unittest.TestCase):
                              '--world-body-file', str(world), '--world-time-tail-bytes', '18'])
             if aircraft:
                 plane = root / 'plane.bin'
-                name = b'Aircraft\0'
-                plane.write_bytes(struct.pack('>QI', JEEP_UID, len(name)) + name +
-                                  struct.pack('>III3i', 4, 0, 0, 200, 204800, 75000))
-                argv.extend(['--ingame-menu-collapsed', '--gameplay-auto-seat',
+                spawn = bytearray(plane_body())
+                struct.pack_into('>Q', spawn, 0, JEEP_UID)
+                plane.write_bytes(spawn)
+                argv.extend(['--ingame-menu-collapsed', '--aircraft-align-heading', '--gameplay-motion-ack', '--gameplay-auto-seat',
                              '--gameplay-auto-board-delay', '.1', '--gameplay-initialize-vehicle',
                              '--gameplay-vehicle-config', '4', '--gameplay-aircraft-route-speed', '5000',
                              '--gameplay-aircraft-route-end', '409400', '204800', '75000',
@@ -124,7 +125,10 @@ class IngameSessionTests(unittest.TestCase):
                     send(0x0dcd, bytes(4))
                     if aircraft:
                         send(0x0dcd, bytes(4))
-                        self.assertEqual(receive()[0], 0x654b)
+                        spawn_id, spawn_body = receive()
+                        self.assertEqual(spawn_id, 0x654b)
+                        rotation = struct.unpack_from('>4f', spawn_body, 12 + len(b'Aircraft\0') + 25)
+                        self.assertLess(rotation[2], -.7)
                     initial = (200, 204800, 75000) if aircraft else (325800, 271700, 6501)
                     send(0x002a, struct.pack('>I3i', 1, *initial))
                     self.assertEqual(receive()[0], 0x821)
@@ -161,6 +165,11 @@ class IngameSessionTests(unittest.TestCase):
                             self.assertEqual(receive()[0], 0x6544)
                             self.assertEqual(receive()[0], 0x656d)
                             send(0x002a, struct.pack('>I3i', 2, 325800, 271700, 6501))
+                            for sequence in range(1, 81):
+                                destination = (325800 + sequence * 100, 280000, 9000)
+                                send(0x002a, move_body(sequence, [(325800, 271700, 6501), destination]))
+                                ack_id, ack_body = receive()
+                                self.assertEqual((ack_id, ack_body), (0x36, struct.pack('>I', sequence)))
                         seq = menu.send(command)
                         packets.extend(receive() for _ in range(count))
                         deadline = time.monotonic() + 3
@@ -179,7 +188,7 @@ class IngameSessionTests(unittest.TestCase):
                         jeep = packets[3][1]
                         name_length = struct.unpack_from('>I', jeep, 8)[0]
                         self.assertEqual(struct.unpack_from('>3i', jeep, 24 + name_length),
-                                         (326400, 271700, 6601))
+                                         (334400, 280000, 9100))
                     client.sendall(frame(13))
                 thread.join(5)
                 self.assertFalse(thread.is_alive())

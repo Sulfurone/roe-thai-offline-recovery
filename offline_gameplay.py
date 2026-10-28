@@ -11,6 +11,7 @@ from pathlib import Path
 import random
 import struct
 import time
+from offline_motion import actor_motion
 from offline_inventory import Item,OfflineInventory
 from offline_ground_loot import OfflineGroundLoot,MAX_GROUND_STACKS
 from offline_weapons import WEAPONS,AMMUNITION,is_weapon
@@ -508,9 +509,10 @@ class OfflineGameplay:
                     self.player_position=glider.player_position
                     self.deployment_phase='descending'
                 return replies
-            if message==0x002a and len(body)>=16:
-                position=struct.unpack_from('>3i',body,4)
-                if all(abs(v)<2000000 for v in position):
+            if message==0x002a:
+                motion=actor_motion(body)
+                if motion is not None:
+                    position,_=motion
                     glider.player_position=glider.vehicle_position=position
                     ground=self.landing_height(*position[:2]) if self.landing_height else None
                     if ground is not None and abs(position[2]-ground)<=300:
@@ -642,9 +644,10 @@ class OfflineGameplay:
                     and time.monotonic()<self.jump_enable_deadline):
                 return []
             return self.leave()+self.deploy_glider()
-        if message == 0x002a and len(body)>=16:
-            position = struct.unpack_from('>3i',body,4)
-            if all(abs(x)<2000000 for x in position):
+        if message == 0x002a:
+            motion=actor_motion(body)
+            if motion is not None:
+                position,_ = motion
                 self.player_position = position
                 self.actor_ready = True
                 if self.deployment_phase=='landing' and self.landing_height is not None:

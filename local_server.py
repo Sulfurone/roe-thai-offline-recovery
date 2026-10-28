@@ -21,6 +21,7 @@ from offline_control import ControlHub, ControlServer
 from control_actions import ControlSession
 from ingame_bridge import IngameMailbox, IngameInstallation
 from ingame_overlay import OverlayProcess
+from offline_motion import actor_motion, aircraft_spawn_heading
 
 
 def main():
@@ -39,6 +40,10 @@ def main():
                         help='Show the native Windows F6 menu over the game window; no HTTP or client files')
     parser.add_argument('--ingame-menu-collapsed', action='store_true',
                         help='Start the overlay compact, keeping keyboard focus in the aircraft/game')
+    parser.add_argument('--aircraft-align-heading', action='store_true',
+                        help='Align the config-4 spawn quaternion with the horizontal route')
+    parser.add_argument('--gameplay-motion-ack', action='store_true',
+                        help='Reply to complete Thai movement DTOs with the native self receipt word')
     parser.add_argument('--control-open', action='store_true', help='Open the local control panel in a browser')
     parser.add_argument('--control-vehicle-template', type=Path,
                         help='Locally generated original-codec-validated config 101 Jeep spawn body')
@@ -162,6 +167,8 @@ def main():
     args = parser.parse_args()
     if args.ingame_menu_collapsed and not args.ingame_overlay:
         parser.error('--ingame-menu-collapsed requires --ingame-overlay')
+    if args.aircraft_align_heading and args.gameplay_aircraft_route_end is None:
+        parser.error('--aircraft-align-heading requires a route endpoint')
     if args.world_time_tail_bytes is not None and args.world_body_file is None:
         parser.error('--world-time-tail-bytes requires --world-body-file')
     if args.environment_hour is not None and args.world_body_file is not None and args.world_time_tail_bytes is None:
@@ -496,7 +503,8 @@ def main():
                             if item['action'] == 'weather' and weather is not None:
                                 weather.sent = True
                             control.finish(item['id'], 'sent', description)
-                            emit('control_command_sent', action=item['action'], replies=len(replies))
+                            emit('control_command_sent', action=item['action'], replies=len(replies),
+                                 actor_position=gameplay.player_position)
                         except (ValueError, OSError) as error:
                             control.finish(item['id'], 'failed', str(error))
                             emit('control_command_failed', action=item['action'], reason=str(error))
@@ -563,6 +571,13 @@ def main():
                                 raw.write(application)
                             message_id = struct.unpack_from('>H', application, 4)[0] if len(application) >= 6 else None
                             emit('application_message', bytes=len(application), message_id=message_id)
+                            if args.gameplay_motion_ack and gameplay is not None and loaded_pushes_sent and message_id == 0x002a:
+                                motion = actor_motion(application[26:])
+                                if motion is not None and motion[1] is not None:
+                                    position, sequence = motion
+                                    response = struct.pack('>IHI', 1, 0x0036, 0x0036) + struct.pack('>I', sequence)
+                                    send(connection, 0, body=encrypt(response, key))
+                                    emit('actor_motion_ack_sent', sequence=sequence, position=position)
                             if message_id == 0x002a and loaded_pushes_sent and not player_pushes_sent:
                                 player_pushes_sent = True
                                 for push_id,push_path in player_push_specs:
@@ -644,6 +659,8 @@ def main():
                                 map_pushes_sent = True
                                 for push_id, push_path in map_push_specs:
                                     push_body = push_path.read_bytes()
+                                    if args.aircraft_align_heading and push_id == 0x654b:
+                                        push_body = aircraft_spawn_heading(push_body, args.gameplay_aircraft_route_end)
                                     if len(push_body) > 65536:
                                         raise ValueError('Map-load candidate exceeds validated wire bound')
                                     response = struct.pack('>IHI', 1, push_id, push_id) + push_body

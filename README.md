@@ -6,6 +6,7 @@ This is an experimental, community-maintained reconstruction for the original Ga
 
 ## 当前进度与边界
 
+- 最新反馈补充两项缺陷：飞机模型横飞、步行后刷新坐标滞留。已加入按航线调整生成旋转、完整轨迹末点解析和可选移动确认；原生参数与加密链路验证通过，修复版实机正在验证。此前“正常”确认覆盖白天可飞、跳伞和落地移动，不代表这两项问题不存在。
 - `start_ingame_control.cmd` 组合原生跳伞、正午与游戏窗口悬浮菜单；用户已实机确认白天飞行、跳伞和落地移动正常。已确认的正午地面菜单保留为 `start_ingame_ground.cmd`。菜单可选天气、武器/弹药和吉普车，显示、F6 和下拉选择也已确认。它是独立 Windows 窗口，原生 Lua 面板两轮加载均失败，见 [游戏菜单说明](ingame/README.md)。
 - 正午入口先同步登录与环境时间基准，再在有效角色位置后 3 秒设为正午；地面活动与白天跳伞组合均获用户实机确认。此前仅延迟仍会卡死，原因排查及原生算术验证见 [当前交接](HANDOFF_CURRENT.md)。天气可独立选择，其视觉切换仍需单独验收。
 - 本地回环服务已推进到登录、角色/房间、地图和地面活动；原客户端的落地和正常行走曾由玩家确认。
@@ -31,11 +32,11 @@ git clone https://github.com/Sulfurone/roe-thai-offline-recovery.git recovery
 cd recovery
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m unittest test_offline_gameplay test_opening_airdrop test_scatter_loot test_aircraft_launcher_phases test_environment_schedule test_environment_session test_control_panel test_control_panel_session test_ingame_bridge test_ingame_session -q
+.\.venv\Scripts\python.exe -m unittest test_offline_gameplay test_opening_airdrop test_scatter_loot test_aircraft_launcher_phases test_environment_schedule test_environment_session test_control_panel test_control_panel_session test_ingame_bridge test_ingame_session test_offline_motion -q
 $env:ROE_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
 ```
 
-上述 **59 项**检查使用合成状态，无须客户端和私人抓包。仓库还保留其他测试；本地材料齐全时全套为 116 项，其中一部分需要本地生成的协议样本、角色数据、原客户端内存镜像或原版资源，干净克隆后不能直接全部运行。
+上述 **62 项**检查使用合成状态，无须客户端和私人抓包。仓库还保留其他测试；本地材料齐全时全套为 119 项，其中一部分需要本地生成的协议样本、角色数据、原客户端内存镜像或原版资源，干净克隆后不能直接全部运行。
 
 资源研究示例（只读取原归档，输出在仓库忽略的目录中）：
 
@@ -59,4 +60,4 @@ $env:ROE_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
 
 新的 `start_offline_weather_clear.cmd` 使用已确认的纯地面出生链，等待首个有效玩家位置后延迟 2 秒发送一次 `0x4817`：ID 2 晴天、30 秒过渡、mode 0。它不含时钟、飞机或登机。`start_offline_day_weather.cmd` 则在稳定跳伞链上组合时段 12 的 `0x4816` 与晴天 `0x4817`。两者的协议与加密回环已验证；晴天包也被真实客户端连接接受并继续传输超过两分钟，但视觉与地面移动尚待验收。
 
-本地全套 **116 项**检查通过，另有开局跳伞生产消息、完整航线控制器、载具初始耐久、登录/昼夜时间基准与控制台动态生成消息的原生验证。控制台支持手动切换原生天气状态；随机循环、温度和区域天气尚未恢复。各入口仍需要使用者从自己合法持有的客户端生成本地材料。详细范围见 [功能清单](GAMEPLAY.md)、[当前交接](HANDOFF_CURRENT.md) 和 [飞机与跳伞排查方法](AIRCRAFT_RECOVERY.md)。
+本地全套 **119 项**检查通过，另有开局跳伞生产消息、完整航线控制器、载具初始耐久、登录/昼夜时间基准、轨迹末点/确认回调和控制台动态生成消息的原生验证。控制台支持手动切换原生天气状态；随机循环、温度和区域天气尚未恢复。各入口仍需要使用者从自己合法持有的客户端生成本地材料。详细范围见 [功能清单](GAMEPLAY.md)、[当前交接](HANDOFF_CURRENT.md) 和 [飞机与跳伞排查方法](AIRCRAFT_RECOVERY.md)。
