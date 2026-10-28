@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import local_server
 from ingame_client import MailboxClient
+from offline_gameplay import JEEP_UID
 from test_control_panel import jeep_template
 from tpdu import decrypt, encrypt, frame, read_frame
 
@@ -25,7 +26,10 @@ class IngameSessionTests(unittest.TestCase):
     def test_overlay_mailbox_replies_without_client_file_installation(self):
         self.run_session('--ingame-overlay')
 
-    def run_session(self, interface):
+    def test_daytime_aircraft_jump_then_menu_ground_actions(self):
+        self.run_session('--ingame-overlay', aircraft=True)
+
+    def run_session(self, interface, aircraft=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -46,6 +50,16 @@ class IngameSessionTests(unittest.TestCase):
                 world.write_bytes(original_world)
                 argv.extend(['--environment-hour', '12', '--environment-ready-delay', '.05',
                              '--world-body-file', str(world), '--world-time-tail-bytes', '18'])
+            if aircraft:
+                plane = root / 'plane.bin'
+                name = b'Aircraft\0'
+                plane.write_bytes(struct.pack('>QI', JEEP_UID, len(name)) + name +
+                                  struct.pack('>III3i', 4, 0, 0, 200, 204800, 75000))
+                argv.extend(['--ingame-menu-collapsed', '--gameplay-auto-seat',
+                             '--gameplay-auto-board-delay', '.1', '--gameplay-initialize-vehicle',
+                             '--gameplay-vehicle-config', '4', '--gameplay-aircraft-route-speed', '5000',
+                             '--gameplay-aircraft-route-end', '409400', '204800', '75000',
+                             '--push-after-map-load', f'0x654b:{plane}'])
 
             def serve():
                 try:
@@ -84,10 +98,21 @@ class IngameSessionTests(unittest.TestCase):
                         packet = struct.pack('>IH', 26 + len(body), message) + bytes(16) + struct.pack('>I', message) + body
                         client.sendall(frame(0, body=encrypt(packet, bytes(16))))
 
-                    def receive():
+                    startup, flight_packets = True, []
+
+                    def receive_raw():
                         _, _, cipher, *_ = read_frame(client)
                         packet = decrypt(cipher, bytes(16))
                         return struct.unpack_from('>H', packet, 4)[0], packet[10:]
+
+                    def receive():
+                        while True:
+                            message, body = receive_raw()
+                            if aircraft and (message == 0x6563 or startup and
+                                             message in (0x6554, 0x656e, 0x656d, 0x6542, 0x6564, 0x6565)):
+                                flight_packets.append((message, body))
+                                continue
+                            return message, body
 
                     if interface == '--ingame-overlay':
                         send(0x02e4, bytes(4))
@@ -97,7 +122,11 @@ class IngameSessionTests(unittest.TestCase):
                         self.assertLess(abs(world_time - time.time()), 3)
                         self.assertEqual(world.read_bytes(), original_world)
                     send(0x0dcd, bytes(4))
-                    send(0x002a, struct.pack('>I3i', 1, 325800, 271700, 6501))
+                    if aircraft:
+                        send(0x0dcd, bytes(4))
+                        self.assertEqual(receive()[0], 0x654b)
+                    initial = (200, 204800, 75000) if aircraft else (325800, 271700, 6501)
+                    send(0x002a, struct.pack('>I3i', 1, *initial))
                     self.assertEqual(receive()[0], 0x821)
                     if interface == '--ingame-overlay':
                         clock_id, clock_body = receive()
@@ -123,6 +152,15 @@ class IngameSessionTests(unittest.TestCase):
                     for command, count in ((dict(action='weather', weather_id=2, transition=30), 1),
                                            (dict(action='weapon', template=10202, ammo=60, distance=3, count=1), 2),
                                            (dict(action='vehicle', config=101, distance=6), 3)):
+                        if aircraft and command['action'] == 'weapon':
+                            self.assertIn(0x6542, [message for message, _ in flight_packets])
+                            launch = next(body for message, body in flight_packets if message == 0x6564)
+                            self.assertEqual(struct.unpack_from('>3i', launch, 8), (200, 204800, 75000))
+                            startup = False
+                            send(0x6566, b'\0')
+                            self.assertEqual(receive()[0], 0x6544)
+                            self.assertEqual(receive()[0], 0x656d)
+                            send(0x002a, struct.pack('>I3i', 2, 325800, 271700, 6501))
                         seq = menu.send(command)
                         packets.extend(receive() for _ in range(count))
                         deadline = time.monotonic() + 3
@@ -137,13 +175,18 @@ class IngameSessionTests(unittest.TestCase):
                             time.sleep(.02)
                         self.assertEqual(state['status'], 'sent')
                     self.assertEqual([message for message, _ in packets], [0x4817, 0x821, 0x821, 0x654b, 0x6554, 0x656e])
+                    if aircraft:
+                        jeep = packets[3][1]
+                        name_length = struct.unpack_from('>I', jeep, 8)[0]
+                        self.assertEqual(struct.unpack_from('>3i', jeep, 24 + name_length),
+                                         (326400, 271700, 6601))
                     client.sendall(frame(13))
                 thread.join(5)
                 self.assertFalse(thread.is_alive())
             if not errors.empty():
                 raise errors.get()
             if interface == '--ingame-overlay':
-                overlay.assert_called_once_with(directory)
+                overlay.assert_called_once_with(directory, start_collapsed=aircraft)
             else:
                 overlay.assert_not_called()
             self.assertFalse((game / 'ROE_OfflineMenu.lua').exists())

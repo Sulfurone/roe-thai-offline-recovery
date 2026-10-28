@@ -18,8 +18,9 @@ from offline_weapons import WEAPONS
 
 
 class OverlayProcess(AbstractContextManager):
-    def __init__(self, directory):
+    def __init__(self, directory, start_collapsed=False):
         self.directory = Path(directory)
+        self.start_collapsed = start_collapsed
 
     def __enter__(self):
         if sys.platform != 'win32':
@@ -27,9 +28,11 @@ class OverlayProcess(AbstractContextManager):
         import tkinter  # Fail before starting a game if Tcl/Tk is unavailable.
         self.log = (self.directory / 'overlay.log').open('ab')
         try:
-            self.process = subprocess.Popen(
-                [sys.executable, str(Path(__file__).resolve()), '--session', str(self.directory),
-                 '--parent-pid', str(os.getpid())], stdout=self.log, stderr=self.log,
+            arguments = [sys.executable, str(Path(__file__).resolve()), '--session', str(self.directory),
+                         '--parent-pid', str(os.getpid())]
+            if self.start_collapsed:
+                arguments.append('--collapsed')
+            self.process = subprocess.Popen(arguments, stdout=self.log, stderr=self.log,
                 creationflags=subprocess.CREATE_NO_WINDOW)
         except BaseException:
             self.log.close()
@@ -218,6 +221,10 @@ class Overlay:
         ttk.Label(self.body, textvariable=self.result, wraplength=350, justify='left').pack(anchor='w')
         ttk.Button(self.body, text='返回游戏 · F6', command=self.toggle).pack(fill='x', pady=(12, 0))
         ttk.Label(self.shell, text='F6 展开 / 收起  ·  Esc 收起', foreground='#aab8c4').pack(anchor='w', pady=(10, 0))
+        if args.collapsed:
+            self.expanded = False
+            self.body.pack_forget()
+            self.toggle_button.configure(text='展开 · F6')
         # NOREPEAT prevents one held F6 from repeatedly opening and closing.
         self.hotkey = Hotkey(self.win)
         if not self.hotkey.registered:
@@ -367,9 +374,10 @@ class Overlay:
                     self.geometry = geometry
                 if self.root.state() == 'withdrawn':
                     self.root.deiconify()
-                if self.first_show and self.expanded:
-                    self.root.lift()
-                    self.root.focus_force()
+                if self.first_show:
+                    if self.expanded:
+                        self.root.lift()
+                        self.root.focus_force()
                     self.first_show = False
             else:
                 if self.root.state() != 'withdrawn':
@@ -401,6 +409,7 @@ def main():
     parser.add_argument('--game-pid', type=int)
     parser.add_argument('--parent-pid', type=int)
     parser.add_argument('--preview', action='store_true')
+    parser.add_argument('--collapsed', action='store_true', help='Start compact without taking the game focus')
     args = parser.parse_args()
     if sys.platform != 'win32':
         parser.error('Windows is required')

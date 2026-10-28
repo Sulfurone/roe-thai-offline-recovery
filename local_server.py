@@ -37,6 +37,8 @@ def main():
                         help='Prepare the experimental native Lua menu and a local file mailbox')
     parser.add_argument('--ingame-overlay', action='store_true',
                         help='Show the native Windows F6 menu over the game window; no HTTP or client files')
+    parser.add_argument('--ingame-menu-collapsed', action='store_true',
+                        help='Start the overlay compact, keeping keyboard focus in the aircraft/game')
     parser.add_argument('--control-open', action='store_true', help='Open the local control panel in a browser')
     parser.add_argument('--control-vehicle-template', type=Path,
                         help='Locally generated original-codec-validated config 101 Jeep spawn body')
@@ -158,6 +160,8 @@ def main():
     parser.add_argument('--key-hex', default='00' * 16,
                         help='Test session key; not yet established for this client')
     args = parser.parse_args()
+    if args.ingame_menu_collapsed and not args.ingame_overlay:
+        parser.error('--ingame-menu-collapsed requires --ingame-overlay')
     if args.world_time_tail_bytes is not None and args.world_body_file is None:
         parser.error('--world-time-tail-bytes requires --world-body-file')
     if args.environment_hour is not None and args.world_body_file is not None and args.world_time_tail_bytes is None:
@@ -349,7 +353,7 @@ def main():
             mailbox = IngameMailbox(root / 'recovery/private/ingame-control')
             mailbox.publish(control.snapshot())
         if args.ingame_overlay:
-            resources.enter_context(OverlayProcess(mailbox.directory))
+            resources.enter_context(OverlayProcess(mailbox.directory, start_collapsed=args.ingame_menu_collapsed))
             emit('ingame_overlay_started', directory=str(mailbox.directory), hotkey='F6',
                  scope='Separate Windows overlay attached to the game window; no engine injection')
         if args.ingame_control:
