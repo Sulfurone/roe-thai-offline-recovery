@@ -24,6 +24,7 @@ from ingame_overlay import OverlayProcess
 from offline_motion import actor_motion, aircraft_spawn_heading
 from offline_population import WorldPopulation
 from offline_bots import BotRoster
+from offline_posture import posture_speed_delta,CROUCH_CM_PER_SECOND,PRONE_CM_PER_SECOND
 
 
 def main():
@@ -104,6 +105,8 @@ def main():
                         help='Original Thai test vehicle: glider=3, helicopter=4, Jeep=101')
     parser.add_argument('--gameplay-typed-uids',action='store_true',
                         help='Candidate entity UID type bits; requires matching typed fixture set')
+    parser.add_argument('--gameplay-posture-speeds',action='store_true',
+                        help='Sparse local crouch/prone tuning after player readiness; standing stays unchanged')
     parser.add_argument('--gameplay-initialize-vehicle',action='store_true',
                         help='Diagnostic health/status and oil initialization before boarding')
     parser.add_argument('--gameplay-auto-exit-seconds',type=float,default=0,
@@ -302,6 +305,8 @@ def main():
         parser.error('--gameplay-arsenal requires --gameplay-ground-loot')
     if args.gameplay_scatter_loot and not args.gameplay_ground_loot:
         parser.error('--gameplay-scatter-loot requires --gameplay-ground-loot')
+    if args.gameplay_posture_speeds and not args.gameplay_prototype:
+        parser.error('--gameplay-posture-speeds requires --gameplay-prototype')
     if args.gameplay_ground_loot and (not args.gameplay_prototype or not args.gameplay_inventory
             or args.gameplay_state_file):
         parser.error('Ground loot requires the prototype/inventory options without an inventory-only profile')
@@ -505,6 +510,7 @@ def main():
                     emit('world_population_ready',seed=args.world_seed,door_replies=args.gameplay_doors,
                          experimental_peers=args.world_bots,scope='Synthetic finite scenario, not original AI/collision')
                 control_ready_after = None
+                posture_delta_sent=False
                 if control is not None:
                     control.disconnect()
                 if gameplay is not None and gameplay.inventory is not None:
@@ -608,6 +614,15 @@ def main():
                         # remains subject to its existing connection timeout.
                         gameplay_timers=(gameplay is not None and loaded_pushes_sent
                                          and state=='transport_ready')
+                        if (gameplay_timers and args.gameplay_posture_speeds
+                                and gameplay.actor_ready and not posture_delta_sent):
+                            payload=posture_speed_delta()
+                            response=struct.pack('>IHI',1,0x516,0x516)+payload
+                            send(connection,0,body=encrypt(response,key))
+                            posture_delta_sent=True
+                            emit('posture_speed_delta_sent',crouch_cm_per_second=CROUCH_CM_PER_SECOND,
+                                 prone_cm_per_second=PRONE_CM_PER_SECOND,records=9,
+                                 scope='Offline posture calibration; not recovered server defaults')
                         environment_schedules=tuple(schedule for schedule in (environment,weather)
                                                     if schedule is not None
                                                     and schedule.armed_at is not None

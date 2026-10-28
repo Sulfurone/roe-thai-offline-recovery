@@ -34,7 +34,10 @@ class IngameSessionTests(unittest.TestCase):
     def test_random_world_doors_and_peer_query_over_encrypted_connection(self):
         self.run_session('--ingame-overlay', population=True)
 
-    def run_session(self, interface, aircraft=False, population=False):
+    def test_posture_speed_delta_after_readiness_is_sent_once(self):
+        self.run_session('--ingame-overlay',posture=True)
+
+    def run_session(self, interface, aircraft=False, population=False,posture=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -49,6 +52,8 @@ class IngameSessionTests(unittest.TestCase):
             argv = ['local_server.py', '--seconds', '15', '--port', str(port), '--single-session',
                     interface, '--control-vehicle-template', str(vehicle),
                     '--gameplay-prototype', '--gameplay-inventory', '--gameplay-ground-loot']
+            if posture:
+                argv.append('--gameplay-posture-speeds')
             if population:
                 terrain = root / 'surface.repx'
                 terrain.write_text('<root><PxHeightField><NbRows>2</NbRows><NbColumns>2</NbColumns>'
@@ -152,6 +157,14 @@ class IngameSessionTests(unittest.TestCase):
                     initial = (200, 204800, 75000) if aircraft else (325800, 271700, 6501)
                     send(0x002a, struct.pack('>I3i', 1, *initial))
                     self.assertEqual(receive()[0], 0x821)
+                    if posture:
+                        message,payload=receive()
+                        self.assertEqual(message,0x516)
+                        self.assertEqual(len(payload),83)
+                        records=[struct.unpack_from('>BII',payload,i) for i in range(2,len(payload),9)]
+                        self.assertEqual(records,[(i,280,280) for i in range(17,22)]
+                                         +[(i,120,120) for i in range(24,28)])
+                        send(0x002a,struct.pack('>I3i',1,325850,271700,6501))
                     if population:
                         generated = [receive_raw() for _ in range(34)]
                         self.assertEqual([m for m, _ in generated],
@@ -228,6 +241,8 @@ class IngameSessionTests(unittest.TestCase):
                 self.assertFalse(thread.is_alive())
             if not errors.empty():
                 raise errors.get()
+            if posture:
+                self.assertEqual(output.getvalue().count('"event": "posture_speed_delta_sent"'),1)
             if interface == '--ingame-overlay':
                 overlay.assert_called_once_with(directory, start_collapsed=aircraft)
             else:
