@@ -33,7 +33,7 @@ class ThrowTests(unittest.TestCase):
             self.assertEqual([m for m,b in replies],[0x1008,0x1009])
             self.assertEqual(struct.unpack('>II3iBQI',replies[1][1]),
                              (template,37,326000,271700,6500,0,TYPED_ACTOR_UID,0))
-            self.assertEqual(g.vitals.current,100)  # client actor list is not damage authority
+            self.assertEqual(g.vitals.current,1000)  # client actor list is not damage authority
 
     def test_retransmissions_never_double_spend_or_repeat_effect(self):
         g=self.game()
@@ -62,7 +62,7 @@ class ThrowTests(unittest.TestCase):
     def test_unready_seated_dead_and_missing_items_reject_without_mutation(self):
         for field,value in (('actor_ready',False),('seated',True),('vitals',None),('inventory',None)):
             g=self.game()
-            if field=='vitals':g.vitals.damage(100)
+            if field=='vitals':g.vitals.damage(1000)
             else:setattr(g,field,value)
             self.assertEqual(g.handle(0x1004,start())[0],(0x1005,struct.pack('>III',50001,37,1)))
             self.assertEqual(g.throws.active,{})

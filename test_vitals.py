@@ -12,10 +12,10 @@ class VitalsTests(unittest.TestCase):
         self.assertEqual(game.tick(101),[game.vitals.packet(TYPED_ACTOR_UID)])
         game.vitals.damage(25)
         self.assertEqual(game.tick(102),[])
-        self.assertEqual(game.vitals.current,75)
+        self.assertEqual(game.vitals.current,975)
 
     def test_damage_healing_bounds_and_zero_is_not_resurrected(self):
-        hp=Vitals()
+        hp=Vitals(100,100)
         self.assertEqual(hp.damage(25),25)
         self.assertEqual(hp.heal(10),10)
         self.assertEqual(hp.heal(50),15)
@@ -25,6 +25,13 @@ class VitalsTests(unittest.TestCase):
             with self.assertRaises(ValueError):hp.damage(value)
             with self.assertRaises(ValueError):hp.heal(value)
         with self.assertRaises(ValueError):Vitals(101,100)
+
+    def test_default_uses_original_medical_full_health_scale(self):
+        hp=Vitals()
+        self.assertEqual((hp.current,hp.maximum),(1000,1000))
+        hp.damage(600)
+        self.assertEqual(hp.heal(500),500)
+        self.assertEqual(hp.current,900)
 
     def test_delta_addresses_current_and_maximum_without_motion_attributes(self):
         message,body=Vitals(73,100).packet(TYPED_ACTOR_UID)

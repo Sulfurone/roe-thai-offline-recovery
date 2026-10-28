@@ -108,7 +108,7 @@ def main():
                         help='Original Thai test vehicle: glider=3, helicopter=4, Jeep=101')
     parser.add_argument('--gameplay-typed-uids',action='store_true',
                         help='Candidate entity UID type bits; requires matching typed fixture set')
-    parser.add_argument('--gameplay-vitals',action='store_true',help='Initialize original current/max HP once after actor readiness')
+    parser.add_argument('--gameplay-vitals',action='store_true',help='Initialize original HP once and handle timed medicine-use candidates')
     parser.add_argument('--gameplay-throwables',action='store_true',help='Acknowledge native throws, consume one item and complete original effects')
     parser.add_argument('--gameplay-posture-speeds',action='store_true',
                         help='Sparse local crouch/prone tuning after player readiness; standing stays unchanged')

@@ -29,7 +29,7 @@ hook(0x13a8100,0)
 hook(0x13a8110,0)
 c.uc.mem_write(props+0x7ec,b'\xdb')
 checks=[]
-for hp in (Vitals(),Vitals(73,100),Vitals(0,100)):
+for hp in (Vitals(),Vitals(730,1000),Vitals(0,1000)):
     mid,body=hp.packet(uid)
     result=c.decode_server(mid,body)
     if result['code'] or result['consumed']!=result['bytes']:raise ValueError(result)

@@ -1,7 +1,7 @@
 """Bounded single-player life state and the original Thai 1069 HP delta.
 
-Initial 100 HP is the offline scenario setting, not a recovered server table
-default. Combat damage, item-use timing and death actions are separate work.
+The original Thai medical conditions and full-heal target both use 1000 HP.
+Combat damage, item-use timing and death actions are separate work.
 """
 from dataclasses import dataclass
 import struct
@@ -9,8 +9,8 @@ import struct
 
 @dataclass
 class Vitals:
-    current: int = 100
-    maximum: int = 100
+    current: int = 1000
+    maximum: int = 1000
 
     def __post_init__(self):
         if (type(self.current) is not int or type(self.maximum) is not int

@@ -40,7 +40,7 @@ class PopulationTests(unittest.TestCase):
         bots = BotRoster(profile, 2)
         population = WorldPopulation(ControlSession(ready_game()), Surface(), bots=bots)
         spawned = bots.spawn(population, (100000, 200000, 7250), random.Random(1))
-        self.assertEqual([m for m, _ in spawned], [0x565, 0xbe7, 0x27] * 2)
+        self.assertEqual([m for m, _ in spawned], [0x565, 0xbe7, 0x1069, 0x27] * 2)
         self.assertEqual(len(bots.actors), 2)
         self.assertEqual(bots.spawn(population, (100000, 200000, 7250), random.Random(1)), [])
         for uid in bots.actors:
@@ -53,6 +53,18 @@ class PopulationTests(unittest.TestCase):
         self.assertEqual([m for m,b in moved].count(0xbe7), 2)
         self.assertEqual(bots.tick(population, bots.started + 1.1), [])
         self.assertEqual(bots.handle(0xbe6, b''), None)
+
+    def test_peer_health_is_per_actor_and_profile_retries_do_not_refill(self):
+        profile=struct.pack('>IIQI',3,1,1,12)+b'OfflineBot1\0'+POSITION_MARKER
+        bots=BotRoster(profile)
+        population=WorldPopulation(ControlSession(ready_game()),Surface(),bots=bots)
+        bots.spawn(population,(100000,200000,7250),random.Random(1))
+        uid=next(iter(bots.actors))
+        bots.vitals[uid].damage(125)
+        retried=bots.tick(population,bots.started+1)
+        self.assertEqual([b for m,b in retried if m==0x1069],[bots.vitals[uid].packet(uid)[1]])
+        self.assertEqual(struct.unpack_from('>II',bots.vitals[uid].packet(uid)[1],11),(875,1000))
+        self.assertEqual(bots.handle(0xbe6,struct.pack('>IIQ',2,1,uid))[-1],bots.vitals[uid].packet(uid))
 
     def test_door_open_close_retries_and_bad_inputs(self):
         game = OfflineGameplay(door_interactions=True)

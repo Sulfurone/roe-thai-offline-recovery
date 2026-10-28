@@ -8,6 +8,7 @@ import struct
 import time
 
 from offline_gameplay import TYPED_ACTOR_UID
+from offline_vitals import Vitals
 POSITION_MARKER = struct.pack('>3i',123456,234567,34567)
 
 
@@ -31,6 +32,7 @@ class BotRoster:
         self.position_offset = profile.index(POSITION_MARKER)
         self.profile, self.count = bytes(profile), count
         self.actors = {}
+        self.vitals = {}
         self.next_tick = 0
         self.started = None
         self.retries = 0
@@ -56,8 +58,9 @@ class BotRoster:
                 spot = (spot[0], spot[1], spot[2] - 25)
             uid = TYPED_ACTOR_UID + 0x1000 + index
             self.actors[uid] = dict(origin=spot, position=spot, sequence=1)
+            self.vitals[uid] = Vitals()
             replies.extend(((0x565, struct.pack('>B3iBQ', 1, *spot, 0, uid)),
-                            (0xbe7, self.profile_for(uid)), peer_motion(uid, spot, 1)))
+                            (0xbe7, self.profile_for(uid)),self.vitals[uid].packet(uid),peer_motion(uid, spot, 1)))
         self.started = time.monotonic()
         return replies
 
@@ -74,7 +77,9 @@ class BotRoster:
         for uid, actor in self.actors.items():
             if retry:
                 replies.extend(((0x565,struct.pack('>B3iBQ',1,*actor['position'],0,uid)),
-                                (0xbe7,self.profile_for(uid))))
+                                (0xbe7,self.profile_for(uid)),self.vitals[uid].packet(uid)))
+            if not self.vitals[uid].current:
+                continue
             x, y, _ = actor['origin']
             # A small terrain-screened patrol, not original navigation/AI.
             angle = elapsed * .15
@@ -99,5 +104,5 @@ class BotRoster:
         for index in range(count):
             uid = struct.unpack_from('>Q', body, 8 + index * 8)[0]
             if uid in self.actors:
-                replies.append((0xbe7, self.profile_for(uid)))
+                replies.extend(((0xbe7, self.profile_for(uid)),self.vitals[uid].packet(uid)))
         return replies

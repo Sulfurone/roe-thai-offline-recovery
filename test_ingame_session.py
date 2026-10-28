@@ -17,6 +17,7 @@ from ingame_client import MailboxClient
 from offline_gameplay import JEEP_UID,OfflineGameplay
 from offline_inventory import Item
 from test_throwables import start as throw_start,finish as throw_finish
+from test_medicine import request as medicine_request
 from test_offline_motion import move_body, plane_body
 from test_control_panel import jeep_template
 from offline_bots import POSITION_MARKER
@@ -45,7 +46,10 @@ class IngameSessionTests(unittest.TestCase):
     def test_daytime_parachute_life_and_throw_receipts_with_menu_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',aircraft=True,vitals=True,throws=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False):
+    def test_timed_medical_use_and_hp_delta_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay',vitals=True,medicine=True)
+
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -102,12 +106,15 @@ class IngameSessionTests(unittest.TestCase):
 
             def construct_game(**kwargs):
                 game=OfflineGameplay(**kwargs)
-                game.inventory.items[1,5]=Item(5,50001,0x100110,3)
+                if throws:game.inventory.items[1,5]=Item(5,50001,0x100110,3)
+                if medicine:
+                    game.inventory.items[2,3]=Item(7,70001,0x100110,2)
+                    game.vitals.damage(600)
                 return game
 
             with patch.object(local_server, '__file__', str(root / 'recovery/local_server.py')), \
                     patch('sys.argv', argv), \
-                    (patch.object(local_server,'OfflineGameplay',side_effect=construct_game) if throws else contextlib.nullcontext()), \
+                    (patch.object(local_server,'OfflineGameplay',side_effect=construct_game) if throws or medicine else contextlib.nullcontext()), \
                     patch.object(local_server, 'ControlServer', side_effect=AssertionError('Native mode must not start HTTP')), \
                     patch.object(local_server, 'OverlayProcess', return_value=contextlib.nullcontext()) as overlay, \
                     contextlib.redirect_stdout(output), contextlib.ExitStack() as cleanup:
@@ -155,6 +162,7 @@ class IngameSessionTests(unittest.TestCase):
                                 continue
                             if population and message == 0x565:
                                 self.assertEqual(receive_raw()[0],0xbe7)
+                                self.assertEqual(receive_raw()[0],0x1069)
                                 continue
                             if aircraft and (message == 0x6563 or startup and
                                              message in (0x6554, 0x656e, 0x656d, 0x6542, 0x6564, 0x6565)):
@@ -188,11 +196,12 @@ class IngameSessionTests(unittest.TestCase):
                                          +[(i,120,120) for i in range(24,28)])
                         send(0x002a,struct.pack('>I3i',1,325850,271700,6501))
                     if population:
-                        generated = [receive_raw() for _ in range(68)]
+                        generated = [receive_raw() for _ in range(69)]
                         self.assertEqual([m for m, _ in generated],
-                            [0x821]*56 + [0x654b, 0x6554, 0x656e]*3 + [0x565, 0xbe7, 0x27])
-                        bot_uid = struct.unpack_from('>Q', generated[-2][1], 8)[0]
+                            [0x821]*56 + [0x654b, 0x6554, 0x656e]*3 + [0x565, 0xbe7, 0x1069, 0x27])
+                        bot_uid = struct.unpack_from('>Q', generated[-3][1], 8)[0]
                         self.assertNotEqual(bot_uid, 256)
+                        self.assertEqual(struct.unpack('>QBBBII',generated[-2][1]),(bot_uid,0,1,0,1000,1000))
                     if interface == '--ingame-overlay':
                         clock_id, clock_body = receive()
                         self.assertEqual(clock_id, 0x4816)
@@ -207,6 +216,7 @@ class IngameSessionTests(unittest.TestCase):
                         self.assertEqual(profile_id, 0xbe7)
                         self.assertEqual(struct.unpack_from('>II',queried_profile),(3,1))
                         self.assertEqual(struct.unpack_from('>Q', queried_profile, 8)[0], bot_uid)
+                        self.assertEqual(receive_raw(),(0x1069,struct.pack('>QBBBII',bot_uid,0,1,0,1000,1000)))
                     if vitals:
                         send(0x002a,struct.pack('>I3i',2,325850,271700,6501))
                     directory = next((root / 'recovery/private/ingame-control').glob('session-*'))
@@ -257,7 +267,7 @@ class IngameSessionTests(unittest.TestCase):
                     self.assertEqual([message for message, _ in packets], [0x4817, 0x821, 0x821, 0x654b, 0x6554, 0x656e])
                     if vitals:
                         self.assertEqual(len(life_packets),1)
-                        self.assertEqual(struct.unpack('>QBBBII',life_packets[0]),(256,0,1,0,100,100))
+                        self.assertEqual(struct.unpack('>QBBBII',life_packets[0]),(256,0,1,0,400 if medicine else 1000,1000))
                     if aircraft:
                         jeep = packets[3][1]
                         name_length = struct.unpack_from('>I', jeep, 8)[0]
@@ -277,6 +287,14 @@ class IngameSessionTests(unittest.TestCase):
                         client.settimeout(.2)
                         with self.assertRaises(socket.timeout):read_frame(client)
                         client.settimeout(4)
+                    if medicine:
+                        started=time.monotonic()
+                        send(0x3e80,medicine_request()+b'\x18'*8)
+                        self.assertEqual(receive(),(0x3e81,struct.pack('>BIIB',3,0,70001,1)))
+                        send(0x3e80,medicine_request()+b'\x29'*8)
+                        self.assertEqual(receive()[0],0x3e82)
+                        self.assertGreaterEqual(time.monotonic()-started,2.8)
+                        self.assertEqual(receive_raw(),(0x1069,struct.pack('>QBBBII',256,0,1,0,500,1000)))
                     client.sendall(frame(13))
                 thread.join(5)
                 self.assertFalse(thread.is_alive())
