@@ -5,9 +5,10 @@ environment clock and selects a native weather preset after the world is
 usable; ``EnvrTimeTable``, ``EnvrWeatherTable`` and
 ``EnvrMapWeatherResourceTable`` then select the matching resources.
 
-Sending the clock from the map-load callback is too early for this Thai build:
-real-client A/B runs reached one position report and then stopped.  Keep the
-small readiness scheduler here so every launcher uses the same, testable gate.
+The lobby time and environment time must share one epoch. Historical lobby
+fixtures contain zero, and a real epoch sent later produced a huge negative
+native elapsed time. A readiness delay alone did not prevent a live freeze.
+Synchronize the explicitly verified lobby field before testing clock delivery.
 """
 from dataclasses import dataclass
 import struct
@@ -30,6 +31,26 @@ def environment_clock(hour, timestamp=None):
     if type(timestamp) is not int or not 0 <= timestamp <= 0xffffffff:
         raise ValueError('Environment timestamp must fit an unsigned DWORD')
     return 0x4816, struct.pack('>II', hour, timestamp)
+
+
+def synchronize_lobby_clock(body, tail_bytes, timestamp=None):
+    """Stamp the verified 0x02EF time field without changing saved fixtures.
+
+    The original DTO ends with two DWORDs and two bytes (10 bytes). Our
+    historical fixture builders appended another eight zero bytes (18 total).
+    Callers must explicitly select their original-codec-verified layout.
+    """
+    timestamp = int(time.time()) if timestamp is None else timestamp
+    environment_clock(12, timestamp)  # Shared unsigned timestamp validation.
+    if tail_bytes not in (10, 18) or len(body) < 12 + tail_bytes:
+        raise ValueError('Unverified lobby time tail layout')
+    result, _, count = struct.unpack_from('>III', body)
+    if result != 0 or count > 8:
+        raise ValueError('Expected a successful bounded Thai world response')
+    if tail_bytes == 18 and body[-8:] != bytes(8):
+        raise ValueError('Historical lobby padding is not zero')
+    offset = len(body) - tail_bytes
+    return body[:offset] + struct.pack('>I', timestamp) + body[offset + 4:]
 
 
 def environment_weather(weather_id, transition_seconds=30, mode=0, result=0):

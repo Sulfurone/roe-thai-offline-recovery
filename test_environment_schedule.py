@@ -2,10 +2,23 @@ import struct
 import unittest
 
 from offline_environment import (EnvironmentSchedule, NATIVE_WEATHER_IDS,
-                                 WeatherSchedule, environment_weather)
+                                 WeatherSchedule, environment_weather, synchronize_lobby_clock)
 
 
 class EnvironmentScheduleTests(unittest.TestCase):
+    def test_lobby_clock_uses_verified_tail_and_preserves_fixture(self):
+        prefix = struct.pack('>III', 0, 1, 1) + b'opaque character record'
+        for tail in (10, 18):
+            source = prefix + bytes(tail)
+            stamped = synchronize_lobby_clock(source, tail, 1700000000)
+            self.assertEqual(stamped, prefix + struct.pack('>I', 1700000000) + bytes(tail - 4))
+            self.assertEqual(source, prefix + bytes(tail))
+        for body, tail in ((b'', 18), (prefix + bytes(18), 14),
+                           (prefix + bytes(17) + b'X', 18),
+                           (struct.pack('>III', 0, 1, 9) + bytes(10), 10)):
+            with self.assertRaises(ValueError):
+                synchronize_lobby_clock(body, tail, 1700000000)
+
     def test_arms_only_on_valid_current_map_position(self):
         schedule=EnvironmentSchedule(12,delay=1)
         self.assertFalse(schedule.observe(0x0dcd,bytes(16),now=10))

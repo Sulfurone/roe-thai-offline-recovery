@@ -41,7 +41,11 @@ class IngameSessionTests(unittest.TestCase):
                     interface, '--control-vehicle-template', str(vehicle),
                     '--gameplay-prototype', '--gameplay-inventory', '--gameplay-ground-loot']
             if interface == '--ingame-overlay':
-                argv.extend(['--environment-hour', '12', '--environment-ready-delay', '.05'])
+                world = root / 'world.bin'
+                original_world = struct.pack('>III', 0, 1, 0) + bytes(18)
+                world.write_bytes(original_world)
+                argv.extend(['--environment-hour', '12', '--environment-ready-delay', '.05',
+                             '--world-body-file', str(world), '--world-time-tail-bytes', '18'])
 
             def serve():
                 try:
@@ -85,6 +89,13 @@ class IngameSessionTests(unittest.TestCase):
                         packet = decrypt(cipher, bytes(16))
                         return struct.unpack_from('>H', packet, 4)[0], packet[10:]
 
+                    if interface == '--ingame-overlay':
+                        send(0x02e4, bytes(4))
+                        world_id, world_body = receive()
+                        self.assertEqual(world_id, 0x02ef)
+                        world_time = struct.unpack_from('>I', world_body, len(world_body) - 18)[0]
+                        self.assertLess(abs(world_time - time.time()), 3)
+                        self.assertEqual(world.read_bytes(), original_world)
                     send(0x0dcd, bytes(4))
                     send(0x002a, struct.pack('>I3i', 1, 325800, 271700, 6501))
                     self.assertEqual(receive()[0], 0x821)
@@ -92,11 +103,17 @@ class IngameSessionTests(unittest.TestCase):
                         clock_id, clock_body = receive()
                         self.assertEqual(clock_id, 0x4816)
                         self.assertEqual(struct.unpack_from('>I', clock_body)[0], 12)
+                        clock_time = struct.unpack_from('>I', clock_body, 4)[0]
+                        self.assertLess(abs(clock_time - world_time), 3)
                     directory = next((root / 'recovery/private/ingame-control').glob('session-*'))
                     self.assertEqual((game / 'ROE_OfflineMenu.lua').exists(), interface == '--ingame-control')
                     deadline = time.monotonic() + 4
                     while time.monotonic() < deadline:
-                        status = (directory / 'status.txt').read_text(encoding='utf-8')
+                        try:
+                            status = (directory / 'status.txt').read_text(encoding='utf-8')
+                        except PermissionError:
+                            time.sleep(.01)
+                            continue
                         if 'ready=1\n' in status:
                             break
                         time.sleep(.05)
@@ -110,7 +127,11 @@ class IngameSessionTests(unittest.TestCase):
                         packets.extend(receive() for _ in range(count))
                         deadline = time.monotonic() + 3
                         while time.monotonic() < deadline:
-                            state = menu.state()
+                            try:
+                                state = menu.state()
+                            except PermissionError:
+                                time.sleep(.01)
+                                continue
                             if int(state['seq']) >= seq:
                                 break
                             time.sleep(.02)

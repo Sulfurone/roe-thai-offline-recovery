@@ -7,6 +7,7 @@ import collections
 import argparse
 import json
 import struct
+from pathlib import Path
 from native_codec_probe import NativeCodec, OUT, WORK
 from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_READ
 from unicorn.x86_const import (UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_ESP,
@@ -15,6 +16,8 @@ from capstone import Cs, CS_ARCH_X86, CS_MODE_32
 
 p = argparse.ArgumentParser()
 p.add_argument('--enter', action='store_true')
+p.add_argument('--body', type=Path,
+               help='Own local body to inspect instead of the historical sample')
 a = p.parse_args()
 c = NativeCodec()
 c.uc.mem_map(0, 4096)
@@ -22,7 +25,7 @@ c.uc.mem_map(0, 4096)
 # offline emulator only. They are not a reconstruction of the running UI.
 c.uc.mem_write(0x2eed5b0, struct.pack('<I', 0x10800000))
 c.uc.mem_write(0x2eedb58, struct.pack('<I', 0x10810000))
-body = bytearray((OUT / ('enter-game.bin' if a.enter else 'world-level1.bin')).read_bytes())
+body = bytearray((a.body or OUT / ('enter-game.bin' if a.enter else 'world-level1.bin')).read_bytes())
 result = c.decode_server(0x32b if a.enter else 0x2ef, bytes(body))
 assert result['code'] == 0
 instructions = collections.deque(maxlen=30)
@@ -120,6 +123,7 @@ except Exception as e:
 report = {'error': error, 'calls': calls[-25:], 'packet_reads': reads,
           'events_not_dispatched': events,
           'cached_count': c.read32(0x2ef47c0 + 8),
+          'cached_time_offset': struct.unpack('<i', c.uc.mem_read(0x2ef47c0 + 0xacc4, 4))[0],
           'cached_selected_uid_low': c.read32(0x2ef47c0 + 0xc740),
           'last': list(instructions)}
 (WORK / ('enter-callback-trace.json' if a.enter else 'world-callback-trace.json')).write_text(

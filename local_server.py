@@ -15,7 +15,7 @@ import webbrowser
 from tpdu import auth_info, decrypt, encrypt, frame, read_frame
 from thai_profile import save_submission
 from offline_environment import (EnvironmentSchedule, NATIVE_WEATHER_IDS,
-                                 WeatherSchedule, environment_clock)
+                                 WeatherSchedule, environment_clock, synchronize_lobby_clock)
 from offline_gameplay import OfflineGameplay,ACTOR_UID,JEEP_UID,TYPED_ACTOR_UID,TYPED_VEHICLE_UID
 from offline_control import ControlHub, ControlServer
 from control_actions import ControlSession
@@ -42,6 +42,8 @@ def main():
                         help='Locally generated original-codec-validated config 101 Jeep spawn body')
     parser.add_argument('--environment-hour', type=int, choices=range(24), metavar='0..23',
                         help='Initialize the native day/weather clock (12 is noon)')
+    parser.add_argument('--world-time-tail-bytes', type=int, choices=(10, 18),
+                        help='Stamp the original-codec-verified 0x02EF server-time tail (10 canonical, 18 historical padded)')
     parser.add_argument('--environment-trigger',choices=('player-ready','load'),default='player-ready',
                         help='Safe default waits for the first valid player position; load preserves the old A/B probe')
     parser.add_argument('--environment-ready-delay',type=float,default=1.0,metavar='SECONDS',
@@ -156,6 +158,15 @@ def main():
     parser.add_argument('--key-hex', default='00' * 16,
                         help='Test session key; not yet established for this client')
     args = parser.parse_args()
+    if args.world_time_tail_bytes is not None and args.world_body_file is None:
+        parser.error('--world-time-tail-bytes requires --world-body-file')
+    if args.environment_hour is not None and args.world_body_file is not None and args.world_time_tail_bytes is None:
+        parser.error('Daytime needs a matching lobby epoch: verify and specify --world-time-tail-bytes')
+    if args.world_time_tail_bytes is not None:
+        try:
+            synchronize_lobby_clock(args.world_body_file.read_bytes(), args.world_time_tail_bytes, 0)
+        except (OSError, ValueError) as error:
+            parser.error(f'Cannot synchronize lobby clock: {error}')
     if args.control_ui_port is not None and not 0 <= args.control_ui_port <= 65535:
         parser.error('--control-ui-port must be from 0 to 65535')
     if args.ingame_control and args.ingame_overlay:
@@ -793,10 +804,16 @@ def main():
                                          body_bytes=len(body),
                                          body_sha256=hashlib.sha256(body).hexdigest())
                             if world_body is not None and message_id == 0x02E4:
-                                packet = struct.pack('>IHI', 1, 0x02EF, 0x02EF) + world_body
+                                reply_world_body = world_body
+                                if args.world_time_tail_bytes is not None:
+                                    reply_world_body = synchronize_lobby_clock(world_body, args.world_time_tail_bytes)
+                                    emit('world_time_synchronized',
+                                         timestamp=struct.unpack_from('>I', reply_world_body, len(reply_world_body) - args.world_time_tail_bytes)[0],
+                                         field_offset=len(reply_world_body) - args.world_time_tail_bytes)
+                                packet = struct.pack('>IHI', 1, 0x02EF, 0x02EF) + reply_world_body
                                 send(connection, 0, body=encrypt(packet, key))
-                                emit('world_body_response_sent', body_bytes=len(world_body),
-                                     body_sha256=hashlib.sha256(world_body).hexdigest(),
+                                emit('world_body_response_sent', body_bytes=len(reply_world_body),
+                                     body_sha256=hashlib.sha256(reply_world_body).hexdigest(),
                                      source=str(args.world_body_file))
                             elif roster is not None and message_id == 0x02E4:
                                 send(connection, 0, body=encrypt(roster, key))

@@ -17,7 +17,7 @@ if not errorlevel 1 (
 echo Thai daytime/weather probe: noon and explicit clear weather start after world readiness.
 echo The normal launcher retains the verified ground-walking baseline.
 echo Keep this console open while playing. Local service duration: 12 hours.
-"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --port 8002 --single-session --launch --environment-hour 12 --environment-trigger player-ready --environment-ready-delay 1 --environment-weather 2 --environment-weather-transition 30 --environment-weather-ready-delay 2 --gameplay-prototype --gameplay-auto-seat --gameplay-auto-board-delay 2 --gameplay-initialize-vehicle --gameplay-aircraft-route-speed 5000 --gameplay-aircraft-route-end 409400 204800 75000 --gameplay-typed-uids  --gameplay-vehicle-config 4 --probe-auth-response --compact-responses ^
+"%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --port 8002 --single-session --launch --world-time-tail-bytes 18 --environment-hour 12 --environment-trigger player-ready --environment-ready-delay 1 --environment-weather 2 --environment-weather-transition 30 --environment-weather-ready-delay 2 --gameplay-prototype --gameplay-auto-seat --gameplay-auto-board-delay 2 --gameplay-initialize-vehicle --gameplay-aircraft-route-speed 5000 --gameplay-aircraft-route-end 409400 204800 75000 --gameplay-typed-uids  --gameplay-vehicle-config 4 --probe-auth-response --compact-responses ^
   --world-body-file "%~dp0private\typed-gameplay\world.bin" ^
   --team-body-file "%~dp0private\typed-gameplay\team.bin" ^
   --enter-body-file "%~dp0private\typed-gameplay\enter.bin" ^
