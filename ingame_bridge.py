@@ -142,7 +142,9 @@ class IngameInstallation(AbstractContextManager):
         remaining = []
         for record in reversed(self.owned):
             target = self.game / record['path']
-            if target.is_file() and not target.is_symlink() and hashlib.sha256(target.read_bytes()).hexdigest() == record['sha256']:
+            if (target.resolve().is_relative_to(self.game) and target.is_file()
+                    and not target.is_symlink()
+                    and hashlib.sha256(target.read_bytes()).hexdigest() == record['sha256']):
                 target.unlink()
             elif target.exists():
                 remaining.append(record)
@@ -171,4 +173,3 @@ if __name__ == '__main__':
     installation.owned = data['owned']
     installation.__exit__(None, None, None)
     print(json.dumps({'remaining_changed_files': installation.owned}, indent=2))
-
