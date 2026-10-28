@@ -109,6 +109,7 @@ def main():
     parser.add_argument('--gameplay-typed-uids',action='store_true',
                         help='Candidate entity UID type bits; requires matching typed fixture set')
     parser.add_argument('--gameplay-vitals',action='store_true',help='Initialize original current/max HP once after actor readiness')
+    parser.add_argument('--gameplay-throwables',action='store_true',help='Acknowledge native throws, consume one item and complete original effects')
     parser.add_argument('--gameplay-posture-speeds',action='store_true',
                         help='Sparse local crouch/prone tuning after player readiness; standing stays unchanged')
     parser.add_argument('--gameplay-initialize-vehicle',action='store_true',
@@ -311,6 +312,8 @@ def main():
         parser.error('--gameplay-scatter-loot requires --gameplay-ground-loot')
     if args.gameplay_vitals and not args.gameplay_prototype:
         parser.error('--gameplay-vitals requires --gameplay-prototype')
+    if args.gameplay_throwables and not (args.gameplay_prototype and args.gameplay_inventory):
+        parser.error('--gameplay-throwables requires --gameplay-prototype and --gameplay-inventory')
     if args.gameplay_posture_speeds and not args.gameplay_prototype:
         parser.error('--gameplay-posture-speeds requires --gameplay-prototype')
     if args.self_position_observer and not args.gameplay_prototype:
@@ -496,7 +499,7 @@ def main():
                                            args.environment_weather_transition,
                                            args.environment_weather_ready_delay)
                            if args.environment_weather is not None else None)
-                gameplay = OfflineGameplay(vitals_enabled=args.gameplay_vitals,auto_board=args.gameplay_auto_seat,
+                gameplay = OfflineGameplay(vitals_enabled=args.gameplay_vitals,throwables_enabled=args.gameplay_throwables,auto_board=args.gameplay_auto_seat,
                     auto_board_delay=args.gameplay_auto_board_delay,
                     magazine=args.gameplay_starting_magazine,
                     inventory_enabled=args.gameplay_inventory,state_file=args.gameplay_state_file,

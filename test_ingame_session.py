@@ -14,7 +14,9 @@ from unittest.mock import patch
 
 import local_server
 from ingame_client import MailboxClient
-from offline_gameplay import JEEP_UID
+from offline_gameplay import JEEP_UID,OfflineGameplay
+from offline_inventory import Item
+from test_throwables import start as throw_start,finish as throw_finish
 from test_offline_motion import move_body, plane_body
 from test_control_panel import jeep_template
 from offline_bots import POSITION_MARKER
@@ -40,7 +42,10 @@ class IngameSessionTests(unittest.TestCase):
     def test_life_state_is_sent_once_after_readiness_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',vitals=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False):
+    def test_daytime_parachute_life_and_throw_receipts_with_menu_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay',aircraft=True,vitals=True,throws=True)
+
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -59,6 +64,8 @@ class IngameSessionTests(unittest.TestCase):
                 argv.append('--gameplay-posture-speeds')
             if vitals:
                 argv.append('--gameplay-vitals')
+            if throws:
+                argv.append('--gameplay-throwables')
             if population:
                 terrain = root / 'surface.repx'
                 terrain.write_text('<root><PxHeightField><NbRows>2</NbRows><NbColumns>2</NbColumns>'
@@ -93,8 +100,14 @@ class IngameSessionTests(unittest.TestCase):
                 except BaseException as error:
                     errors.put(error)
 
+            def construct_game(**kwargs):
+                game=OfflineGameplay(**kwargs)
+                game.inventory.items[1,5]=Item(5,50001,0x100110,3)
+                return game
+
             with patch.object(local_server, '__file__', str(root / 'recovery/local_server.py')), \
                     patch('sys.argv', argv), \
+                    (patch.object(local_server,'OfflineGameplay',side_effect=construct_game) if throws else contextlib.nullcontext()), \
                     patch.object(local_server, 'ControlServer', side_effect=AssertionError('Native mode must not start HTTP')), \
                     patch.object(local_server, 'OverlayProcess', return_value=contextlib.nullcontext()) as overlay, \
                     contextlib.redirect_stdout(output), contextlib.ExitStack() as cleanup:
@@ -250,6 +263,20 @@ class IngameSessionTests(unittest.TestCase):
                         name_length = struct.unpack_from('>I', jeep, 8)[0]
                         self.assertEqual(struct.unpack_from('>3i', jeep, 24 + name_length),
                                          (334400, 280000, 9100))
+                    if throws:
+                        send(0x1004,throw_start()+b'\x18'*8)
+                        self.assertEqual(receive(),(0x1005,struct.pack('>3I',50001,37,0)))
+                        self.assertEqual(receive()[0],0x3e82)
+                        send(0x1004,throw_start()+b'\x29'*8)
+                        self.assertEqual(receive(),(0x1005,struct.pack('>3I',50001,37,0)))
+                        send(0x1007,throw_finish()+b'\x37'*8)
+                        self.assertEqual(receive(),(0x1008,struct.pack('>3I',50001,37,0)))
+                        self.assertEqual(receive(),(0x1009,struct.pack('>II3iBQI',50001,37,326000,271700,6500,0,256,0)))
+                        send(0x1007,throw_finish())
+                        self.assertEqual(receive(),(0x1008,struct.pack('>3I',50001,37,0)))
+                        client.settimeout(.2)
+                        with self.assertRaises(socket.timeout):read_frame(client)
+                        client.settimeout(4)
                     client.sendall(frame(13))
                 thread.join(5)
                 self.assertFalse(thread.is_alive())

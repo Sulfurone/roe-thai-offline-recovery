@@ -18,6 +18,7 @@ from offline_ground_loot import OfflineGroundLoot,MAX_GROUND_STACKS
 from offline_weapons import WEAPONS,AMMUNITION,is_weapon
 from offline_vehicles import LAND_VEHICLES
 from offline_vitals import Vitals
+from offline_throwables import Throws
 import offline_world_state
 
 ACTOR_UID = 256
@@ -94,6 +95,8 @@ class OfflineGameplay:
     vitals_enabled: bool = False
     vitals: Vitals = field(default_factory=Vitals,init=False)
     vitals_sent: bool = field(default=False,init=False)
+    throwables_enabled: bool = False
+    throws: Throws = field(default_factory=Throws,init=False)
 
     def __post_init__(self):
         if not math.isfinite(self.auto_board_delay) or not 0<=self.auto_board_delay<=30:
@@ -531,6 +534,10 @@ class OfflineGameplay:
 
     def _handle(self, message, body):
         self.last_drop_event=None
+        if self.throwables_enabled and message in (0x1004,0x1007):
+            return self.throws.handle(message,body,self.inventory,self.actor_uid,
+                self.actor_ready and not self.seated and self.vitals.current>0
+                and not (self.opening_glider is not None and self.opening_glider.seated))
         if message == 0x6f57 and self.door_interactions:
             return self.doors.handle(body)
         glider=self.opening_glider
