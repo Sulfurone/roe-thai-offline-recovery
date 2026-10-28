@@ -46,6 +46,17 @@ class BotRoster:
             profile[20 + size - 2] = ord('1') + uid - (TYPED_ACTOR_UID + 0x1000)
         return bytes(profile)
 
+    def life_packets(self,uid):
+        from offline_combat import death_packet
+        hp=self.vitals[uid]
+        return [hp.packet(uid)]+([death_packet(uid)] if not hp.current else [])
+
+    def damage(self,uid,amount):
+        hp=self.vitals.get(uid)
+        if hp is None or not hp.current:return []
+        if not hp.damage(amount):return []
+        return self.life_packets(uid)
+
     def spawn(self, population, position, rng):
         if self.actors:
             return []
@@ -77,7 +88,8 @@ class BotRoster:
         for uid, actor in self.actors.items():
             if retry:
                 replies.extend(((0x565,struct.pack('>B3iBQ',1,*actor['position'],0,uid)),
-                                (0xbe7,self.profile_for(uid)),self.vitals[uid].packet(uid)))
+                                (0xbe7,self.profile_for(uid))))
+                replies.extend(self.life_packets(uid))
             if not self.vitals[uid].current:
                 continue
             x, y, _ = actor['origin']
@@ -104,5 +116,6 @@ class BotRoster:
         for index in range(count):
             uid = struct.unpack_from('>Q', body, 8 + index * 8)[0]
             if uid in self.actors:
-                replies.extend(((0xbe7, self.profile_for(uid)),self.vitals[uid].packet(uid)))
+                replies.extend(((0xbe7, self.profile_for(uid)),))
+                replies.extend(self.life_packets(uid))
         return replies

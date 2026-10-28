@@ -5,8 +5,8 @@ from offline_hit_reports import HIT,character_hit
 
 
 def hit_body():
-    return HIT.pack(37,0x1000000001100,326000,271700,6600,0,0.,0.,1.,
-                    326000,271700,6500,0,325800.,271700.,6650.,2,11,12,13,14,91,2,1,10201,5,125,9)
+    return HIT.pack(37,0x1000000001100,325800,271700,6600,0,1.,0.,0.,
+                    326000,271700,6500,0,326000.,271700.,6600.,2,11,12,13,14,91,2,1,10201,5,125,9)
 
 
 class HitReportTests(unittest.TestCase):
@@ -14,10 +14,10 @@ class HitReportTests(unittest.TestCase):
         self.assertEqual(HIT.size,98)
         h=character_hit(hit_body())
         self.assertEqual((h.sequence,h.target_uid),(37,0x1000000001100))
-        self.assertEqual(h.impact,(326000,271700,6600))
+        self.assertEqual(h.ray_origin,(325800,271700,6600))
+        self.assertEqual(h.impact,(326000.,271700.,6600.))
         self.assertEqual(h.target_position,(326000,271700,6500))
-        self.assertEqual(h.source_position,(325800.,271700.,6650.))
-        self.assertEqual(h.normal,(0.,0.,1.))
+        self.assertEqual(h.ray_direction,(1.,0.,0.))
         self.assertEqual(h.part,2)
         self.assertEqual(h.state,(11,12,13,14))
         self.assertEqual(h.opaque,(91,2,1,10201,5,125,9))

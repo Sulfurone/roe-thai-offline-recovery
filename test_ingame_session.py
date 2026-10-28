@@ -21,7 +21,8 @@ from test_medicine import request as medicine_request
 from test_hit_reports import hit_body
 from test_offline_motion import move_body, plane_body
 from test_control_panel import jeep_template
-from offline_bots import POSITION_MARKER
+from offline_bots import POSITION_MARKER,BotRoster
+from offline_combat import BotCombat
 from tpdu import decrypt, encrypt, frame, read_frame
 
 
@@ -53,7 +54,10 @@ class IngameSessionTests(unittest.TestCase):
     def test_collision_reports_are_diagnostic_without_invented_hp_or_ammo_changes(self):
         self.run_session('--ingame-overlay',vitals=True,hit_reports=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False):
+    def test_consumed_shots_damage_peer_and_send_native_death_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay',population=True,vitals=True,combat=True)
+
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -74,6 +78,8 @@ class IngameSessionTests(unittest.TestCase):
                 argv.append('--gameplay-vitals')
             if throws:
                 argv.append('--gameplay-throwables')
+            if combat:
+                argv.append('--world-bot-combat')
             if population:
                 terrain = root / 'surface.repx'
                 terrain.write_text('<root><PxHeightField><NbRows>2</NbRows><NbColumns>2</NbColumns>'
@@ -109,6 +115,11 @@ class IngameSessionTests(unittest.TestCase):
                     errors.put(error)
 
             games=[]
+            combats=[]
+            def construct_combat(game,bots):
+                result=BotCombat(game,bots)
+                combats.append(result)
+                return result
             def construct_game(**kwargs):
                 game=OfflineGameplay(**kwargs)
                 games.append(game)
@@ -120,7 +131,9 @@ class IngameSessionTests(unittest.TestCase):
 
             with patch.object(local_server, '__file__', str(root / 'recovery/local_server.py')), \
                     patch('sys.argv', argv), \
-                    (patch.object(local_server,'OfflineGameplay',side_effect=construct_game) if throws or medicine or hit_reports else contextlib.nullcontext()), \
+                    (patch.object(local_server,'OfflineGameplay',side_effect=construct_game) if throws or medicine or hit_reports or combat else contextlib.nullcontext()), \
+                    (patch.object(local_server,'BotCombat',side_effect=construct_combat) if combat else contextlib.nullcontext()), \
+                    (patch.object(BotRoster,'tick',return_value=[]) if combat else contextlib.nullcontext()), \
                     patch.object(local_server, 'ControlServer', side_effect=AssertionError('Native mode must not start HTTP')), \
                     patch.object(local_server, 'OverlayProcess', return_value=contextlib.nullcontext()) as overlay, \
                     contextlib.redirect_stdout(output), contextlib.ExitStack() as cleanup:
@@ -202,7 +215,12 @@ class IngameSessionTests(unittest.TestCase):
                                          +[(i,120,120) for i in range(24,28)])
                         send(0x002a,struct.pack('>I3i',1,325850,271700,6501))
                     if population:
-                        generated = [receive_raw() for _ in range(69)]
+                        generated=[]
+                        while len(generated)<69:
+                            row=receive_raw()
+                            if vitals and row[0]==0x1069 and struct.unpack_from('>Q',row[1])[0]==256:
+                                life_packets.append(row[1])
+                            else:generated.append(row)
                         self.assertEqual([m for m, _ in generated],
                             [0x821]*56 + [0x654b, 0x6554, 0x656e]*3 + [0x565, 0xbe7, 0x1069, 0x27])
                         bot_uid = struct.unpack_from('>Q', generated[-3][1], 8)[0]
@@ -309,6 +327,18 @@ class IngameSessionTests(unittest.TestCase):
                         with self.assertRaises(socket.timeout):read_frame(client)
                         client.settimeout(4)
                         self.assertEqual((games[0].vitals.current,games[0].magazine),before)
+                    if combat:
+                        roster=combats[0].bots
+                        roster.actors[bot_uid]['position']=(326000,271700,6500)
+                        roster.vitals[bot_uid].damage(960)
+                        for sequence,current in ((37,20),(38,0)):
+                            send(0x11d3,struct.pack('>6fIB',325800,271700,6600,327000,271700,6600,0,0)+bytes(8))
+                            send(0x11e9,struct.pack('>I',sequence)+hit_body()[4:]+bytes(8))
+                            self.assertEqual(receive_raw(),(0x1069,struct.pack('>QBBBII',bot_uid,0,1,0,current,1000)))
+                            self.assertEqual(receive_raw(),(0x11eb,struct.pack('>QQ3iBBIB',256,bot_uid,0,0,100,0,2,20,int(current==0))))
+                            if not current:self.assertEqual(receive_raw(),(0x533,struct.pack('>IQ',0,bot_uid)))
+                        self.assertEqual(games[0].magazine,28)
+                        self.assertEqual(roster.vitals[bot_uid].current,0)
                     client.sendall(frame(13))
                 thread.join(5)
                 self.assertFalse(thread.is_alive())
@@ -320,8 +350,15 @@ class IngameSessionTests(unittest.TestCase):
                 rejected=[r for r in rows if r.get('event')=='character_hit_report_rejected']
                 self.assertEqual(len(reports),1)
                 self.assertEqual(reports[0]['target_uid'],0x1000000001100)
+                self.assertEqual(reports[0]['ray_origin'],[325800,271700,6600])
+                self.assertEqual(reports[0]['impact'],[326000.,271700.,6600.])
                 self.assertIs(reports[0]['damage_applied'],False)
                 self.assertEqual(len(rejected),1)
+            if combat:
+                rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
+                changes=[r for r in rows if r.get('event')=='bot_combat']
+                self.assertEqual([r['current'] for r in changes],[20,0])
+                self.assertTrue(all(r['accepted'] and r['damage_applied'] for r in changes))
             if posture:
                 self.assertEqual(output.getvalue().count('"event": "posture_speed_delta_sent"'),1)
             if interface == '--ingame-overlay':

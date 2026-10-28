@@ -25,6 +25,7 @@ from offline_motion import actor_motion, aircraft_spawn_heading
 from offline_population import WorldPopulation
 from offline_bots import BotRoster
 from offline_hit_reports import character_hit
+from offline_combat import BotCombat
 from offline_posture import posture_speed_delta,CROUCH_CM_PER_SECOND,PRONE_CM_PER_SECOND
 from self_position import PositionInstallation,recover_previous
 
@@ -110,6 +111,8 @@ def main():
     parser.add_argument('--gameplay-typed-uids',action='store_true',
                         help='Candidate entity UID type bits; requires matching typed fixture set')
     parser.add_argument('--gameplay-vitals',action='store_true',help='Initialize original HP once and handle timed medicine-use candidates')
+    parser.add_argument('--world-bot-combat',action='store_true',
+                        help='Experimental consumed-shot/collision damage against local peers; no combat AI')
     parser.add_argument('--gameplay-throwables',action='store_true',help='Acknowledge native throws, consume one item and complete original effects')
     parser.add_argument('--gameplay-posture-speeds',action='store_true',
                         help='Sparse local crouch/prone tuning after player readiness; standing stays unchanged')
@@ -313,6 +316,8 @@ def main():
         parser.error('--gameplay-scatter-loot requires --gameplay-ground-loot')
     if args.gameplay_vitals and not args.gameplay_prototype:
         parser.error('--gameplay-vitals requires --gameplay-prototype')
+    if args.world_bot_combat and not (args.world_bots and args.gameplay_inventory and args.gameplay_vitals):
+        parser.error('--world-bot-combat requires experimental peers, inventory and vitals')
     if args.gameplay_throwables and not (args.gameplay_prototype and args.gameplay_inventory):
         parser.error('--gameplay-throwables requires --gameplay-prototype and --gameplay-inventory')
     if args.gameplay_posture_speeds and not args.gameplay_prototype:
@@ -522,6 +527,7 @@ def main():
                 control_session = ControlSession(gameplay, control_vehicle_body,
                     client_boarding=args.control_client_boarding) if control or args.world_populate else None
                 bots=BotRoster(bot_profile,args.world_bots) if bot_profile is not None else None
+                combat=BotCombat(gameplay,bots) if args.world_bot_combat else None
                 population = WorldPopulation(control_session,population_surface,args.world_seed,bots=bots,
                     clusters=args.world_loot_clusters,vehicle_clusters=args.world_vehicle_clusters,
                     extra_items=args.world_extra_items) if args.world_populate else None
@@ -703,14 +709,14 @@ def main():
                                 raw.write(application)
                             message_id = struct.unpack_from('>H', application, 4)[0] if len(application) >= 6 else None
                             emit('application_message', bytes=len(application), message_id=message_id)
-                            if gameplay is not None and message_id==0x11e9:
+                            if gameplay is not None and message_id==0x11e9 and combat is None:
                                 hit=character_hit(application[26:])
                                 if hit is None:
                                     emit('character_hit_report_rejected',body_bytes=len(application[26:]))
                                 else:
                                     emit('character_hit_report',sequence=hit.sequence,
                                          target_uid=hit.target_uid,impact=hit.impact,
-                                         source_position=hit.source_position,part=hit.part,
+                                         ray_origin=hit.ray_origin,part=hit.part,
                                          damage_applied=False)
                             if args.gameplay_motion_ack and gameplay is not None and loaded_pushes_sent and message_id == 0x002a:
                                 motion = actor_motion(application[26:])
@@ -741,6 +747,7 @@ def main():
                                                          and push_id in (0x05fb,0x04a0) else 'file'))
                             if gameplay is not None and loaded_pushes_sent:
                                 previous_saves=gameplay.state_save_count
+                                previous_magazine=gameplay.magazine
                                 bot_replies=bots.handle(message_id,application[26:]) if bots is not None else None
                                 control_replies=bot_replies
                                 if control_replies is None and control_session is not None:
@@ -749,6 +756,12 @@ def main():
                                         emit('vehicle_board_request',**control_session.last_board_event)
                                 gameplay_replies=(gameplay.handle(message_id,application[26:])
                                                   if control_replies is None else control_replies)
+                                if combat is not None and message_id==0x11d3:
+                                    combat.record_shot(application[26:],previous_magazine)
+                                if combat is not None and message_id==0x11e9:
+                                    gameplay_replies.extend(combat.handle(application[26:]))
+                                    if combat.last_event is not None:
+                                        emit('bot_combat',**combat.last_event)
                                 if (message_id==0x3b63 and gameplay.ground_loot is not None
                                         and gameplay.ground_loot.last_rejection is not None):
                                     emit('pickup_rejected',**gameplay.ground_loot.last_rejection)
