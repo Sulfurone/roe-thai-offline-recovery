@@ -37,7 +37,10 @@ class IngameSessionTests(unittest.TestCase):
     def test_posture_speed_delta_after_readiness_is_sent_once(self):
         self.run_session('--ingame-overlay',posture=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False):
+    def test_life_state_is_sent_once_after_readiness_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay',vitals=True)
+
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -54,6 +57,8 @@ class IngameSessionTests(unittest.TestCase):
                     '--gameplay-prototype', '--gameplay-inventory', '--gameplay-ground-loot']
             if posture:
                 argv.append('--gameplay-posture-speeds')
+            if vitals:
+                argv.append('--gameplay-vitals')
             if population:
                 terrain = root / 'surface.repx'
                 terrain.write_text('<root><PxHeightField><NbRows>2</NbRows><NbColumns>2</NbColumns>'
@@ -120,6 +125,7 @@ class IngameSessionTests(unittest.TestCase):
                         client.sendall(frame(0, body=encrypt(packet, bytes(16))))
 
                     startup, flight_packets = True, []
+                    life_packets=[]
 
                     def receive_raw():
                         _, _, cipher, *_ = read_frame(client)
@@ -129,6 +135,9 @@ class IngameSessionTests(unittest.TestCase):
                     def receive():
                         while True:
                             message, body = receive_raw()
+                            if vitals and message==0x1069:
+                                life_packets.append(body)
+                                continue
                             if population and message == 0x27:
                                 continue
                             if population and message == 0x565:
@@ -185,6 +194,8 @@ class IngameSessionTests(unittest.TestCase):
                         self.assertEqual(profile_id, 0xbe7)
                         self.assertEqual(struct.unpack_from('>II',queried_profile),(3,1))
                         self.assertEqual(struct.unpack_from('>Q', queried_profile, 8)[0], bot_uid)
+                    if vitals:
+                        send(0x002a,struct.pack('>I3i',2,325850,271700,6501))
                     directory = next((root / 'recovery/private/ingame-control').glob('session-*'))
                     self.assertEqual((game / 'ROE_OfflineMenu.lua').exists(), interface == '--ingame-control')
                     deadline = time.monotonic() + 4
@@ -231,6 +242,9 @@ class IngameSessionTests(unittest.TestCase):
                             time.sleep(.02)
                         self.assertEqual(state['status'], 'sent')
                     self.assertEqual([message for message, _ in packets], [0x4817, 0x821, 0x821, 0x654b, 0x6554, 0x656e])
+                    if vitals:
+                        self.assertEqual(len(life_packets),1)
+                        self.assertEqual(struct.unpack('>QBBBII',life_packets[0]),(256,0,1,0,100,100))
                     if aircraft:
                         jeep = packets[3][1]
                         name_length = struct.unpack_from('>I', jeep, 8)[0]

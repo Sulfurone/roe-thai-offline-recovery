@@ -17,6 +17,7 @@ from offline_inventory import Item,OfflineInventory
 from offline_ground_loot import OfflineGroundLoot,MAX_GROUND_STACKS
 from offline_weapons import WEAPONS,AMMUNITION,is_weapon
 from offline_vehicles import LAND_VEHICLES
+from offline_vitals import Vitals
 import offline_world_state
 
 ACTOR_UID = 256
@@ -90,6 +91,9 @@ class OfflineGameplay:
     require_self_position_for_drop: bool = False
     self_position: tuple | None = field(default=None,init=False)
     self_position_at: float | None = field(default=None,init=False)
+    vitals_enabled: bool = False
+    vitals: Vitals = field(default_factory=Vitals,init=False)
+    vitals_sent: bool = field(default=False,init=False)
 
     def __post_init__(self):
         if not math.isfinite(self.auto_board_delay) or not 0<=self.auto_board_delay<=30:
@@ -395,6 +399,9 @@ class OfflineGameplay:
 
     def tick(self,now=None):
         now=time.monotonic() if now is None else now
+        if self.vitals_enabled and self.actor_ready and not self.vitals_sent:
+            self.vitals_sent=True
+            return [self.vitals.packet(self.actor_uid)]
         if not self.seated and self.can_auto_board(now) and self.route_started is None:
             return self.board(now=now)
         glider=self.opening_glider
