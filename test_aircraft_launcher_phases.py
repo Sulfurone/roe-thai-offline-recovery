@@ -26,14 +26,22 @@ class AircraftLauncherPhaseTests(unittest.TestCase):
                 '--environment-ready-delay 1 --environment-once --gameplay-prototype')
         self.assertEqual(remove_environment_clock(text), 'server --gameplay-prototype')
 
-    def test_only_day_weather_launcher_adds_player_ready_clock(self):
+    def test_environment_launchers_keep_stable_parachute_clean_and_weather_isolated(self):
         stable = (self.root / 'start_offline_parachute.cmd').read_text(encoding='utf-8')
-        experimental = (self.root / 'start_offline_day_weather.cmd').read_text(encoding='utf-8')
+        combined = (self.root / 'start_offline_day_weather.cmd').read_text(encoding='utf-8')
+        weather_only = (self.root / 'start_offline_weather_clear.cmd').read_text(encoding='utf-8')
         self.assertNotIn('--environment-', stable)
-        self.assertIn('--environment-hour 12', experimental)
-        self.assertIn('--environment-trigger player-ready', experimental)
-        self.assertIn('--environment-ready-delay 1', experimental)
-        self.assertNotIn('--environment-once', experimental)
+        self.assertIn('--environment-hour 12', combined)
+        self.assertIn('--environment-trigger player-ready', combined)
+        self.assertIn('--environment-ready-delay 1', combined)
+        self.assertIn('--environment-weather 2', combined)
+        self.assertIn('--environment-weather-transition 30', combined)
+        self.assertNotIn('--environment-once', combined)
+        self.assertIn('--environment-weather 2', weather_only)
+        self.assertNotIn('--environment-hour', weather_only)
+        for aircraft_option in ('--gameplay-auto-seat', '--gameplay-initialize-vehicle',
+                                '--gameplay-aircraft-route-speed', '--gameplay-vehicle-config'):
+            self.assertNotIn(aircraft_option, weather_only)
 
 
 if __name__ == '__main__':
