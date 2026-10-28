@@ -23,7 +23,7 @@ class EnvironmentSessionTests(unittest.TestCase):
             with socket.socket() as reserved:
                 reserved.bind(('127.0.0.1',0))
                 port=reserved.getsockname()[1]
-            argv=['local_server.py','--seconds','4','--port',str(port),'--single-session',
+            argv=['local_server.py','--seconds','8','--port',str(port),'--single-session',
                   '--environment-hour','12','--environment-ready-delay','.05']
             errors=queue.Queue()
             output=io.StringIO()
@@ -84,6 +84,63 @@ class EnvironmentSessionTests(unittest.TestCase):
             events=[json.loads(line) for line in output.getvalue().splitlines()]
             self.assertEqual(sum(e['event']=='environment_clock_armed' for e in events),1)
             self.assertEqual(sum(e['event']=='environment_clock_sent' for e in events),1)
+
+    def test_weather_waits_for_first_position_and_uses_native_dto(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            with socket.socket() as reserved:
+                reserved.bind(('127.0.0.1',0))
+                port=reserved.getsockname()[1]
+            argv=['local_server.py','--seconds','8','--port',str(port),'--single-session',
+                  '--environment-weather','12','--environment-weather-transition','15',
+                  '--environment-weather-ready-delay','.05']
+            errors=queue.Queue();output=io.StringIO()
+
+            def serve():
+                try:
+                    local_server.main()
+                except BaseException as error:
+                    errors.put(error)
+
+            with patch.object(local_server,'__file__',str(root/'local_server.py')), \
+                    patch('sys.argv',argv),contextlib.redirect_stdout(output):
+                thread=threading.Thread(target=serve,daemon=True);thread.start()
+                client=None;deadline=time.monotonic()+5
+                while time.monotonic()<deadline and thread.is_alive():
+                    try:
+                        client=socket.create_connection(('127.0.0.1',port),timeout=.2);break
+                    except OSError:
+                        time.sleep(.02)
+                if client is None and not errors.empty():
+                    raise errors.get()
+                self.assertIsNotNone(client,output.getvalue())
+                with client:
+                    client.settimeout(1)
+                    client.sendall(frame(3,struct.pack('>IIII',3,0,3,1)+b'\0'))
+                    command,extension,*_=read_frame(client);self.assertEqual(command,8)
+                    client.sendall(frame(9,extension))
+                    self.assertEqual(read_frame(client)[0],4)
+                    self.assertEqual(read_frame(client)[0],1)
+
+                    def send_message(message,body):
+                        packet=struct.pack('>IH',26+len(body),message)+bytes(16)+struct.pack('>I',message)+body
+                        client.sendall(frame(0,body=encrypt(packet,bytes(16))))
+
+                    send_message(0x002a,struct.pack('>I3i',1,100,200,300))
+                    command,_,cipher,*_=read_frame(client)
+                    self.assertEqual(command,0)
+                    packet=decrypt(cipher,bytes(16))
+                    self.assertEqual(struct.unpack_from('>H',packet,4)[0],0x4817)
+                    self.assertEqual(packet[10:],struct.pack('>4I',0,12,15,0))
+                    send_message(0x002a,struct.pack('>I3i',2,110,210,300))
+                    client.settimeout(.15)
+                    with self.assertRaises(socket.timeout):read_frame(client)
+                    client.sendall(frame(13))
+                thread.join(5);self.assertFalse(thread.is_alive())
+            if not errors.empty():raise errors.get()
+            events=[json.loads(line) for line in output.getvalue().splitlines()]
+            self.assertEqual(sum(e['event']=='environment_weather_armed' for e in events),1)
+            self.assertEqual(sum(e['event']=='environment_weather_sent' for e in events),1)
 
 
 if __name__=='__main__':

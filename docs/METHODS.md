@@ -28,13 +28,19 @@
 
 `probes/find_metalib.py` 和 `probes/historical/` 保留用于扫描结构、消息号、字符串和资源命名的早期研究工具。部分脚本保留当时的 `F:\roe` 示例路径或具体文件名，使用前需要针对自己的目录调整；它们读取本地材料，不应将输出中的客户端数据或个人会话公开。`mem_debug.py` 需要显式提供进程 ID。
 
-## 正午与原生天气表
+## 正午与原生天气状态
 
 `offline_environment.py` 构造原生 `0x4816` 时段/时间锚包，`probes/validate_opening_parachute.py` 核对原回调 `0x1278B60→0x12BAD70`、原 `EnvrTimeTable` 的 24 项及 12 号正午。早期在大厅/地图 `0x0DCD` 后发送时钟会导致客户端加载变慢或在首条位置后停住；即使仅在第二次 DCD 发送一次也不足以修复，所以稳定入口不得带环境参数。
 
-新的 `EnvironmentSchedule` 等待首个有效玩家位置 `0x002A` 后再延迟发送一次。`start_offline_day_weather.cmd` 将这条路径与已验证的跳伞入口隔离；`test_environment_session.py` 通过真实 AES/TPDU 回环验证就绪前不发、就绪后发一次且不重复。它尚未完成原客户端视觉验收。
+新的 `EnvironmentSchedule` 等待首个有效玩家位置 `0x002A` 后再延迟发送一次时钟。天气状态使用独立的 `WeatherSchedule`，不依赖时钟是否启用，也只在同一连接发送一次。
 
-`probes/inspect_environment_tables.py` 只读分析使用者自己提取的 `EnvrTimeTable`、`EnvrWeatherTable` 和 `EnvrMapWeatherResourceTable`，只输出标识与数值配置。当前版本确认 24 个时间时段、24 个天气定义和 69 条昼/夜资源，但没有给五个未命名天气参数编造语义，也没有把强制天气或温度协议写成已恢复功能。
+泰服原生天气消息为 `0x4817`，固定 16 字节消息体是四个大端 DWORD：`result, weather_id, transition_seconds, mode`。原回调忽略 `result`，向环境管理器传入后三项；客户端后续把 `transition_seconds` 转成浮点数交给渲染器。原生天气 ID 范围是 1–25，但泰服资源表没有 ID 23，因此接口只接受 1–22、24、25；ID 1 为默认/复位，ID 2 为晴天。现有解码仅接受 mode 0。
+
+`probes/trace_weather_state.py` 在使用者自行取得的客户端映像上按原解码流程运行，先截获环境管理器参数再退出，避免进入资源和操作系统调用。它验证过 `[0,2,30,0]` 与 `[0,12,15,0]`，但仓库不包含映像、原资源或跟踪输出。
+
+`start_offline_weather_clear.cmd` 使用纯地面出生链隔离晴天天气；`start_offline_day_weather.cmd` 在已验证跳伞链上组合正午和晴天。`test_environment_session.py` 通过真实 AES/TPDU 回环验证天气在就绪前不发、位置后发送精确 DTO 且不重复。实机会话接受晴天包并继续传输超过两分钟，但尚未目视确认天空变化和天气后地面移动，因此不能称完整天气系统已经恢复。
+
+`probes/inspect_environment_tables.py` 只读分析使用者自己提取的 `EnvrTimeTable`、`EnvrWeatherTable` 和 `EnvrMapWeatherResourceTable`，只输出标识与数值配置。当前版本确认 24 个时间时段、24 个天气定义和 69 条昼/夜资源；没有给五个未命名天气表参数编造语义。当前只恢复一次性天气选择及过渡时长，随机循环、温度和区域天气仍未恢复。
 
 较早的合成 config3 滑翔翼、地形高度释放和静止载具对照仍保留作历史研究。当前稳定跳伞入口不生成合成滑翔翼；它依赖客户端原生离机/下降状态机。原生编解码成功仍不能单独证明画面可用，本次可用结论来自用户实际完成跳伞和落地。
 

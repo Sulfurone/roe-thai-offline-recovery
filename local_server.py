@@ -12,7 +12,8 @@ import subprocess
 import time
 from tpdu import auth_info, decrypt, encrypt, frame, read_frame
 from thai_profile import save_submission
-from offline_environment import EnvironmentSchedule, environment_clock
+from offline_environment import (EnvironmentSchedule, NATIVE_WEATHER_IDS,
+                                 WeatherSchedule, environment_clock)
 from offline_gameplay import OfflineGameplay,ACTOR_UID,JEEP_UID,TYPED_ACTOR_UID,TYPED_VEHICLE_UID
 
 
@@ -30,6 +31,13 @@ def main():
                         help='Safe default waits for the first valid player position; load preserves the old A/B probe')
     parser.add_argument('--environment-ready-delay',type=float,default=1.0,metavar='SECONDS',
                         help='Delay after the first valid player position before the one-shot clock (0..30)')
+    parser.add_argument('--environment-weather',type=int,choices=sorted(NATIVE_WEATHER_IDS),
+                        metavar='WEATHER_ID',
+                        help='Select a native Thai weather preset after the player is ready (2 is clear)')
+    parser.add_argument('--environment-weather-transition',type=int,default=30,metavar='SECONDS',
+                        help='Native renderer transition duration for --environment-weather (0..600)')
+    parser.add_argument('--environment-weather-ready-delay',type=float,default=2.0,metavar='SECONDS',
+                        help='Delay after the first valid player position before weather delivery (0..30)')
     parser.add_argument('--environment-once', action='store_true',
                         help='Legacy load-trigger probe: send only on the second load notification')
     parser.add_argument('--gameplay-prototype', action='store_true',
@@ -135,6 +143,10 @@ def main():
     args = parser.parse_args()
     if not 0 <= args.environment_ready_delay <= 30:
         parser.error('--environment-ready-delay must be from 0 to 30 seconds')
+    if not 0 <= args.environment_weather_ready_delay <= 30:
+        parser.error('--environment-weather-ready-delay must be from 0 to 30 seconds')
+    if not 0 <= args.environment_weather_transition <= 600:
+        parser.error('--environment-weather-transition must be from 0 to 600 seconds')
     if args.environment_once and args.environment_trigger != 'load':
         parser.error('--environment-once is only valid with --environment-trigger load')
     opening_glider_body=None
@@ -263,7 +275,7 @@ def main():
     elif args.create_zeros:
         create_body = bytes(args.create_zeros)
     root = Path(__file__).resolve().parent.parent
-    stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+    stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     folder = root / 'recovery' / 'logs' / ('handshake-' + stamp)
     folder.mkdir(parents=True)
     log = (folder / 'server.jsonl').open('w', encoding='utf-8')
@@ -314,6 +326,10 @@ def main():
                 environment = (EnvironmentSchedule(args.environment_hour,args.environment_ready_delay)
                                if args.environment_hour is not None
                                and args.environment_trigger == 'player-ready' else None)
+                weather = (WeatherSchedule(args.environment_weather,
+                                           args.environment_weather_transition,
+                                           args.environment_weather_ready_delay)
+                           if args.environment_weather is not None else None)
                 gameplay = OfflineGameplay(auto_board=args.gameplay_auto_seat,
                     auto_board_delay=args.gameplay_auto_board_delay,
                     magazine=args.gameplay_starting_magazine,
@@ -353,20 +369,34 @@ def main():
                              vehicle_position=gameplay.vehicle_position,
                              inventory_stage=gameplay.inventory_test_stage,
                              deployment_phase=gameplay.deployment_phase)
-                def send_environment_timer():
+                def send_environment_timers():
                     if environment is None:
-                        return
-                    packet=environment.take()
-                    if packet is None:
-                        return
-                    clock_id,clock_body=packet
-                    response=struct.pack('>IHI',1,clock_id,clock_id)+clock_body
-                    send(connection,0,body=encrypt(response,key))
-                    emit('environment_clock_sent',message_id=clock_id,
-                         hour=args.environment_hour,trigger='player-ready',
-                         ready_delay=args.environment_ready_delay,
-                         position_reports=environment.position_reports,
-                         timestamp=struct.unpack_from('>I',clock_body,4)[0])
+                        packet=None
+                    else:
+                        packet=environment.take()
+                    if packet is not None:
+                        clock_id,clock_body=packet
+                        response=struct.pack('>IHI',1,clock_id,clock_id)+clock_body
+                        send(connection,0,body=encrypt(response,key))
+                        emit('environment_clock_sent',message_id=clock_id,
+                             hour=args.environment_hour,trigger='player-ready',
+                             ready_delay=args.environment_ready_delay,
+                             position_reports=environment.position_reports,
+                             timestamp=struct.unpack_from('>I',clock_body,4)[0])
+                    if weather is None:
+                        weather_packet=None
+                    else:
+                        weather_packet=weather.take()
+                    if weather_packet is not None:
+                        weather_id,weather_body=weather_packet
+                        response=struct.pack('>IHI',1,weather_id,weather_id)+weather_body
+                        send(connection,0,body=encrypt(response,key))
+                        _,preset,transition,mode=struct.unpack('>4I',weather_body)
+                        emit('environment_weather_sent',message_id=weather_id,
+                             weather_id=preset,transition_seconds=transition,mode=mode,
+                             trigger='player-ready',
+                             ready_delay=args.environment_weather_ready_delay,
+                             position_reports=weather.position_reports)
                 try:
                     while time.monotonic() < deadline:
                         # Advance timers when the client is quiet. Socket reads
@@ -374,17 +404,22 @@ def main():
                         # remains subject to its existing connection timeout.
                         gameplay_timers=(gameplay is not None and loaded_pushes_sent
                                          and state=='transport_ready')
-                        environment_timer=(environment is not None and environment.armed_at is not None
-                                           and not environment.sent and state=='transport_ready')
+                        environment_schedules=tuple(schedule for schedule in (environment,weather)
+                                                    if schedule is not None
+                                                    and schedule.armed_at is not None
+                                                    and not schedule.sent)
+                        environment_timer=bool(environment_schedules and state=='transport_ready')
                         if gameplay_timers or environment_timer:
                             wait=min(.25,max(0,deadline-time.monotonic()))
                             if environment_timer:
-                                wait=min(wait,max(0,environment.armed_at-time.monotonic()))
+                                wait=min(wait,max(0,min(schedule.armed_at
+                                                      for schedule in environment_schedules)
+                                                   - time.monotonic()))
                             readable,_,_=select.select([connection],[],[],wait)
                             if not readable:
                                 if gameplay_timers:
                                     send_gameplay_timers()
-                                send_environment_timer()
+                                send_environment_timers()
                                 continue
                         command, extension, body, encrypted_length, packet = read_frame(connection)
                         with (folder / f'{number}-received.bin').open('ab') as raw:
@@ -468,6 +503,12 @@ def main():
                                 emit('environment_clock_armed',hour=args.environment_hour,
                                      trigger='player-ready',ready_delay=args.environment_ready_delay,
                                      position_reports=environment.position_reports)
+                            if weather is not None and weather.observe(message_id,application[26:]):
+                                emit('environment_weather_armed',weather_id=args.environment_weather,
+                                     transition_seconds=args.environment_weather_transition,
+                                     trigger='player-ready',
+                                     ready_delay=args.environment_weather_ready_delay,
+                                     position_reports=weather.position_reports)
                             # Legacy A/B path only. Real-client evidence showed
                             # that even the second-DCD-only clock can stop the
                             # game loop after one MOVE_1, so normal launchers use
@@ -680,7 +721,7 @@ def main():
                                     struct.pack_into('>H', response, 24, response_id)
                                 send(connection, 0, body=encrypt(bytes(response), key))
                                 emit('default_field_response_probe_sent', message_id=response_id)
-                            send_environment_timer()
+                            send_environment_timers()
                             # Game-specific application replies are not implemented yet.
                         elif command == 13:
                             emit('client_closed')

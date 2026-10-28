@@ -3,7 +3,7 @@ from array import array
 import struct
 import unittest
 from unittest.mock import patch
-from offline_environment import environment_clock
+from offline_environment import environment_clock,environment_weather
 from offline_gameplay import OfflineGameplay
 from offline_terrain import TerrainSurface
 
@@ -87,6 +87,7 @@ class OpeningParachuteTests(unittest.TestCase):
 
     def test_noon_sync_uses_separate_environment_dto(self):
         self.assertEqual(environment_clock(12,1000),(0x4816,struct.pack('>II',12,1000)))
+        self.assertEqual(environment_weather(2,30),(0x4817,struct.pack('>4I',0,2,30,0)))
         for hour in (-1,24,12.5,True):
             with self.assertRaises(ValueError):environment_clock(hour,1000)
 
