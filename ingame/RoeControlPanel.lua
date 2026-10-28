@@ -1,6 +1,6 @@
 -- Experimental logic for the Thai EuReportWindowPanel's existing six choices.
--- This file is NOT installed into the client. A verified loader and a native
--- ROEControlSend bridge must be supplied before it can operate in the game.
+-- The experimental --ingame-control launcher supplies the Lua bootstrap and
+-- local mailbox bridge. Actual client loading/visibility still needs validation.
 PanelLogic("EuReportWindowPanel")
 
 local selected = -1

@@ -19,6 +19,7 @@ from offline_environment import (EnvironmentSchedule, NATIVE_WEATHER_IDS,
 from offline_gameplay import OfflineGameplay,ACTOR_UID,JEEP_UID,TYPED_ACTOR_UID,TYPED_VEHICLE_UID
 from offline_control import ControlHub, ControlServer
 from control_actions import ControlSession
+from ingame_bridge import IngameMailbox, IngameInstallation
 
 
 def main():
@@ -31,6 +32,8 @@ def main():
                         help='Exit after the authenticated client disconnects, releasing the local port')
     parser.add_argument('--control-ui-port', type=int, metavar='PORT',
                         help='Enable the local weather/weapon/vehicle control panel (e.g. 8765)')
+    parser.add_argument('--ingame-control', action='store_true',
+                        help='Prepare the experimental native Lua menu and a local file mailbox')
     parser.add_argument('--control-open', action='store_true', help='Open the local control panel in a browser')
     parser.add_argument('--control-vehicle-template', type=Path,
                         help='Locally generated original-codec-validated config 101 Jeep spawn body')
@@ -152,10 +155,12 @@ def main():
     args = parser.parse_args()
     if args.control_ui_port is not None and not 0 <= args.control_ui_port <= 65535:
         parser.error('--control-ui-port must be from 0 to 65535')
-    if args.control_ui_port is not None and not args.gameplay_prototype:
-        parser.error('--control-ui-port requires --gameplay-prototype')
-    if (args.control_open or args.control_vehicle_template) and args.control_ui_port is None:
-        parser.error('Control browser/vehicle options require --control-ui-port')
+    if (args.control_ui_port is not None or args.ingame_control) and not args.gameplay_prototype:
+        parser.error('Control options require --gameplay-prototype')
+    if args.control_open and args.control_ui_port is None:
+        parser.error('--control-open requires --control-ui-port')
+    if args.control_vehicle_template and args.control_ui_port is None and not args.ingame_control:
+        parser.error('Control vehicle requires --control-ui-port or --ingame-control')
     control_vehicle_body = None
     if args.control_vehicle_template:
         try:
@@ -322,8 +327,16 @@ def main():
         listener.settimeout(1)
         emit('listening', address=f'127.0.0.1:{args.port}',
              key_status='Unverified test session key')
-        control = ControlHub() if args.control_ui_port is not None else None
-        if control is not None:
+        control = ControlHub() if args.control_ui_port is not None or args.ingame_control else None
+        mailbox = None
+        if args.ingame_control:
+            mailbox = IngameMailbox(root / 'recovery/private/ingame-control')
+            mailbox.publish(control.snapshot())
+            resources.enter_context(IngameInstallation(root / '32838', mailbox))
+            emit('ingame_menu_prepared', directory=str(mailbox.directory),
+                 fallback_command='/lua assert(loadstring(assert(io.open("ROE_OfflineMenu.lua")):read("*a")))()',
+                 scope='Loader candidate prepared; native loading/visibility require live evidence')
+        if args.control_ui_port is not None:
             panel = resources.enter_context(ControlServer(control, args.control_ui_port))
             emit('control_panel_listening', url=panel.url)
             if args.control_open:
@@ -440,7 +453,11 @@ def main():
                                              and control_ready_after is not None
                                              and time.monotonic() >= control_ready_after)
                     control.update(**snapshot)
+                    if mailbox is not None:
+                        mailbox.poll(control)
                     if not snapshot['ready']:
+                        if mailbox is not None:
+                            mailbox.publish(control.snapshot())
                         return
                     for _ in range(4):
                         item = control.take()
@@ -459,6 +476,8 @@ def main():
                             control.finish(item['id'], 'failed', str(error))
                             emit('control_command_failed', action=item['action'], reason=str(error))
                     control.update(**control_session.snapshot())
+                    if mailbox is not None:
+                        mailbox.publish(control.snapshot())
                 try:
                     while time.monotonic() < deadline:
                         send_control_commands()
@@ -801,6 +820,8 @@ def main():
                     emit('connection_ended', state=state, reason=str(error))
                 if control is not None:
                     control.disconnect()
+                    if mailbox is not None:
+                        mailbox.publish(control.snapshot())
                 if args.single_session and state=='transport_ready':
                     break
         emit('finished', connections=number)
