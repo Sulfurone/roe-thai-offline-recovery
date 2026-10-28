@@ -20,6 +20,7 @@ from offline_gameplay import OfflineGameplay,ACTOR_UID,JEEP_UID,TYPED_ACTOR_UID,
 from offline_control import ControlHub, ControlServer
 from control_actions import ControlSession
 from ingame_bridge import IngameMailbox, IngameInstallation
+from ingame_overlay import OverlayProcess
 
 
 def main():
@@ -34,6 +35,8 @@ def main():
                         help='Enable the local weather/weapon/vehicle control panel (e.g. 8765)')
     parser.add_argument('--ingame-control', action='store_true',
                         help='Prepare the experimental native Lua menu and a local file mailbox')
+    parser.add_argument('--ingame-overlay', action='store_true',
+                        help='Show the native Windows F6 menu over the game window; no HTTP or client files')
     parser.add_argument('--control-open', action='store_true', help='Open the local control panel in a browser')
     parser.add_argument('--control-vehicle-template', type=Path,
                         help='Locally generated original-codec-validated config 101 Jeep spawn body')
@@ -155,12 +158,14 @@ def main():
     args = parser.parse_args()
     if args.control_ui_port is not None and not 0 <= args.control_ui_port <= 65535:
         parser.error('--control-ui-port must be from 0 to 65535')
-    if (args.control_ui_port is not None or args.ingame_control) and not args.gameplay_prototype:
+    if args.ingame_control and args.ingame_overlay:
+        parser.error('Choose either the Lua experiment or the Windows overlay')
+    if (args.control_ui_port is not None or args.ingame_control or args.ingame_overlay) and not args.gameplay_prototype:
         parser.error('Control options require --gameplay-prototype')
     if args.control_open and args.control_ui_port is None:
         parser.error('--control-open requires --control-ui-port')
-    if args.control_vehicle_template and args.control_ui_port is None and not args.ingame_control:
-        parser.error('Control vehicle requires --control-ui-port or --ingame-control')
+    if args.control_vehicle_template and args.control_ui_port is None and not (args.ingame_control or args.ingame_overlay):
+        parser.error('Control vehicle requires a control interface')
     control_vehicle_body = None
     if args.control_vehicle_template:
         try:
@@ -327,11 +332,16 @@ def main():
         listener.settimeout(1)
         emit('listening', address=f'127.0.0.1:{args.port}',
              key_status='Unverified test session key')
-        control = ControlHub() if args.control_ui_port is not None or args.ingame_control else None
+        control = ControlHub() if args.control_ui_port is not None or args.ingame_control or args.ingame_overlay else None
         mailbox = None
-        if args.ingame_control:
+        if args.ingame_control or args.ingame_overlay:
             mailbox = IngameMailbox(root / 'recovery/private/ingame-control')
             mailbox.publish(control.snapshot())
+        if args.ingame_overlay:
+            resources.enter_context(OverlayProcess(mailbox.directory))
+            emit('ingame_overlay_started', directory=str(mailbox.directory), hotkey='F6',
+                 scope='Separate Windows overlay attached to the game window; no engine injection')
+        if args.ingame_control:
             resources.enter_context(IngameInstallation(root / '32838', mailbox))
             emit('ingame_menu_prepared', directory=str(mailbox.directory),
                  fallback_command='/lua assert(loadstring(assert(io.open("ROE_OfflineMenu.lua")):read("*a")))()',

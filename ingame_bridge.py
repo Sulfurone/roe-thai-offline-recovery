@@ -132,6 +132,10 @@ class IngameInstallation(AbstractContextManager):
         try:
             self.add('ROE_OfflineMenu.lua', body)
             self.add('Data/ScriptCustom/ROE_OfflineMenu.lua', body)
+            # Preload.lua prefers an explicit LoadConfig.lua over QSDir.
+            # Loose files may not appear in the archive-backed directory list.
+            self.add('Data/ScriptCustom/LoadConfig.lua',
+                     b'_G.ROE_MENU_LOAD_SOURCE = "LoadConfig"\nreturn {{name="ROE_OfflineMenu.lua",type="file"}}\n')
             self.add('FileDriven/_GM_CONTROL_', b'', preserve_existing=True)
         except Exception:
             self.__exit__(None, None, None)
@@ -162,7 +166,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     receipt = args.receipt.resolve()
     data = json.loads(receipt.read_text(encoding='utf-8'))
-    allowed = {'ROE_OfflineMenu.lua', 'Data/ScriptCustom/ROE_OfflineMenu.lua', 'FileDriven/_GM_CONTROL_'}
+    allowed = {'ROE_OfflineMenu.lua', 'Data/ScriptCustom/ROE_OfflineMenu.lua',
+               'Data/ScriptCustom/LoadConfig.lua', 'FileDriven/_GM_CONTROL_'}
     if (receipt.name != 'installed-files.json' or set(data) != {'game', 'owned'}
             or not isinstance(data['owned'], list)
             or any(not isinstance(item, dict) or set(item) != {'path', 'sha256'}

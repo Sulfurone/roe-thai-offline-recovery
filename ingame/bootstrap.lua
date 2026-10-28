@@ -16,7 +16,7 @@ local function mark(message)
         if f then f:write(message .. "\n"); f:close() end
     end
 end
-mark("LUA_ENTER")
+mark("LUA_ENTER " .. tostring(_G.ROE_MENU_LOAD_SOURCE or "direct"))
 
 function _G.ROEControlSend(command)
     if not ready or type(command) ~= "table" then return false end

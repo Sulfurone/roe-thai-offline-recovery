@@ -56,9 +56,11 @@ class IngameBridgeTests(unittest.TestCase):
             with IngameInstallation(game, mailbox):
                 self.assertTrue((game / 'ROE_OfflineMenu.lua').is_file())
                 self.assertTrue((game / 'Data/ScriptCustom/ROE_OfflineMenu.lua').is_file())
+                self.assertIn('ROE_OfflineMenu.lua', (game / 'Data/ScriptCustom/LoadConfig.lua').read_text())
                 self.assertEqual(marker.read_bytes(), b'user-owned')
             self.assertFalse((game / 'ROE_OfflineMenu.lua').exists())
             self.assertFalse((game / 'Data/ScriptCustom/ROE_OfflineMenu.lua').exists())
+            self.assertFalse((game / 'Data/ScriptCustom/LoadConfig.lua').exists())
             self.assertEqual(marker.read_bytes(), b'user-owned')
 
     def test_installation_rolls_back_collision_and_retains_edited_file(self):

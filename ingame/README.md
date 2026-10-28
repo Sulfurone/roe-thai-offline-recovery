@@ -1,42 +1,45 @@
-# 游戏内控制菜单实验
+# 游戏画面中的离线控制菜单
 
-目前提供独立试运行入口 `start_ingame_control.cmd`。代码、Lua 5.1 与本地通信测试已通过；**原泰服客户端实际加载、菜单显示及操作仍未验收**。现阶段不要把此入口称为已可用的游戏内功能。
+`start_ingame_control.cmd` 现在启动 **Windows 本机悬浮菜单**，贴在泰服游戏窗口上，提供天气、武器和吉普车选择。它是独立叠加窗口，不是游戏引擎原生面板。用户已实机确认菜单可见、F6 展开／收起正常、下拉框能保持展开并选中项目。
 
-## 试运行
+## 使用
 
-1. 先退出当前游戏并关闭旧服务。
-2. 运行 `start_ingame_control.cmd`，使用独立地面测试会话和游戏端口 8003。
-3. 加载器尝试经客户端的 `Data/ScriptCustom` 和 `-useallfiles` 入口载入 Lua；角色有效位置后约 2 秒，请求显示原生菜单。
-4. 菜单出现后选择类别、项目并确认；天气默认 30 秒过渡，枪械默认一把满弹匣及 60 发匹配弹药，吉普车默认距离 6 米。翻页及返回都使用原生六选项弹窗。加载器也尝试将原举报按钮标为“离线控制”，用于关闭后重新打开；按钮的实际显示同样待实机确认。
+1. 退出已有游戏和旧服务，运行 `start_ingame_control.cmd`。需要 Windows、带 Tcl/Tk 的 Python 3.10+，以及自行生成的本地协议材料。
+2. 切回游戏，菜单首次显示时取得焦点。进入地图约 2 秒后操作启用；首个有效角色位置后 3 秒设置一次正午（12）。按 F6 或点击“展开／收起”切换菜单。昼夜时间与天气独立，不会强制覆盖手动选择的天气。
+3. “天气”可选择 24 个原生状态和 0–600 秒过渡。“武器”可选 20 种枪械、1–5 把、0–999 发匹配弹药及刷新距离。“载具”可在附近刷新四座吉普车，每轮最多 8 辆。
+4. 点击操作后等待回执，再收起菜单返回游戏。武器在附近地面生成，需要使用游戏原有拾取交互。
 
-如果没有菜单，检查本轮 `private/ingame-control/session-*/loader.log`：`LUA_ENTER` 代表进入自有 Lua，`MENU_LOADED` 代表注册菜单逻辑，`PANEL_OPENED` 只代表原面板加载函数返回成功；最终显示仍需目视确认。`NO_TIMER`、`TIMER_ERROR` 或 `PANEL_ERROR` 表示对应失败，自动尝试最多 3 次。
+只连接本轮服务的本地文件邮箱，不启动 HTTP、不打开浏览器、不修改客户端文件，也不访问游戏内存或注入 DLL。菜单随窗口位置调整；游戏最小化或切到其他应用时隐藏。服务结束时关闭其菜单子进程；游戏窗口消失超过 5 秒时菜单自行退出。此入口为独立地面测试会话，不改变已确认的稳定跳伞入口。
 
-本版本只读反汇编确认存在 `/lua` 命令处理和 `_GM_CONTROL_` 标记。服务日志另提供从原生 `/lua` 入口加载 `ROE_OfflineMenu.lua` 的候选命令；该入口的可见界面及快捷键尚未实机验证，不应猜测快捷键或自动盲输入。
+“已发送”表示数据已进入游戏连接；它不等于已目视确认天气变化、物品拾取或驾驶。本轮真实会话已接收一条菜单吉普车命令并发送车辆数据；天气视觉、完整拾取及驾驶仍需分别验收。
 
-## 实现与回退
+## 输入和窗口修复
 
-`RoeControlPanel.lua` 复用泰服 `EuReportWindowPanel` 的六个选择、确认和关闭事件。在本轮实验进程内，该窗口用作控制菜单；此时原举报窗口行为会被替代。未分发原版 GFX 或脚本资源。
+- 部分游戏输入模式未向菜单交付 `WM_HOTKEY`，增加仅针对 F6 的键状态检测，并对两路事件去重；保留鼠标按钮。修复后用户确认 F6 正常。
+- 状态刷新曾每 200 毫秒执行 `wm deiconify`，使下拉框闪退。现在仅在窗口确实隐藏时显示，且下拉展开期间不改变位置和显示状态。用户确认下拉和选择恢复正常。
+- 不在定时刷新中反复重置按钮状态，避免干扰鼠标操作。
+- 独立界面预览：`python ingame_overlay.py --preview`。预览按钮禁用，不连接游戏。
 
-`bootstrap.lua` 给菜单提供 `ROEControlSend(command)`，将限定数字字段和随机本轮标识写入自有指令文件。Python `IngameMailbox` 拒绝过期、重复、无效、越界及未就绪指令；游戏线程复用现有 `ControlSession`，使用当前 TPDU/AES 连接发送回包。回执写入状态文件，由 Lua 定时更新面板提示。此模式不启动 HTTP 服务。
+## 服务与验证
 
-运行期间仅添加 3 个自有文件：客户端根目录与 `Data/ScriptCustom` 下的 `ROE_OfflineMenu.lua`，以及原生调试标记 `FileDriven/_GM_CONTROL_`。已有同名 Lua 会导致安装拒绝，已有调试标记保留。原 EXE、DLL、SFC 均不改动。
+`--ingame-overlay` 创建本轮 `IngameMailbox`，再启动菜单子进程。`MailboxClient` 校验状态、限定整数参数和递增序号，并等待上一操作回执。游戏线程调用现有 `ControlSession`，使用本轮 TPDU/AES 密钥发送消息。退出、未就绪、乘车、刷物数量上限等检查仍在服务端执行。
 
-服务正常结束时只删除本轮创建且 SHA-256 仍匹配的文件。若异常中断，查看本轮 `installed-files.json`，退出游戏后运行：
+6 项专项测试覆盖文件指令校验、重放/部分行、客户端文件保护，以及 Lua 实验和悬浮菜单两种入口的真实加密回复。悬浮入口测试确认没有创建客户端 Lua 或标记文件。测试使用合成状态，不需要客户端；不运行 Windows 界面引擎。F6 与下拉交互的证据来自用户实机反馈。
+
+```powershell
+python -m unittest test_ingame_bridge test_ingame_session -v
+```
+
+## 保留的原生 Lua 加载研究：实机失败
+
+`start_ingame_lua_probe.cmd` 保留原试验。它尝试 `ScriptCustom`、`-useallfiles` 与自有 `LoadConfig.lua`，复用原 `EuReportWindowPanel` 六选项面板。两轮实机都进入地图，但用户确认没有菜单或按钮，且没有生成 `loader.log/LUA_ENTER` 正向标记。不能宣称原生 Lua 菜单已接入。`~` 出现命令框的反馈是用户误选，已明确更正为没有出现。
+
+`ingame/RoeControlPanel.lua` 与 `bootstrap.lua` 仅通过 Lua 5.1 模拟。只读分析确认 `/lua` 和 `_GM_CONTROL_` 存在，不证明调试入口可用，也不证明某个快捷键。
+
+Lua 试验运行期间仅新增四个自有文件：根目录和 `Data/ScriptCustom` 下的 `ROE_OfflineMenu.lua`、`Data/ScriptCustom/LoadConfig.lua`、缺失时的 `FileDriven/_GM_CONTROL_`。已有文件碰撞拒绝，原 EXE/DLL/SFC 不改动。服务正常结束只清理本轮创建且哈希匹配的文件；用户修改的文件保留。若异常中断，退出游戏后按本轮收据清理：
 
 ```powershell
 python ingame_bridge.py cleanup private/ingame-control/session-实际目录/installed-files.json
 ```
 
-经过用户修改的文件会保留，清理命令输出剩余列表。重新启动未经菜单加载器的游戏后恢复原举报窗口。
-
-## 证据范围
-
-- 5 项专项自动测试覆盖本地文件指令、错误会话、重复/部分行、安装冲突、用户文件保护，以及真实加密 socket 回复和清理；无需客户端即可运行。
-- 可选 `lupa` 的 Lua 5.1 模拟检查覆盖 45 个选项、真实 `setfenv` 行为、可调用 Timer 类表、真实文件桥接、天气回包和结果反馈。
-- 上述模拟不运行客户端界面引擎。目前启动器尚未在原客户端验证，旧的 ScriptCustom/Preload 尝试也没有执行成功证据。
-
-```powershell
-python -m unittest test_ingame_bridge test_ingame_session -v
-python probes/validate_ingame_panel.py
-python probes/validate_ingame_bootstrap.py
-```
+当前悬浮菜单入口不需要安装或清理这些文件。
