@@ -1,5 +1,6 @@
 """Experimental loopback TPDU handshake, not a playable game server."""
 import argparse
+from contextlib import ExitStack
 import datetime
 import hashlib
 import json
@@ -10,11 +11,14 @@ import socket
 import struct
 import subprocess
 import time
+import webbrowser
 from tpdu import auth_info, decrypt, encrypt, frame, read_frame
 from thai_profile import save_submission
 from offline_environment import (EnvironmentSchedule, NATIVE_WEATHER_IDS,
                                  WeatherSchedule, environment_clock)
 from offline_gameplay import OfflineGameplay,ACTOR_UID,JEEP_UID,TYPED_ACTOR_UID,TYPED_VEHICLE_UID
+from offline_control import ControlHub, ControlServer
+from control_actions import ControlSession
 
 
 def main():
@@ -25,6 +29,11 @@ def main():
     parser.add_argument('--launch', action='store_true')
     parser.add_argument('--single-session',action='store_true',
                         help='Exit after the authenticated client disconnects, releasing the local port')
+    parser.add_argument('--control-ui-port', type=int, metavar='PORT',
+                        help='Enable the local weather/weapon/vehicle control panel (e.g. 8765)')
+    parser.add_argument('--control-open', action='store_true', help='Open the local control panel in a browser')
+    parser.add_argument('--control-vehicle-template', type=Path,
+                        help='Locally generated original-codec-validated config 101 Jeep spawn body')
     parser.add_argument('--environment-hour', type=int, choices=range(24), metavar='0..23',
                         help='Initialize the native day/weather clock (12 is noon)')
     parser.add_argument('--environment-trigger',choices=('player-ready','load'),default='player-ready',
@@ -141,6 +150,21 @@ def main():
     parser.add_argument('--key-hex', default='00' * 16,
                         help='Test session key; not yet established for this client')
     args = parser.parse_args()
+    if args.control_ui_port is not None and not 0 <= args.control_ui_port <= 65535:
+        parser.error('--control-ui-port must be from 0 to 65535')
+    if args.control_ui_port is not None and not args.gameplay_prototype:
+        parser.error('--control-ui-port requires --gameplay-prototype')
+    if (args.control_open or args.control_vehicle_template) and args.control_ui_port is None:
+        parser.error('Control browser/vehicle options require --control-ui-port')
+    control_vehicle_body = None
+    if args.control_vehicle_template:
+        try:
+            if args.control_vehicle_template.stat().st_size > 65536:
+                raise ValueError('Vehicle sample exceeds wire bound')
+            control_vehicle_body = args.control_vehicle_template.read_bytes()
+            ControlSession(vehicle_template=control_vehicle_body)
+        except (OSError, ValueError) as error:
+            parser.error(f'Cannot prepare control vehicle: {error}')
     if not 0 <= args.environment_ready_delay <= 30:
         parser.error('--environment-ready-delay must be from 0 to 30 seconds')
     if not 0 <= args.environment_weather_ready_delay <= 30:
@@ -292,12 +316,18 @@ def main():
         emit('sent', command=command, bytes=len(packet))
 
     deadline = time.monotonic() + args.seconds
-    with socket.socket() as listener:
+    with socket.socket() as listener, ExitStack() as resources:
         listener.bind(('127.0.0.1', args.port))
         listener.listen(4)
         listener.settimeout(1)
         emit('listening', address=f'127.0.0.1:{args.port}',
              key_status='Unverified test session key')
+        control = ControlHub() if args.control_ui_port is not None else None
+        if control is not None:
+            panel = resources.enter_context(ControlServer(control, args.control_ui_port))
+            emit('control_panel_listening', url=panel.url)
+            if args.control_open:
+                webbrowser.open(panel.url)
         if args.launch:
             executable = str(root / '32838' / 'Europa_Client.exe')
             arguments = ['-garena', '-uid=1', '-language=en',
@@ -348,6 +378,10 @@ def main():
                     initialize_vehicle=args.gameplay_initialize_vehicle,
                     aircraft_route_speed=args.gameplay_aircraft_route_speed,
                     auto_exit_after=args.gameplay_auto_exit_seconds) if args.gameplay_prototype else None
+                control_session = ControlSession(gameplay, control_vehicle_body) if control else None
+                control_ready_after = None
+                if control is not None:
+                    control.disconnect()
                 if gameplay is not None and gameplay.inventory is not None:
                     emit('gameplay_inventory_ready',magazine=gameplay.magazine,reserve=gameplay.reserve,
                          weapon_slot=gameplay.inventory.weapon_slot(),entries=len(gameplay.inventory.items),
@@ -397,8 +431,37 @@ def main():
                              trigger='player-ready',
                              ready_delay=args.environment_weather_ready_delay,
                              position_reports=weather.position_reports)
+                def send_control_commands():
+                    if control is None:
+                        return
+                    snapshot = control_session.snapshot()
+                    snapshot['connected'] = state == 'transport_ready'
+                    snapshot['ready'] = bool(snapshot['connected'] and snapshot['ready']
+                                             and control_ready_after is not None
+                                             and time.monotonic() >= control_ready_after)
+                    control.update(**snapshot)
+                    if not snapshot['ready']:
+                        return
+                    for _ in range(4):
+                        item = control.take()
+                        if item is None:
+                            break
+                        try:
+                            replies, description = control_session.execute(item)
+                            for response_id, response_body in replies:
+                                response = struct.pack('>IHI', 1, response_id, response_id) + response_body
+                                send(connection, 0, body=encrypt(response, key))
+                            if item['action'] == 'weather' and weather is not None:
+                                weather.sent = True
+                            control.finish(item['id'], 'sent', description)
+                            emit('control_command_sent', action=item['action'], replies=len(replies))
+                        except (ValueError, OSError) as error:
+                            control.finish(item['id'], 'failed', str(error))
+                            emit('control_command_failed', action=item['action'], reason=str(error))
+                    control.update(**control_session.snapshot())
                 try:
                     while time.monotonic() < deadline:
+                        send_control_commands()
                         # Advance timers when the client is quiet. Socket reads
                         # still use the original framed reader; a partial frame
                         # remains subject to its existing connection timeout.
@@ -409,7 +472,7 @@ def main():
                                                     and schedule.armed_at is not None
                                                     and not schedule.sent)
                         environment_timer=bool(environment_schedules and state=='transport_ready')
-                        if gameplay_timers or environment_timer:
+                        if gameplay_timers or environment_timer or control is not None:
                             wait=min(.25,max(0,deadline-time.monotonic()))
                             if environment_timer:
                                 wait=min(wait,max(0,min(schedule.armed_at
@@ -478,7 +541,13 @@ def main():
                                                          and push_id in (0x05fb,0x04a0) else 'file'))
                             if gameplay is not None and loaded_pushes_sent:
                                 previous_saves=gameplay.state_save_count
-                                gameplay_replies=gameplay.handle(message_id,application[26:])
+                                control_replies=(control_session.handle(message_id, application[26:])
+                                                 if control_session is not None else None)
+                                gameplay_replies=(gameplay.handle(message_id,application[26:])
+                                                  if control_replies is None else control_replies)
+                                if (control is not None and control_ready_after is None
+                                        and gameplay.actor_ready):
+                                    control_ready_after = time.monotonic() + 2
                                 if gameplay.world_file is not None and gameplay.state_save_count!=previous_saves:
                                     emit('gameplay_world_committed',request_id=message_id,
                                          path=str(gameplay.world_file),magazine=gameplay.magazine,
@@ -730,6 +799,8 @@ def main():
                             emit('unhandled_command', command=command)
                 except (EOFError, OSError, ValueError) as error:
                     emit('connection_ended', state=state, reason=str(error))
+                if control is not None:
+                    control.disconnect()
                 if args.single_session and state=='transport_ready':
                     break
         emit('finished', connections=number)

@@ -6,6 +6,7 @@ This is an experimental, community-maintained reconstruction for the original Ga
 
 ## 当前进度与边界
 
+- 新增本地浏览器控制台：可选 24 种天气，搜索/分类选择 20 种枪械并设置数量、弹药和刷新距离，刷新独立交互的吉普车。Windows 运行 `start_offline_control.cmd`，详细使用与验证范围见 [控制台说明](CONTROL_PANEL.md)。
 - 本地回环服务已推进到登录、角色/房间、地图和地面活动；原客户端的落地和正常行走曾由玩家确认。
 - 已恢复从地图西侧飞到东侧的开局航线；玩家已在原泰服客户端中确认原生手动离机、跳伞和落地正常。稳定入口不注入环境时钟，也不创建合成滑翔翼。
 - 已定位原生天气状态 `0x4817`，可设置泰服天气 ID、过渡秒数及 mode 0。ID 2 对应晴天；原生解码、加密会话和实机连接接受已验证，但天空视觉及天气后的地面移动尚未实机验收。
@@ -29,11 +30,11 @@ git clone https://github.com/Sulfurone/roe-thai-offline-recovery.git recovery
 cd recovery
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m unittest test_offline_gameplay test_opening_airdrop test_scatter_loot test_aircraft_launcher_phases test_environment_schedule test_environment_session -q
+.\.venv\Scripts\python.exe -m unittest test_offline_gameplay test_opening_airdrop test_scatter_loot test_aircraft_launcher_phases test_environment_schedule test_environment_session test_control_panel test_control_panel_session -q
 $env:ROE_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
 ```
 
-上述 **43 项**检查使用合成状态，无须客户端和私人抓包。仓库还保留其他测试；本地材料齐全时全套为 100 项，其中一部分需要本地生成的协议样本、角色数据、原客户端内存镜像或原版资源，干净克隆后不能直接全部运行。
+上述 **51 项**检查使用合成状态，无须客户端和私人抓包。仓库还保留其他测试；本地材料齐全时全套为 108 项，其中一部分需要本地生成的协议样本、角色数据、原客户端内存镜像或原版资源，干净克隆后不能直接全部运行。
 
 资源研究示例（只读取原归档，输出在仓库忽略的目录中）：
 
@@ -57,4 +58,4 @@ $env:ROE_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
 
 新的 `start_offline_weather_clear.cmd` 使用已确认的纯地面出生链，等待首个有效玩家位置后延迟 2 秒发送一次 `0x4817`：ID 2 晴天、30 秒过渡、mode 0。它不含时钟、飞机或登机。`start_offline_day_weather.cmd` 则在稳定跳伞链上组合时段 12 的 `0x4816` 与晴天 `0x4817`。两者的协议与加密回环已验证；晴天包也被真实客户端连接接受并继续传输超过两分钟，但视觉与地面移动尚待验收。
 
-本地全套 **100 项**检查通过，另有 16 条开局跳伞生产消息、完整航线控制器和载具初始耐久专项验证。当前恢复的是一次性原生天气状态，不是随机循环、温度或区域天气。各入口仍需要使用者从自己合法持有的客户端生成本地材料。详细范围见 [功能清单](GAMEPLAY.md)、[当前交接](HANDOFF_CURRENT.md) 和 [飞机与跳伞排查方法](AIRCRAFT_RECOVERY.md)。
+本地全套 **108 项**检查通过，另有开局跳伞生产消息、完整航线控制器、载具初始耐久与控制台动态生成消息的原生解码验证。控制台支持手动切换原生天气状态；随机循环、温度和区域天气尚未恢复。各入口仍需要使用者从自己合法持有的客户端生成本地材料。详细范围见 [功能清单](GAMEPLAY.md)、[当前交接](HANDOFF_CURRENT.md) 和 [飞机与跳伞排查方法](AIRCRAFT_RECOVERY.md)。

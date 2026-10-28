@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark"><title>ROE · 离线控制台</title>
+  <link rel="icon" href="data:,"><link rel="stylesheet" href="/app.css"><script src="/app.js" defer></script>
+</head>
+<body>
+<svg class="icon-defs" aria-hidden="true"><defs>
+  <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.4 1.4m11.2 11.2L19 19M5 19l1.4-1.4M17.6 6.4 19 5"/></symbol>
+  <symbol id="cloud" viewBox="0 0 24 24"><path d="M7 18a5 5 0 1 1 1-10 6 6 0 0 1 11 3 3.5 3.5 0 0 1 0 7Z"/></symbol>
+  <symbol id="rain" viewBox="0 0 24 24"><path d="M6 14a4 4 0 0 1 0-8 5 5 0 0 1 10 1 3.5 3.5 0 1 1 2 7M8 17l-1 3m6-3-1 3m6-3-1 3"/></symbol>
+  <symbol id="storm" viewBox="0 0 24 24"><path d="M6 14a4 4 0 0 1 0-8 5 5 0 0 1 10 1 3.5 3.5 0 1 1 2 7M13 12l-4 6h4l-2 5"/></symbol>
+  <symbol id="fog" viewBox="0 0 24 24"><path d="M4 7h16M2 12h17M5 17h17M4 22h13"/></symbol>
+  <symbol id="snow" viewBox="0 0 24 24"><path d="M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M9 4l3 3 3-3M9 20l3-3 3 3M4 10l4-1-1-4m10 14-1-4 4-1M4 14l4 1-1 4m10-14-1 4 4 1"/></symbol>
+  <symbol id="car" viewBox="0 0 24 24"><path d="m4 10 2-6h12l2 6m-17 0h18v8H3Zm3 8v3m12-3v3M6 14h2m8 0h2M9 4v6"/></symbol>
+  <symbol id="target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 1v5m0 12v5M1 12h5m12 0h5"/></symbol>
+  <symbol id="grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+  <symbol id="arrow" viewBox="0 0 24 24"><path d="M4 12h15m-5-5 5 5-5 5"/></symbol>
+  <symbol id="rifle" viewBox="0 0 180 52"><path d="M8 23h33l12-8h60v6h47v5h-48v7H91l-6 13H74l4-13H62L38 44H13l8-13H8Z"/><path d="M56 15v-5h25v5m10 0v-5h8v5m-5 23h14l-4 10H91"/></symbol>
+</defs></svg>
+<aside class="sidebar">
+  <a class="brand" href="#overview" aria-label="ROE 离线控制台首页"><span class="brand-mark">R<span>◈</span></span><span>ROE<span class="brand-sub">OFFLINE LAB</span></span></a>
+  <div class="nav-label">工作空间</div>
+  <nav aria-label="主导航">
+    <a class="nav-link active" href="#overview"><svg><use href="#grid"/></svg>控制总览<span class="nav-dot"></span></a>
+    <a class="nav-link" href="#weather-section"><svg><use href="#sun"/></svg>天气环境</a>
+    <a class="nav-link" href="#weapon-section"><svg><use href="#target"/></svg>武器刷新</a>
+    <a class="nav-link" href="#vehicle-section"><svg><use href="#car"/></svg>载具刷新</a>
+  </nav>
+  <div class="sidebar-bottom"><span class="tiny-label">CLIENT BUILD</span><strong>Garena 泰服</strong><span class="mono dim">0.2.15.5 / th_live</span><div class="local-note"><span class="dot"></span>仅本机连接</div></div>
+</aside>
+<div class="workspace">
+  <header class="topbar"><div class="breadcrumb">工作空间 <span>/</span> <strong>控制总览</strong></div><div class="top-right"><span class="build-chip">THAI EDITION</span><span class="connection" id="connection"><span class="dot"></span><span id="connection-text">正在连接控制台</span></span></div></header>
+  <main id="overview">
+    <div class="page-heading"><div><div class="eyebrow">YOUR WORLD. YOUR RULES.</div><h1>离线控制台<span class="title-dot">.</span></h1><p>设置一场天气，准备一套装备，然后出发。</p></div><div class="session-badge"><span class="dot" id="session-dot"></span><span id="session-label">等待游戏连接</span></div></div>
+    <div class="status-strip" aria-live="polite"><div><span class="tiny-label">当前天气</span><strong id="current-weather">客户端默认</strong></div><div><span class="tiny-label">地面物品</span><strong><span id="item-count">0</span><small> / 128</small></strong></div><div><span class="tiny-label">本轮载具</span><strong><span id="vehicle-count">0</span><small> / 8</small></strong></div><div class="position-cell"><span class="tiny-label">角色坐标 · 米</span><strong class="mono" id="position">— / — / —</strong></div></div>
+    <section class="weather-layout" id="weather-section" aria-labelledby="weather-title">
+      <div class="weather-art"><div class="terrain-lines"></div><div class="sun-orb"></div><span class="art-coordinates mono">EUROPA ISLAND / 01</span><div class="art-caption"><span class="eyebrow">ATMOSPHERE CONTROL</span><h2 id="weather-preview">晴天</h2><p id="weather-description">视野清晰，适合探索。</p><span class="art-tag">原生天气预设</span></div><span class="art-id mono" id="weather-id">PRESET 02</span></div>
+      <div class="panel weather-panel"><div class="section-top"><div><span class="section-number">01 / ENVIRONMENT</span><h2 id="weather-title">给世界换个天气</h2></div><svg class="section-icon"><use href="#sun"/></svg></div>
+        <div class="weather-presets" role="group" aria-label="常用天气">
+          <button class="weather-choice selected" data-weather="2" aria-pressed="true"><svg><use href="#sun"/></svg><span>晴天</span></button>
+          <button class="weather-choice" data-weather="9" aria-pressed="false"><svg><use href="#cloud"/></svg><span>多云</span></button>
+          <button class="weather-choice" data-weather="3" aria-pressed="false"><svg><use href="#rain"/></svg><span>小雨</span></button>
+          <button class="weather-choice" data-weather="5" aria-pressed="false"><svg><use href="#storm"/></svg><span>雷雨</span></button>
+          <button class="weather-choice" data-weather="12" aria-pressed="false"><svg><use href="#fog"/></svg><span>浓雾</span></button>
+          <button class="weather-choice" data-weather="13" aria-pressed="false"><svg><use href="#snow"/></svg><span>小雪</span></button>
+        </div>
+        <div class="field-row"><label class="field">全部天气<select id="weather-select" aria-label="全部天气"><option value="2">晴天</option></select></label><label class="field transition-field">过渡时长<span class="input-unit"><input id="transition" type="number" min="0" max="600" value="30" aria-label="天气过渡秒数"><span>秒</span></span></label></div>
+        <button class="button primary action-button" id="apply-weather" disabled>应用天气<svg><use href="#arrow"/></svg></button>
+        <p class="helper">进入地图后生效 · 保留客户端当前时段</p>
+      </div>
+    </section>
+    <section class="panel weapon-panel" id="weapon-section" aria-labelledby="weapon-title"><div class="section-top"><div><span class="section-number">02 / LOADOUT</span><h2 id="weapon-title">挑选你的下一把武器</h2><p class="section-description">在角色附近生成满弹匣枪械与匹配弹药。</p></div><label class="search-box"><span aria-hidden="true">⌕</span><input id="weapon-search" type="search" placeholder="搜索武器名称…" aria-label="搜索武器"></label></div>
+      <div class="weapon-filters" role="group" aria-label="武器分类"><button class="filter selected" data-category="全部" aria-pressed="true">全部武器</button><button class="filter" data-category="突击步枪" aria-pressed="false">突击步枪</button><button class="filter" data-category="狙击步枪" aria-pressed="false">狙击步枪</button><button class="filter" data-category="冲锋枪" aria-pressed="false">冲锋枪</button><button class="filter" data-category="霰弹枪" aria-pressed="false">霰弹枪</button><button class="filter" data-category="手枪" aria-pressed="false">手枪</button></div>
+      <div id="weapon-grid" class="weapon-grid" role="group" aria-label="可刷新的武器"><p class="empty-state">正在读取武器列表…</p></div>
+      <div class="spawn-settings"><div class="selected-summary"><span class="tiny-label">已选武器</span><strong id="selected-weapon">M4A1</strong><span id="selected-ammo" class="dim">5.56 mm</span></div><label class="field compact">枪械数量<input id="weapon-count" type="number" min="1" max="5" value="1"></label><label class="field compact">配套弹药<input id="ammo-count" type="number" min="0" max="999" value="60"></label><label class="field compact">距离 / 米<input id="weapon-distance" type="number" min="2" max="20" value="3"></label><button class="button primary" id="spawn-weapon" disabled>刷新到附近<svg><use href="#arrow"/></svg></button></div>
+    </section>
+    <div class="bottom-grid"><section class="panel vehicle-panel" id="vehicle-section" aria-labelledby="vehicle-title"><div class="section-top"><div><span class="section-number">03 / MOBILITY</span><h2 id="vehicle-title">下一段路，开车去</h2></div><span class="outline-chip">4 座</span></div><div class="vehicle-preview"><svg viewBox="0 0 360 120" aria-hidden="true"><path class="car-shadow" d="M35 104h286"/><path d="m55 72 18-37h126l42 34 50 10 7 22h-32m-52 0H119m-43 0H46V78Z"/><path d="M93 35 80 65h70V35m15 0v30h61l-36-30M54 73h23m159 0h24m-82 6h13M143 65v34"/><circle cx="96" cy="100" r="22"/><circle cx="244" cy="100" r="22"/><circle cx="96" cy="100" r="9"/><circle cx="244" cy="100" r="9"/></svg><div><h3>吉普车 <span>JEEP</span></h3><p>地面探索 · 原生驾驶交互</p></div></div><div class="vehicle-controls"><label class="field">载具类型<select id="vehicle-type"><option value="101">吉普车 · 4 座</option><option disabled>更多车型待接入</option></select></label><label class="field compact">距离 / 米<input id="vehicle-distance" type="number" min="5" max="20" value="6"></label></div><button class="button secondary action-button" id="spawn-vehicle" disabled>刷新载具<svg><use href="#arrow"/></svg></button><p class="helper">在地面、离开载具后操作 · 每轮最多 8 辆</p></section>
+    <section class="panel activity-panel" aria-labelledby="activity-title"><div class="section-top"><div><span class="section-number">SESSION / ACTIVITY</span><h2 id="activity-title">操作记录</h2></div><span class="live-label"><span class="dot"></span>实时</span></div><ol id="activity-list" class="activity-list"><li class="empty-state">还没有操作。世界正在等待你的安排。</li></ol><div class="activity-footnote">“已发送”表示指令已送入游戏连接，实际效果以游戏画面为准。</div></section></div>
+    <footer><span>RING OF ELYSIUM <span class="footer-dot">/</span> OFFLINE LAB</span><span id="footer-status">本地服务 · 等待游戏进入地图</span></footer>
+  </main>
+</div><div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</body></html>
