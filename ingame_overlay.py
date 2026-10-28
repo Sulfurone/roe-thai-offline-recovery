@@ -215,7 +215,7 @@ class Overlay:
         self.number(weapon, '刷新距离（米）', self.distance, 2, 20)
         self.action(weapon, '刷新武器与弹药', self.send_weapon)
         ttk.Label(vehicle, text='四座吉普车', font=('Microsoft YaHei UI', 13, 'bold')).pack(anchor='w', pady=10)
-        ttk.Label(vehicle, text='在角色附近刷新。每轮最多 8 辆。\n乘车时请先下车，再刷新武器或载具。', wraplength=330).pack(anchor='w', pady=(0, 15))
+        ttk.Label(vehicle, text='优先刷新在附近路边，结果会显示实际距离和坐标。\n每轮最多 8 辆。乘车时请先下车再刷新。', wraplength=330).pack(anchor='w', pady=(0, 15))
         self.vehicle_distance = tk.IntVar(value=6)
         self.number(vehicle, '刷新距离（米）', self.vehicle_distance, 5, 20)
         self.action(vehicle, '刷新吉普车', self.send_vehicle)

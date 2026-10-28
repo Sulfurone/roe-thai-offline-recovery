@@ -12,6 +12,7 @@ import random
 import struct
 import time
 from offline_motion import actor_motion
+from offline_doors import DoorState
 from offline_inventory import Item,OfflineInventory
 from offline_ground_loot import OfflineGroundLoot,MAX_GROUND_STACKS
 from offline_weapons import WEAPONS,AMMUNITION,is_weapon
@@ -79,6 +80,8 @@ class OfflineGameplay:
     scatter_loot: bool = False
     scatter_anchor: tuple | None = field(default=None,init=False)
     scatter_random: random.Random = field(default_factory=random.Random,init=False)
+    door_interactions: bool = False
+    doors: DoorState = field(default_factory=DoorState,init=False)
 
     def __post_init__(self):
         if not math.isfinite(self.auto_board_delay) or not 0<=self.auto_board_delay<=30:
@@ -501,6 +504,8 @@ class OfflineGameplay:
         return [weapon.spawn(),ammo.spawn()]
 
     def _handle(self, message, body):
+        if message == 0x6f57 and self.door_interactions:
+            return self.doors.handle(body)
         glider=self.opening_glider
         if glider is not None and glider.seated:
             if message in (0x6543,0x6549):

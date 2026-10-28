@@ -22,6 +22,8 @@ from control_actions import ControlSession
 from ingame_bridge import IngameMailbox, IngameInstallation
 from ingame_overlay import OverlayProcess
 from offline_motion import actor_motion, aircraft_spawn_heading
+from offline_population import WorldPopulation
+from offline_bots import BotRoster
 
 
 def main():
@@ -66,6 +68,22 @@ def main():
                         help='Legacy load-trigger probe: send only on the second load notification')
     parser.add_argument('--gameplay-prototype', action='store_true',
                         help='Opt in to unverified Thai ammo and vehicle interaction handlers')
+    parser.add_argument('--gameplay-doors', action='store_true',
+                        help='Opt in to experimental Thai reversible-object state replies')
+    parser.add_argument('--world-populate', action='store_true',
+                        help='Generate finite random ground weapons/ammo and Jeeps as the player explores')
+    parser.add_argument('--world-terrain', type=Path,
+                        help='Own-client Thai collision REPX used for random ground placement')
+    parser.add_argument('--world-client-ground', action='store_true',
+                        help='Use small ground patches from actual walking reports instead of an unverified heightfield')
+    parser.add_argument('--world-client-map', type=Path,
+                        help='Privately extracted Thai QSHM, road mask and scene catalogues for indoor/roadside placement')
+    parser.add_argument('--world-seed', type=int,
+                        help='Population seed, 0..4294967295; default chooses a fresh seed per run')
+    parser.add_argument('--world-bots', type=int, default=0,
+                        help='Experimental default peer patrol count, 0..4; no combat AI')
+    parser.add_argument('--world-bot-profile', type=Path,
+                        help='Locally prepared original-codec-validated basic peer profile')
     parser.add_argument('--gameplay-arsenal',action='store_true',
                         help='Seed recovered firearms/ammunition in a fresh ground-loot world')
     parser.add_argument('--gameplay-scatter-loot',action='store_true',
@@ -206,6 +224,47 @@ def main():
     if args.environment_once and args.environment_trigger != 'load':
         parser.error('--environment-once is only valid with --environment-trigger load')
     opening_glider_body=None
+    population_surface=None
+    bot_profile=None
+    if args.world_bots:
+        if not args.world_populate or args.world_bot_profile is None:
+            parser.error('Experimental peers require population and a local basic profile')
+        try:
+            bot_profile=args.world_bot_profile.read_bytes()
+            BotRoster(bot_profile,args.world_bots)
+        except (OSError,ValueError,TypeError) as error:
+            parser.error(f'Cannot prepare experimental peers: {error}')
+    if args.gameplay_doors and not args.gameplay_prototype:
+        parser.error('Door replies require --gameplay-prototype')
+    if args.world_populate:
+        if not (args.gameplay_prototype and args.gameplay_ground_loot and (args.world_terrain or args.world_client_ground or args.world_client_map)
+                and args.control_vehicle_template) or args.gameplay_world_file:
+            parser.error('Population requires prototype, ground loot, terrain, Jeep template and a nonpersistent world')
+        if args.world_seed is None:
+            args.world_seed=int.from_bytes(os.urandom(4),'big')
+        if not 0 <= args.world_seed < 2**32:
+            parser.error('World seed must be 0..4294967295')
+        if sum(bool(value) for value in (args.world_client_ground,args.world_terrain,args.world_client_map)) != 1:
+            parser.error('Choose exactly one population ground source')
+        if args.world_client_map:
+            from offline_client_map import ThaiClientMap
+            try:
+                population_surface=ThaiClientMap.from_folder(args.world_client_map)
+            except (OSError,ValueError,TypeError) as error:
+                parser.error(f'Cannot prepare client map placement: {error}')
+        elif args.world_client_ground:
+            if args.world_terrain is not None:
+                parser.error('Choose either client walking survey or verified terrain, not both')
+            from offline_ground_survey import GroundSurvey
+            population_surface=GroundSurvey()
+        else:
+            from offline_terrain import TerrainSurface
+            try:
+                population_surface=TerrainSurface.from_repx(args.world_terrain)
+            except (OSError,ValueError,TypeError) as error:
+                parser.error(f'Cannot read population terrain: {error}')
+    elif args.world_terrain is not None or args.world_client_ground or args.world_client_map:
+        parser.error('World terrain requires --world-populate')
     landing_height=None
     if args.gameplay_opening_glider_file is not None:
         if not args.gameplay_opening_airdrop or args.gameplay_landing_terrain is None:
@@ -413,6 +472,7 @@ def main():
                     ground_loot_enabled=args.gameplay_ground_loot,
                     arsenal_enabled=args.gameplay_arsenal,
                     scatter_loot=args.gameplay_scatter_loot,
+                    door_interactions=args.gameplay_doors,
                     world_file=args.gameplay_world_file,
                     opening_airdrop=args.gameplay_opening_airdrop,
                     opening_glider_body=opening_glider_body,landing_height=landing_height,
@@ -423,7 +483,12 @@ def main():
                     initialize_vehicle=args.gameplay_initialize_vehicle,
                     aircraft_route_speed=args.gameplay_aircraft_route_speed,
                     auto_exit_after=args.gameplay_auto_exit_seconds) if args.gameplay_prototype else None
-                control_session = ControlSession(gameplay, control_vehicle_body) if control else None
+                control_session = ControlSession(gameplay, control_vehicle_body) if control or args.world_populate else None
+                bots=BotRoster(bot_profile,args.world_bots) if bot_profile is not None else None
+                population = WorldPopulation(control_session,population_surface,args.world_seed,bots=bots) if args.world_populate else None
+                if population is not None:
+                    emit('world_population_ready',seed=args.world_seed,door_replies=args.gameplay_doors,
+                         experimental_peers=args.world_bots,scope='Synthetic finite scenario, not original AI/collision')
                 control_ready_after = None
                 if control is not None:
                     control.disconnect()
@@ -514,6 +579,15 @@ def main():
                 try:
                     while time.monotonic() < deadline:
                         send_control_commands()
+                        if population is not None and state == 'transport_ready' and loaded_pushes_sent:
+                            population_replies=population.tick()
+                            for response_id,response_body in population_replies:
+                                response=struct.pack('>IHI',1,response_id,response_id)+response_body
+                                send(connection,0,body=encrypt(response,key))
+                            if population_replies:
+                                emit('world_population_sent',messages=len(population_replies),
+                                     actor_position=gameplay.player_position,cells=len(population.visited),
+                                     ground_items=len(gameplay.ground_loot.stacks),vehicles=population.auto_vehicles)
                         # Advance timers when the client is quiet. Socket reads
                         # still use the original framed reader; a partial frame
                         # remains subject to its existing connection timeout.
@@ -524,7 +598,7 @@ def main():
                                                     and schedule.armed_at is not None
                                                     and not schedule.sent)
                         environment_timer=bool(environment_schedules and state=='transport_ready')
-                        if gameplay_timers or environment_timer or control is not None:
+                        if gameplay_timers or environment_timer or control is not None or population is not None:
                             wait=min(.25,max(0,deadline-time.monotonic()))
                             if environment_timer:
                                 wait=min(wait,max(0,min(schedule.armed_at
@@ -600,8 +674,10 @@ def main():
                                                          and push_id in (0x05fb,0x04a0) else 'file'))
                             if gameplay is not None and loaded_pushes_sent:
                                 previous_saves=gameplay.state_save_count
-                                control_replies=(control_session.handle(message_id, application[26:])
-                                                 if control_session is not None else None)
+                                bot_replies=bots.handle(message_id,application[26:]) if bots is not None else None
+                                control_replies=bot_replies
+                                if control_replies is None and control_session is not None:
+                                    control_replies=control_session.handle(message_id,application[26:])
                                 gameplay_replies=(gameplay.handle(message_id,application[26:])
                                                   if control_replies is None else control_replies)
                                 if (control is not None and control_ready_after is None
@@ -620,6 +696,8 @@ def main():
                                          seated=gameplay.seated,deployment_phase=gameplay.deployment_phase,
                                          ground_stacks=len(gameplay.ground_loot.stacks) if gameplay.ground_loot else None,
                                          vehicle_position=gameplay.vehicle_position)
+                                if population is not None:
+                                    population.observe(message_id,application[26:])
                                 send_gameplay_timers()
                                 try:
                                     if gameplay.save_state():

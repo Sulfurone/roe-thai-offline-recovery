@@ -17,6 +17,7 @@ from ingame_client import MailboxClient
 from offline_gameplay import JEEP_UID
 from test_offline_motion import move_body, plane_body
 from test_control_panel import jeep_template
+from offline_bots import POSITION_MARKER
 from tpdu import decrypt, encrypt, frame, read_frame
 
 
@@ -30,7 +31,10 @@ class IngameSessionTests(unittest.TestCase):
     def test_daytime_aircraft_jump_then_menu_ground_actions(self):
         self.run_session('--ingame-overlay', aircraft=True)
 
-    def run_session(self, interface, aircraft=False):
+    def test_random_world_doors_and_peer_query_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay', population=True)
+
+    def run_session(self, interface, aircraft=False, population=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -45,6 +49,17 @@ class IngameSessionTests(unittest.TestCase):
             argv = ['local_server.py', '--seconds', '15', '--port', str(port), '--single-session',
                     interface, '--control-vehicle-template', str(vehicle),
                     '--gameplay-prototype', '--gameplay-inventory', '--gameplay-ground-loot']
+            if population:
+                terrain = root / 'surface.repx'
+                terrain.write_text('<root><PxHeightField><NbRows>2</NbRows><NbColumns>2</NbColumns>'
+                    '<samples>6500 6500 6500 6500</samples></PxHeightField><PxRigidStatic>'
+                    '<GlobalPose>.5 .5 .5 .5 0 0 0</GlobalPose><PxHeightFieldGeometry>'
+                    '<RowScale>1000000</RowScale><ColumnScale>1000000</ColumnScale>'
+                    '<HeightScale>1</HeightScale></PxHeightFieldGeometry></PxRigidStatic></root>')
+                profile = root / 'synthetic-profile.bin'
+                profile.write_bytes(struct.pack('>IIQI', 3, 1, 1, 12) + b'OfflineBot1\0' + POSITION_MARKER)
+                argv.extend(['--gameplay-doors', '--world-populate', '--world-terrain', str(terrain),
+                             '--world-bots', '1', '--world-bot-profile', str(profile)])
             if interface == '--ingame-overlay':
                 world = root / 'world.bin'
                 original_world = struct.pack('>III', 0, 1, 0) + bytes(18)
@@ -109,6 +124,11 @@ class IngameSessionTests(unittest.TestCase):
                     def receive():
                         while True:
                             message, body = receive_raw()
+                            if population and message == 0x27:
+                                continue
+                            if population and message == 0x565:
+                                self.assertEqual(receive_raw()[0],0xbe7)
+                                continue
                             if aircraft and (message == 0x6563 or startup and
                                              message in (0x6554, 0x656e, 0x656d, 0x6542, 0x6564, 0x6565)):
                                 flight_packets.append((message, body))
@@ -132,12 +152,26 @@ class IngameSessionTests(unittest.TestCase):
                     initial = (200, 204800, 75000) if aircraft else (325800, 271700, 6501)
                     send(0x002a, struct.pack('>I3i', 1, *initial))
                     self.assertEqual(receive()[0], 0x821)
+                    if population:
+                        generated = [receive_raw() for _ in range(12)]
+                        self.assertEqual([m for m, _ in generated],
+                            [0x821]*6 + [0x654b, 0x6554, 0x656e, 0x565, 0xbe7, 0x27])
+                        bot_uid = struct.unpack_from('>Q', generated[-2][1], 8)[0]
+                        self.assertNotEqual(bot_uid, 256)
                     if interface == '--ingame-overlay':
                         clock_id, clock_body = receive()
                         self.assertEqual(clock_id, 0x4816)
                         self.assertEqual(struct.unpack_from('>I', clock_body)[0], 12)
                         clock_time = struct.unpack_from('>I', clock_body, 4)[0]
                         self.assertLess(abs(clock_time - world_time), 3)
+                    if population:
+                        send(0x6f57, struct.pack('>II', 17415, 1))
+                        self.assertEqual(receive(), (0x6f55, struct.pack('>5I', 17415, 1, 1, 0, 0)))
+                        send(0xbe6, struct.pack('>IIQ', 2, 1, bot_uid))
+                        profile_id, queried_profile = receive()
+                        self.assertEqual(profile_id, 0xbe7)
+                        self.assertEqual(struct.unpack_from('>II',queried_profile),(3,1))
+                        self.assertEqual(struct.unpack_from('>Q', queried_profile, 8)[0], bot_uid)
                     directory = next((root / 'recovery/private/ingame-control').glob('session-*'))
                     self.assertEqual((game / 'ROE_OfflineMenu.lua').exists(), interface == '--ingame-control')
                     deadline = time.monotonic() + 4

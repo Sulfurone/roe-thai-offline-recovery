@@ -1,6 +1,8 @@
 """Apply validated control commands on the game session's owning thread."""
 import json
 import struct
+import math
+import random
 
 from offline_control import WEATHER_NAMES, WEAPON_NAMES, validate_command
 from offline_environment import environment_weather
@@ -37,6 +39,8 @@ class ControlSession:
         self.vehicles = {}
         self.active_vehicle = None
         self.weather_id = None
+        self.placement_map = None
+        self.placement_random = random.Random()
         if vehicle_template is not None:
             vehicle_spawn(vehicle_template, TYPED_VEHICLE_UID, (0, 0, 0))
 
@@ -94,18 +98,31 @@ class ControlSession:
                 game.reserve = game.inventory.reserve
                 raise
             return replies, f"已发送 {count} 把 {WEAPON_NAMES[command['template']]} 与 {ammo} 发弹药，距角色 {command['distance']} 米"
+        if self.placement_map is not None:
+            spot = self.placement_map.spawn_spot(game.player_position,self.placement_random,'vehicle',
+                [car.vehicle_position[:2] for car in self.vehicles.values()])
+            if spot is None:
+                raise ValueError('附近道路没有合适的停车位置')
+            replies=self.spawn_vehicle(spot)
+            actual=round(math.dist(game.player_position[:2],spot[:2])/100)
+            return replies,f'已发送路边吉普车，距角色约 {actual} 米；X {spot[0]/100:.1f}，Y {spot[1]/100:.1f}'
+        replies = self.spawn_vehicle((x + distance, y, z + 100))
+        return replies, f"已发送吉普车，距角色 {command['distance']} 米"
+
+    def spawn_vehicle(self, position):
+        """Shared allocator/routing for manually and automatically placed Jeeps."""
+        game = self.gameplay
         if self.vehicle_template is None:
             raise ValueError('此入口未提供吉普车样本')
         if len(self.vehicles) >= 8:
             raise ValueError('本轮最多刷新 8 辆吉普车')
         uid = TYPED_VEHICLE_UID + 0x1000 + len(self.vehicles)
-        position = (x + distance, y, z + 100)
         body = vehicle_spawn(self.vehicle_template, uid, position)
         car = OfflineGameplay(actor_uid=game.actor_uid, vehicle_uid=uid, initialize_vehicle=True)
         car.player_position, car.actor_ready = game.player_position, True
         car.observe_spawn(0x654b, body)
         self.vehicles[uid] = car
-        return [(0x654b, body)] + car.initialize_vehicle_once(), f"已发送吉普车，距角色 {command['distance']} 米"
+        return [(0x654b, body)] + car.initialize_vehicle_once()
 
     def handle(self, message, body):
         """Return None to defer to existing gameplay, or replies for a panel car."""
