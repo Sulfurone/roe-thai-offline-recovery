@@ -6,7 +6,7 @@ loot has a separate slot-list protocol and is deliberately not encoded here.
 from dataclasses import dataclass,replace
 import math
 import struct
-from offline_inventory import Item,MAX_AMMO,supported,stack_limit
+from offline_inventory import Item,MAX_AMMO,supported,stack_limit,item_fields,read_item,item_uids
 from offline_weapons import WEAPONS,AMMUNITION,is_weapon
 from offline_items import EXTRA_ITEMS,is_extra
 
@@ -43,8 +43,7 @@ class OfflineGroundLoot:
     def snapshot(self):
         return {'next_entity':self.next_entity,'stacks':[
             {'entity':stack.entity,'position':list(stack.position),'magazine':stack.magazine,
-             'item':{'kind':stack.item.kind,'template':stack.item.template,
-                     'uid':stack.item.uid,'count':stack.item.count}}
+             'item':item_fields(stack.item)}
             for _,stack in sorted(self.stacks.items())]}
 
     @classmethod
@@ -56,7 +55,7 @@ class OfflineGroundLoot:
             raise ValueError('Invalid ground entity allocator/count')
         world=cls()
         world.next_entity=data['next_entity']
-        uids={item.uid for item in inventory.items.values()}
+        uids={uid for item in inventory.items.values() for uid in item_uids(item)}
         for row in data['stacks']:
             if not isinstance(row,dict) or set(row) not in ({'entity','position','item'},
                                                           {'entity','position','item','magazine'}):
@@ -65,18 +64,19 @@ class OfflineGroundLoot:
             if (type(entity) is not int or not 0x400001<=entity<world.next_entity
                     or entity in world.stacks or not isinstance(position,list) or len(position)!=3
                     or any(type(x) is not int or abs(x)>=2000000 for x in position)
-                    or not isinstance(fields,dict) or set(fields)!={'kind','template','uid','count'}
-                    or any(type(x) is not int for x in fields.values())):
+                    or not isinstance(fields,dict)):
                 raise ValueError('Invalid ground identity/position/item fields')
-            item=Item(**fields)
+            item=read_item(fields)
+            identities=item_uids(item)
             magazine=row.get('magazine',0)
             if (not cls.supported(item) or type(magazine) is not int or magazine<0
                     or is_weapon(item) and (magazine>WEAPONS[item.template].capacity or 'magazine' not in row)
                     or not is_weapon(item) and magazine!=0
-                    or not 0<item.uid<inventory.next_uid or item.uid in uids):
+                    or any(not 0<uid<inventory.next_uid or uid in uids for uid in identities)
+                    or len(set(identities))!=len(identities)):
                 raise ValueError('Unsupported or duplicate ground item/magazine')
             world.stacks[entity]=GroundStack(entity,tuple(position),item,magazine)
-            uids.add(item.uid)
+            uids.update(identities)
         return world
 
     @staticmethod

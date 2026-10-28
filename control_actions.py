@@ -185,6 +185,7 @@ class ControlSession:
         else:
             replies = car.handle(message, body)
         if car.seated:
+            game.pickup_drop_anchor=None
             self.active_vehicle = car.vehicle_uid
             game.seated, game.seat = True, car.seat
             game.vehicle_position = car.vehicle_position

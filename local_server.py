@@ -715,6 +715,8 @@ def main():
                                 if (message_id==0x3b63 and gameplay.ground_loot is not None
                                         and gameplay.ground_loot.last_rejection is not None):
                                     emit('pickup_rejected',**gameplay.ground_loot.last_rejection)
+                                if message_id==0x3e80 and gameplay.last_drop_event:
+                                    emit('ground_drop_created',**gameplay.last_drop_event)
                                 if (control is not None and control_ready_after is None
                                         and gameplay.actor_ready):
                                     control_ready_after = time.monotonic() + 2

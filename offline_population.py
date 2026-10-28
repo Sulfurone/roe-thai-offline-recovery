@@ -115,9 +115,12 @@ class WorldPopulation:
                 game.inventory.next_uid += 1
                 replies.extend((gun.spawn(), ammo.spawn()))
             if self.extra_items:
-                groups=([i for i,v in EXTRA_ITEMS.items() if v.kind==20],
+                groups=([i for i,v in EXTRA_ITEMS.items() if v.slot==11],
                         [i for i,v in EXTRA_ITEMS.items() if v.kind==5],
-                        [i for i,v in EXTRA_ITEMS.items() if v.kind==4])
+                        [i for i,v in EXTRA_ITEMS.items() if v.kind==4],
+                        [i for i,v in EXTRA_ITEMS.items() if v.kind==7],
+                        [i for i,v in EXTRA_ITEMS.items() if v.slot==10],
+                        [i for i,v in EXTRA_ITEMS.items() if v.slot==12])
                 for choices in groups:
                     for _ in range(2):
                         if len(world.stacks)>=112:
@@ -127,7 +130,8 @@ class WorldPopulation:
                             continue
                         template=rng.choice(choices)
                         spec=EXTRA_ITEMS[template]
-                        item=world.add(Item(spec.kind,template,game.inventory.next_uid,1),spot)
+                        quantity=rng.randint(2,5) if spec.kind==7 else 1
+                        item=world.add(Item(spec.kind,template,game.inventory.next_uid,quantity),spot)
                         game.inventory.next_uid+=1
                         replies.append(item.spawn())
         if self.vehicles and self.control.vehicle_template is not None:

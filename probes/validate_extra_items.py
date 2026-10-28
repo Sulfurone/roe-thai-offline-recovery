@@ -48,7 +48,8 @@ for template,spec in EXTRA_ITEMS.items():
     if (row['mCategory']!=spec.kind or (row['nPackMax'] or 1)!=spec.max_stack
             or row['szPositionArray']!=([spec.slot] if spec.slot else [])
             or row['WeaponPartType']!=spec.part_type or row['WeaponPartIndex']!=spec.part_index
-            or row['nExtWeight']!=spec.extra_weight or not entities[template]['collectable']):
+            or row['nExtWeight']!=spec.extra_weight or row['nDurableValue']!=spec.durability
+            or not entities[template]['collectable']):
         raise ValueError(f'Extra catalogue differs from original table: {template}')
     packets,_=control.execute(dict(action='item',template=template))
     check(packets)

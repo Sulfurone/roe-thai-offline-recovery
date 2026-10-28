@@ -39,8 +39,8 @@ for vehicle in cars:
         for dx in range(-600,601,200) for dy in range(-600,601,200)):
         raise ValueError('Car is not beside the road')
 auto_stacks=list(game.ground_loot.stacks.values())[1:]
-if len(auto_stacks)!=22:
-    raise ValueError('Expected eight weapon/ammo pairs and six extra residential items')
+if len(auto_stacks)!=28:
+    raise ValueError('Expected eight weapon/ammo pairs and twelve extra residential items')
 if any(not any(abs(stack.position[2]-(round(door[2])+10))<1 and
                50<math.hypot(stack.position[0]-door[0],stack.position[1]-door[1])<550
                for door in client_map.doors) for stack in auto_stacks):

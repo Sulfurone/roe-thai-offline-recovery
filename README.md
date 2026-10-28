@@ -6,9 +6,9 @@ This is an experimental, community-maintained reconstruction for the original Ga
 
 ## 当前进度与边界
 
-蹲姿/趴姿速度调校已获用户实机确认：蹲趴速度合适，站立和跳跃正常。仅更新对应姿势记录，离线调校为2.8/1.2米每秒，站立及下落参数保持。最新本地139项、公开81项通过，见[姿势速度说明](MOVEMENT_POSTURES.md)。
+蹲姿/趴姿速度调校已获用户实机确认：蹲趴速度合适，站立和跳跃正常。仅更新对应姿势记录，离线调校为2.8/1.2米每秒，站立及下落参数保持。最新本地148项、公开90项通过，见[姿势速度说明](MOVEMENT_POSTURES.md)。
 
-新增背包、投掷物、配件共15项及8种原地面车型，F6有装备页和车型选择。用户确认新选项、所测试物品显示/拾取，以及本轮车辆上车/驾驶/下车；上车旧位置误拒修复已获实机确认。投掷、配件安装和全部车型/座位逐项验收仍待完成，见 [扩展物资说明](EXPANDED_LOOT.md)。
+物品目录已扩为24项，新增药品和三级头盔/防弹衣；F6有装备页和8种原车型选择。新候选支持兼容配件安装/替换/拆卸、随整枪保存，以及近期拾取后的丢弃落点修正，见[装备操作说明](EQUIPMENT_ACTIONS.md)。先前所测试物品拾取和车辆上车/驾驶/下车已获用户确认；本轮新增内容尚待实机。治疗、护甲伤害、完整配件属性、实时坐标同步及投掷仍未恢复，见[扩展物资说明](EXPANDED_LOOT.md)。
 
 - 门开关及高密度屋内物资拾取已获用户实机确认。物资提高到每区8组枪弹，车辆每区尝试3辆，F6载具页显示最近位置。本轮所测试车辆已确认上车/驾驶/下车正常；全部车型/座位和停车精度仍需逐项验收，见 [世界生成说明](WORLD_POPULATION.md)。
 - 机器人前三轮均未被用户看到；最新完整资料也尚未解决显示问题，不能称AI已恢复。已补外观、实际出生坐标和运行资料，继续排查；尚无战斗AI、攻击、伤害或击杀。
@@ -39,11 +39,11 @@ git clone https://github.com/Sulfurone/roe-thai-offline-recovery.git recovery
 cd recovery
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m unittest test_offline_gameplay test_opening_airdrop test_scatter_loot test_aircraft_launcher_phases test_environment_schedule test_environment_session test_control_panel test_control_panel_session test_ingame_bridge test_ingame_session test_offline_motion test_population test_client_map test_extra_items -q
+.\.venv\Scripts\python.exe -m unittest test_offline_gameplay test_opening_airdrop test_scatter_loot test_aircraft_launcher_phases test_environment_schedule test_environment_session test_control_panel test_control_panel_session test_ingame_bridge test_ingame_session test_offline_motion test_population test_client_map test_extra_items test_equipment_actions -q
 $env:ROE_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
 ```
 
-上述 **81 项**检查使用合成状态，无须客户端和私人抓包。仓库还保留其他测试；本地材料齐全时全套为139项，其中一部分需要本地生成的协议样本、角色数据、原客户端内存镜像或原版资源，干净克隆后不能直接全部运行。
+上述 **90 项**检查使用合成状态，无须客户端和私人抓包。仓库还保留其他测试；本地材料齐全时全套为148项，其中一部分需要本地生成的协议样本、角色数据、原客户端内存镜像或原版资源，干净克隆后不能直接全部运行。
 
 资源研究示例（只读取原归档，输出在仓库忽略的目录中）：
 

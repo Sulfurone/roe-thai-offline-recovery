@@ -84,6 +84,9 @@ class OfflineGameplay:
     scatter_random: random.Random = field(default_factory=random.Random,init=False)
     door_interactions: bool = False
     doors: DoorState = field(default_factory=DoorState,init=False)
+    pickup_drop_anchor: tuple | None = field(default=None,init=False)
+    pickup_drop_time: float = field(default=0,init=False)
+    last_drop_event: dict | None = field(default=None,init=False)
 
     def __post_init__(self):
         if not math.isfinite(self.auto_board_delay) or not 0<=self.auto_board_delay<=30:
@@ -506,6 +509,7 @@ class OfflineGameplay:
         return [weapon.spawn(),ammo.spawn()]
 
     def _handle(self, message, body):
+        self.last_drop_event=None
         if message == 0x6f57 and self.door_interactions:
             return self.doors.handle(body)
         glider=self.opening_glider
@@ -533,6 +537,15 @@ class OfflineGameplay:
             replies=self.ground_loot.pickup(body,self.inventory,self.actor_uid,self.player_position,
                                             self.actor_ready and not self.seated
                                             and not (glider is not None and glider.seated))
+            if stack is not None and any(msg==0x3e82 for msg,_ in replies):
+                camera=struct.unpack_from('>3i',body,20)
+                # The drop DTO has no position. Successful pickup supplies a
+                # newer camera than intermittent walking keyframes. Use its
+                # XY with the nearby item's floor, never the elevated camera Z.
+                if (any(camera) and all(abs(v)<2000000 for v in camera)
+                        and math.dist(camera,stack.position)<=500):
+                    self.pickup_drop_anchor=(*camera[:2],stack.position[2])
+                    self.pickup_drop_time=time.monotonic()
             self.reserve=self.inventory.reserve
             if stack is not None and is_weapon(stack.item) and any(msg==0x3e82 for msg,_ in replies):
                 key=next((k for k,item in self.inventory.items.items() if item.uid==stack.item.uid),None)
@@ -551,9 +564,17 @@ class OfflineGameplay:
             if body[:1]==b'\2' and self.ground_loot is not None:
                 magazine=(self.weapon_magazine((body[1],struct.unpack_from('>H',body,2)[0]))
                           if len(body)>=15 else 0)
-                replies=self.ground_loot.drop(body,self.inventory,self.actor_uid,self.player_position,
+                anchor=self.pickup_drop_anchor
+                use_anchor=(anchor is not None and 0<=time.monotonic()-self.pickup_drop_time<=30
+                            and math.dist(anchor,self.player_position)>500)
+                position=anchor if use_anchor else self.player_position
+                replies=self.ground_loot.drop(body,self.inventory,self.actor_uid,position,
                                              self.actor_ready and not self.seated
                                              and not (glider is not None and glider.seated),magazine)
+                if any(msg==0x821 for msg,_ in replies):
+                    stack=list(self.ground_loot.stacks.values())[-1]
+                    self.last_drop_event=dict(entity=stack.entity,template=stack.item.template,
+                        position=list(stack.position),source='recent_pickup_camera_floor' if use_anchor else 'actor_keyframe')
             else:
                 replies=self.inventory.handle(body)
             self.reserve=self.inventory.reserve
@@ -657,6 +678,7 @@ class OfflineGameplay:
             if motion is not None:
                 position,_ = motion
                 self.player_position = position
+                self.pickup_drop_anchor=None
                 self.actor_ready = True
                 if self.deployment_phase=='landing' and self.landing_height is not None:
                     ground=self.landing_height(*position[:2])
