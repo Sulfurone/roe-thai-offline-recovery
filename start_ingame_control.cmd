@@ -2,6 +2,7 @@
 setlocal
 if not defined ROE_PYTHON set "ROE_PYTHON=python"
 "%ROE_PYTHON%" --version >nul 2>&1
+if errorlevel 1 set "ROE_PYTHON=C:\Users\SHI\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
 "%ROE_PYTHON%" --version >nul 2>&1
 if errorlevel 1 (
   echo Python 3.10+ is required. Set ROE_PYTHON to your Python executable.
@@ -21,7 +22,7 @@ echo Motion recovery: acknowledge live walking reports and align the aircraft sp
 echo Aircraft opening uses the verified west-to-east route. Use the native jump key.
 echo The menu starts compact; F6 opens it when you need it.
 echo Keep this console open while playing.
-echo Exploration population: random ground weapons/ammo and up to four automatic Jeeps.
+echo Exploration population: eight weapon/ammo pairs and three roadside Jeeps per region, up to twelve automatic Jeeps.
 set "ROE_BOT_ARGS="
 if defined ROE_EXPERIMENTAL_BOTS set ROE_BOT_ARGS=--world-bots 1 --world-bot-profile "%~dp0private\typed-gameplay\bot-basic-profile.bin"
 "%ROE_PYTHON%" "%~dp0local_server.py" --seconds 43200 --port 8003 --single-session --launch --ingame-overlay --gameplay-doors --world-populate --world-client-map "%~dp0private\client-map\World_EU_KillZone_2048_RemainingFiles" %ROE_BOT_ARGS% --gameplay-motion-ack --aircraft-align-heading --ingame-menu-collapsed --world-time-tail-bytes 18 --environment-hour 12 --environment-trigger player-ready --environment-ready-delay 3 --control-vehicle-template "%~dp0private\typed-gameplay\vehicle-jeep-near.bin" --gameplay-prototype --gameplay-auto-seat --gameplay-auto-board-delay 2 --gameplay-initialize-vehicle --gameplay-aircraft-route-speed 5000 --gameplay-aircraft-route-end 409400 204800 75000 --gameplay-vehicle-config 4 --gameplay-inventory --gameplay-ground-loot --gameplay-typed-uids --probe-auth-response --compact-responses ^

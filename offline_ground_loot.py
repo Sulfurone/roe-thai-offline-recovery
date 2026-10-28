@@ -37,6 +37,7 @@ class OfflineGroundLoot:
         self.stacks={}
         self.next_entity=0x400001
         self.announced=False
+        self.last_rejection=None
 
     def snapshot(self):
         return {'next_entity':self.next_entity,'stacks':[
@@ -105,13 +106,26 @@ class OfflineGroundLoot:
         return [stack.spawn() for stack in self.stacks.values()]
 
     def pickup(self,body,inventory,actor_uid,player_position,can_interact):
+        self.last_rejection=None
         if len(body) not in (33,41):
+            self.last_rejection={'reason':'length'}
             return []
         entity,slot,owner,container,destination,automatic,*camera=struct.unpack('>IIQBHB3iB',body[:33])
         stack=self.stacks.get(entity)
+        actor_distance=math.dist(player_position,stack.position) if stack else math.inf
+        request_camera=tuple(camera[:3])
+        camera_distance=(math.dist(request_camera,stack.position) if stack and any(request_camera)
+            and all(abs(v)<2000000 for v in request_camera) else math.inf)
+        # The original sender includes the live camera position (535000+38).
+        # Walking command keyframes can lag behind it. Retain the original
+        # 500 cm range and accept either independently bounded viewpoint.
+        nearby=min(actor_distance,camera_distance)<=PICKUP_DISTANCE
         if (not can_interact or not self.announced or stack is None or slot not in (0,0xffffffff)
                 or automatic not in (0,1) or owner not in (0,actor_uid)
-                or math.dist(player_position,stack.position)>PICKUP_DISTANCE):
+                or not nearby):
+            self.last_rejection={'reason':'distance' if stack and not nearby else 'identity_or_state',
+                'entity':entity,'actor_distance_cm':round(actor_distance) if math.isfinite(actor_distance) else None,
+                'camera_distance_cm':round(camera_distance) if math.isfinite(camera_distance) else None}
             return self.error(entity)
         if automatic:
             key=next(((1,i) for i in WEAPONS[stack.item.template].slots if (1,i) not in inventory.items),None) if is_weapon(stack.item) else next((key for key,item in sorted(inventory.items.items())
@@ -121,10 +135,12 @@ class OfflineGroundLoot:
         else:
             key=(container,destination)
         if key is None or not inventory.fits(key,stack.item):
+            self.last_rejection={'reason':'destination_or_capacity','entity':entity}
             return self.error(entity)
         target=inventory.items.get(key)
         if target is not None and (stack.item.kind!=3 or target.kind!=3 or target.template!=stack.item.template
                                    or target.count+stack.item.count>MAX_AMMO):
+            self.last_rejection={'reason':'occupied_or_full','entity':entity}
             return self.error(entity)
         inventory.items[key]=(replace(target,count=target.count+stack.item.count) if target else stack.item)
         inventory.next_uid=max(inventory.next_uid,stack.item.uid+1)

@@ -106,7 +106,7 @@ class ThaiClientMap:
             length = math.hypot(dx,dy)
             if length < 100 or not 6500 <= z <= 60000:
                 continue
-            doors.append((x,y,z,dx/length,dy/length))
+            doors.append((x,y,z,dx/length,dy/length,max(120,min(450,length*1.2))))
         if not houses or not doors:
             raise ValueError('No residential first-floor entrance candidates')
         instance.doors = doors
@@ -156,15 +156,16 @@ class ThaiClientMap:
     def spawn_spot(self, position, rng, kind, occupied):
         x,y,_ = position
         if kind == 'loot':
-            choices = sorted(self.doors,key=lambda p:math.hypot(p[0]-x,p[1]-y))[:8]
+            choices = sorted(self.doors,key=lambda p:math.hypot(p[0]-x,p[1]-y))[:16]
             rng.shuffle(choices)
-            for px,py,z,dx,dy in choices:
+            for door in choices:
+                px,py,z,dx,dy=door[:5]
                 if math.hypot(px-x,py-y) > 35000:
                     continue
-                inward = rng.uniform(120,220)
-                side = rng.uniform(-30,30)
+                inward = rng.uniform(90,door[5] if len(door)>5 else 220)
+                side = rng.uniform(-60,60)
                 spot = (round(px+dx*inward-dy*side),round(py+dy*inward+dx*side),round(z)+10)
-                if all(math.hypot(spot[0]-a,spot[1]-b) >= 300 for a,b in occupied):
+                if all(math.hypot(spot[0]-a,spot[1]-b) >= 150 for a,b in occupied):
                     return spot
             return None
         if kind == 'peer':

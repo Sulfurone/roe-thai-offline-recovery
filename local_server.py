@@ -80,6 +80,10 @@ def main():
                         help='Privately extracted Thai QSHM, road mask and scene catalogues for indoor/roadside placement')
     parser.add_argument('--world-seed', type=int,
                         help='Population seed, 0..4294967295; default chooses a fresh seed per run')
+    parser.add_argument('--world-loot-clusters',type=int,default=8,
+                        help='Weapon/ammo pairs attempted per exploration region, 1..16 (default 8)')
+    parser.add_argument('--world-vehicle-clusters',type=int,default=3,
+                        help='Roadside cars attempted per exploration region, 1..4 (default 3)')
     parser.add_argument('--world-bots', type=int, default=0,
                         help='Experimental default peer patrol count, 0..4; no combat AI')
     parser.add_argument('--world-bot-profile', type=Path,
@@ -244,6 +248,10 @@ def main():
             args.world_seed=int.from_bytes(os.urandom(4),'big')
         if not 0 <= args.world_seed < 2**32:
             parser.error('World seed must be 0..4294967295')
+        if not 1<=args.world_loot_clusters<=16:
+            parser.error('Loot density must be 1..16 pairs per region')
+        if not 1<=args.world_vehicle_clusters<=4:
+            parser.error('Vehicle density must be 1..4 per region')
         if sum(bool(value) for value in (args.world_client_ground,args.world_terrain,args.world_client_map)) != 1:
             parser.error('Choose exactly one population ground source')
         if args.world_client_map:
@@ -485,7 +493,8 @@ def main():
                     auto_exit_after=args.gameplay_auto_exit_seconds) if args.gameplay_prototype else None
                 control_session = ControlSession(gameplay, control_vehicle_body) if control or args.world_populate else None
                 bots=BotRoster(bot_profile,args.world_bots) if bot_profile is not None else None
-                population = WorldPopulation(control_session,population_surface,args.world_seed,bots=bots) if args.world_populate else None
+                population = WorldPopulation(control_session,population_surface,args.world_seed,bots=bots,
+                    clusters=args.world_loot_clusters,vehicle_clusters=args.world_vehicle_clusters) if args.world_populate else None
                 if population is not None:
                     emit('world_population_ready',seed=args.world_seed,door_replies=args.gameplay_doors,
                          experimental_peers=args.world_bots,scope='Synthetic finite scenario, not original AI/collision')
@@ -680,6 +689,9 @@ def main():
                                     control_replies=control_session.handle(message_id,application[26:])
                                 gameplay_replies=(gameplay.handle(message_id,application[26:])
                                                   if control_replies is None else control_replies)
+                                if (message_id==0x3b63 and gameplay.ground_loot is not None
+                                        and gameplay.ground_loot.last_rejection is not None):
+                                    emit('pickup_rejected',**gameplay.ground_loot.last_rejection)
                                 if (control is not None and control_ready_after is None
                                         and gameplay.actor_ready):
                                     control_ready_after = time.monotonic() + 2

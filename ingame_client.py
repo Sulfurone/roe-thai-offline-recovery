@@ -1,8 +1,34 @@
 """Native overlay's bounded client for the per-session command mailbox."""
 from pathlib import Path
 import re
+import json
+import math
 
 from offline_control import validate_command
+
+
+def nearby_hint(state,key,title):
+    """Describe known spawn coordinates without implying rendered visibility."""
+    if key not in state:
+        return title+'：等待位置信息'
+    try:
+        origin=tuple(map(int,state.get('position','').split(',')))
+        entries=json.loads(state[key])
+        if len(origin)!=3 or not isinstance(entries,list) or len(entries)>16:
+            raise ValueError('Invalid location list')
+        candidates=[]
+        for row in entries:
+            point=row['position']
+            if len(point)!=3 or any(type(v) is not int or abs(v)>=2000000 for v in point):
+                raise ValueError('Invalid location')
+            candidates.append((math.dist(origin[:2],point[:2]),point))
+        if not candidates:
+            return title+'：本轮尚未生成'
+        distance,point=min(candidates)
+        unit='辆' if key=='vehicles' else '个'
+        return f'{title}：{len(candidates)} {unit}，最近约 {distance/100:.0f} 米\n坐标 X {point[0]/100:.1f}，Y {point[1]/100:.1f}'
+    except (TypeError,ValueError,KeyError):
+        return title+'：位置暂不可用'
 
 
 class MailboxClient:

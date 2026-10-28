@@ -16,13 +16,22 @@ import struct
 class WorldPopulation:
     CELL = 15000  # centimetres
 
-    def __init__(self, control, terrain, seed=1, loot=True, vehicles=True, bots=None):
+    def __init__(self, control, terrain, seed=1, loot=True, vehicles=True, bots=None, clusters=8,
+                 vehicle_clusters=3):
+        if type(clusters) is not int or not 1<=clusters<=16:
+            raise ValueError('Population density must be 1..16 weapon/ammo pairs per region')
+        if type(vehicle_clusters) is not int or not 1<=vehicle_clusters<=4:
+            raise ValueError('Vehicle density must be 1..4 per region')
         self.control, self.terrain = control, terrain
         self.seed, self.loot, self.vehicles = seed, loot, vehicles
         self.visited = set()
         self.spots = []
         self.auto_vehicles = 0
         self.bots = bots
+        self.clusters=clusters
+        self.vehicle_clusters=vehicle_clusters
+        if bots is not None:
+            control.peer_positions=bots.actors
         if hasattr(terrain,'spawn_spot'):
             control.placement_map=terrain
 
@@ -87,9 +96,9 @@ class WorldPopulation:
         replies = []
         world = game.ground_loot
         if self.loot and world and world.announced:
-            for _ in range(3):
+            for _ in range(self.clusters):
                 # Keep room for manual F6 spawning; picked items release slots.
-                if len(world.stacks) > min(94, MAX_GROUND_STACKS - 2):
+                if len(world.stacks) > min(110, MAX_GROUND_STACKS - 2):
                     break
                 spot = self.choose_spot(position, rng)
                 if spot is None:
@@ -102,12 +111,14 @@ class WorldPopulation:
                                  (spot[0] + 50, spot[1], spot[2]))
                 game.inventory.next_uid += 1
                 replies.extend((gun.spawn(), ammo.spawn()))
-        if (self.vehicles and self.control.vehicle_template is not None
-                and self.auto_vehicles < 4 and len(self.control.vehicles) < 8):
-            spot = self.choose_spot(position, rng, vehicle=True)
-            if spot is not None:
-                replies.extend(self.control.spawn_vehicle(spot))
-                self.auto_vehicles += 1
+        if self.vehicles and self.control.vehicle_template is not None:
+            for _ in range(self.vehicle_clusters):
+                if self.auto_vehicles>=12 or len(self.control.vehicles)>=16:
+                    break
+                spot = self.choose_spot(position, rng, vehicle=True)
+                if spot is not None:
+                    replies.extend(self.control.spawn_vehicle(spot))
+                    self.auto_vehicles += 1
         if self.bots is not None:
             replies.extend(self.bots.spawn(self, position, rng))
         return replies

@@ -69,7 +69,7 @@ class PopulationTests(unittest.TestCase):
         game = ready_game()
         game.player_position = (100000, 200000, 7250)
         control = ControlSession(game, jeep_template())
-        population = WorldPopulation(control, Surface(), 42)
+        population = WorldPopulation(control, Surface(), 42,clusters=3,vehicle_clusters=1)
         messages = population.tick()
         self.assertEqual([m for m, _ in messages], [0x821]*6 + [0x654b, 0x6554, 0x656e])
         self.assertEqual(population.tick(), [])
@@ -100,9 +100,27 @@ class PopulationTests(unittest.TestCase):
         for index in range(40):
             game.player_position = (100000 + index * 5000, 200000, 7250)
             population.tick()
-        self.assertLessEqual(len(game.ground_loot.stacks), 96)
-        self.assertEqual(population.auto_vehicles, 4)
+        self.assertLessEqual(len(game.ground_loot.stacks), 112)
+        self.assertEqual(population.auto_vehicles, 12)
         self.assertLess(len(population.visited), 40)
+
+    def test_denser_default_loot_can_be_picked_with_live_camera_after_walking(self):
+        game=ready_game()
+        game.player_position=(100000,200000,7250)
+        population=WorldPopulation(ControlSession(game),Surface(),42,vehicles=False)
+        messages=population.tick()
+        self.assertEqual([m for m,_ in messages],[0x821]*16)
+        ammo=next(stack for stack in game.ground_loot.stacks.values()
+                  if stack.entity!=0x400001 and stack.item.kind==3)
+        before=sum(item.count for item in game.inventory.items.values() if item.kind==3)
+        body=struct.pack('>IIQBHB3iB',ammo.entity,0,0,0,0,1,
+                         ammo.position[0],ammo.position[1],ammo.position[2]+137,0)
+        replies=game.handle(0x3b63,body)
+        self.assertEqual([m for m,_ in replies],[0x3e82,0x82b,0x3b64])
+        self.assertNotIn(ammo.entity,game.ground_loot.stacks)
+        self.assertEqual(sum(item.count for item in game.inventory.items.values() if item.kind==3),
+                         before+ammo.item.count)
+        self.assertEqual(game.player_position,(100000,200000,7250))
 
 
 if __name__ == '__main__':

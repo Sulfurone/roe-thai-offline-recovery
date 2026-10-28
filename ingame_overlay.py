@@ -12,7 +12,7 @@ import queue
 import threading
 import time
 
-from ingame_client import MailboxClient
+from ingame_client import MailboxClient,nearby_hint
 from offline_control import WEATHER_NAMES, WEAPON_NAMES, AMMO_NAMES
 from offline_weapons import WEAPONS
 
@@ -171,6 +171,8 @@ class Overlay:
         self.status = tk.StringVar(value='等待进入地图…')
         self.result = tk.StringVar(value='选择项目后点击按钮，操作结果会显示在这里。')
         self.position_text = tk.StringVar(value='位置：等待角色上报')
+        self.vehicle_hint=tk.StringVar(value='路边车辆：等待位置信息')
+        self.peer_hint=tk.StringVar(value='测试角色：等待位置信息')
         style = ttk.Style(self.root)
         style.theme_use('clam')
         style.configure('.', font=('Microsoft YaHei UI', 10))
@@ -215,10 +217,12 @@ class Overlay:
         self.number(weapon, '刷新距离（米）', self.distance, 2, 20)
         self.action(weapon, '刷新武器与弹药', self.send_weapon)
         ttk.Label(vehicle, text='四座吉普车', font=('Microsoft YaHei UI', 13, 'bold')).pack(anchor='w', pady=10)
-        ttk.Label(vehicle, text='优先刷新在附近路边，结果会显示实际距离和坐标。\n每轮最多 8 辆。乘车时请先下车再刷新。', wraplength=330).pack(anchor='w', pady=(0, 15))
+        ttk.Label(vehicle, text='优先刷新在附近路边，结果会显示实际距离和坐标。\n每轮最多 16 辆。乘车时请先下车再刷新。', wraplength=330).pack(anchor='w', pady=(0, 15))
         self.vehicle_distance = tk.IntVar(value=6)
         self.number(vehicle, '刷新距离（米）', self.vehicle_distance, 5, 20)
         self.action(vehicle, '刷新吉普车', self.send_vehicle)
+        ttk.Label(vehicle,textvariable=self.vehicle_hint,wraplength=330).pack(anchor='w',pady=(12,0))
+        ttk.Label(vehicle,textvariable=self.peer_hint,wraplength=330).pack(anchor='w',pady=(8,0))
         ttk.Separator(self.body).pack(fill='x', pady=12)
         ttk.Label(self.body, textvariable=self.result, wraplength=350, justify='left').pack(anchor='w')
         ttk.Button(self.body, text='返回游戏 · F6', command=self.toggle).pack(fill='x', pady=(12, 0))
@@ -348,6 +352,8 @@ class Overlay:
             ready = state.get('ready') == '1'
             if state.get('position'):
                 self.position_text.set('当前位置（米）：' + ' / '.join(f'{int(v) / 100:.1f}' for v in state['position'].split(',')))
+            self.vehicle_hint.set(nearby_hint(state,'vehicles','路边车辆'))
+            self.peer_hint.set(nearby_hint(state,'peers','测试角色'))
             self.status.set('已连接 · 可操作' if ready else '界面预览 · 操作已禁用' if self.args.preview else '等待角色进入地图…')
             enabled = ready and self.client.pending is None
             if enabled != self.enabled:

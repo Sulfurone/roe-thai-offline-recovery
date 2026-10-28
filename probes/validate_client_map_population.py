@@ -31,22 +31,23 @@ for message,body in packets:
         if actual!=expected:
             raise ValueError('Basic peer profile lost its actual map spawn position')
 cars=list(control.vehicles.values())
-if len(cars)!=1 or len(bots.actors)!=1:
-    raise ValueError('Expected one road Jeep and one outdoor peer candidate')
-car=cars[0].vehicle_position
-if client_map.is_road(*car[:2]) or not any(client_map.is_road(car[0]+dx,car[1]+dy)
-    for dx in range(-600,601,200) for dy in range(-600,601,200)):
-    raise ValueError('Car is not beside the road')
+if len(cars)!=3 or len(bots.actors)!=1:
+    raise ValueError('Expected three road Jeeps and one outdoor peer candidate')
+for vehicle in cars:
+    car=vehicle.vehicle_position
+    if client_map.is_road(*car[:2]) or not any(client_map.is_road(car[0]+dx,car[1]+dy)
+        for dx in range(-600,601,200) for dy in range(-600,601,200)):
+        raise ValueError('Car is not beside the road')
 auto_stacks=list(game.ground_loot.stacks.values())[1:]
-if len(auto_stacks)!=6:
-    raise ValueError('Expected three residential weapon/ammo pairs')
+if len(auto_stacks)!=16:
+    raise ValueError('Expected eight residential weapon/ammo pairs')
 if any(not any(abs(stack.position[2]-(round(door[2])+10))<1 and
-               50<math.hypot(stack.position[0]-door[0],stack.position[1]-door[1])<350
+               50<math.hypot(stack.position[0]-door[0],stack.position[1]-door[1])<550
                for door in client_map.doors) for stack in auto_stacks):
     raise ValueError('Loot is outside the authored entrance-side placement rules')
 report=dict(houses=len(client_map.houses),entrances=len(client_map.doors),messages=len(packets),
             player_height_error_cm=client_map.height_at(47562,187323)-10691,
-            car=car,peer=next(iter(bots.actors.values()))['position'],passed=True,
+            cars=[car.vehicle_position for car in cars],peer=next(iter(bots.actors.values()))['position'],passed=True,
             limitation='Private map/DTO checks only; indoor visuals, parking and peer rendering still need live acceptance')
 (ROOT/'private/client-map/population-validation.json').write_text(json.dumps(report,indent=2))
 print(json.dumps(report))

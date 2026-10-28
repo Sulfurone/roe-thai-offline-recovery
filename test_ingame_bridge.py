@@ -4,9 +4,29 @@ import unittest
 
 from ingame_bridge import IngameMailbox, IngameInstallation
 from offline_control import ControlHub
+from ingame_client import MailboxClient,nearby_hint
 
 
 class IngameBridgeTests(unittest.TestCase):
+    def test_locations_survive_mailbox_and_nearest_vehicle_changes_after_walking(self):
+        with tempfile.TemporaryDirectory() as folder:
+            mailbox=IngameMailbox(folder)
+            hub=ControlHub()
+            hub.update(connected=True,ready=True,position=[10000,20000,7000],
+                       vehicles=[{'position':[12000,20000,7100]},{'position':[14000,20000,7100]}],
+                       peers=[{'position':[10000,21000,7000]}])
+            mailbox.publish(hub.snapshot())
+            client=MailboxClient(mailbox.directory)
+            first=nearby_hint(client.state(),'vehicles','路边车辆')
+            self.assertIn('2 辆，最近约 20 米',first)
+            self.assertIn('X 120.0',first)
+            hub.update(position=[15000,20000,7000])
+            mailbox.publish(hub.snapshot())
+            second=nearby_hint(client.state(),'vehicles','路边车辆')
+            self.assertIn('最近约 10 米',second)
+            self.assertIn('X 140.0',second)
+            self.assertIn('位置暂不可用',nearby_hint({'position':'1,2,3','vehicles':'bad'},'vehicles','车'))
+
     def test_partial_authenticated_command_and_replay(self):
         with tempfile.TemporaryDirectory() as folder:
             mailbox = IngameMailbox(Path(folder) / 'private')

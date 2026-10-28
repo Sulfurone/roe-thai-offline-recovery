@@ -93,7 +93,7 @@ class ControlActionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             session.execute({'action': 'weapon', 'template': 10201})
         game.seated = False
-        for _ in range(8):
+        for _ in range(16):
             session.execute({'action': 'vehicle'})
         with self.assertRaises(ValueError):
             session.execute({'action': 'vehicle'})

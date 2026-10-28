@@ -6,8 +6,9 @@ from offline_inventory import Item,AMMO_TEMPLATE
 from offline_ground_loot import GroundStack
 
 
-def request(entity=0x400001,slot=0,owner=0,container=0,destination=0,automatic=1):
-    return struct.pack('>IIQBHB3iB',entity,slot,owner,container,destination,automatic,325800,271700,6488,0)
+def request(entity=0x400001,slot=0,owner=0,container=0,destination=0,automatic=1,
+            camera=(325800,271700,6488)):
+    return struct.pack('>IIQBHB3iB',entity,slot,owner,container,destination,automatic,*camera,0)
 
 
 def drop(quantity=20,owner=0,container=2,slot=0,current=1):
@@ -75,8 +76,23 @@ class GroundLootTests(unittest.TestCase):
         self.assertEqual(game.handle(0x3b63,request())[0][0],0x3b66)
         game.seated=False
         game.player_position=(0,0,6488)
-        self.assertEqual(game.handle(0x3b63,request())[0][0],0x3b66)
+        self.assertEqual(game.handle(0x3b63,request(camera=(0,0,6488)))[0][0],0x3b66)
         self.assertEqual(game.inventory.snapshot(30,1),before)
+
+    def test_live_camera_allows_nearby_pickup_without_moving_actor_or_losing_limits(self):
+        game=self.ready()
+        game.player_position=(325300,271700,6488)
+        # Synthetic stale walking keyframe, with the live camera by the item.
+        for camera in ((0,0,0),(2000000,271700,6488),(320000,271700,6638)):
+            replies=game.handle(0x3b63,request(camera=camera))
+            self.assertEqual(replies[0][0],0x3b66)
+            self.assertEqual(game.ground_loot.last_rejection['reason'],'distance')
+            self.assertEqual(game.reserve,120)
+        replies=game.handle(0x3b63,request(camera=(325800,271700,6638)))
+        self.assertEqual([m for m,_ in replies],[0x3e82,0x82b,0x3b64])
+        self.assertEqual(game.reserve,180)
+        self.assertEqual(game.player_position,(325300,271700,6488))
+        self.assertIsNone(game.ground_loot.last_rejection)
 
     def test_actual_client_zero_quantity_drops_the_whole_item(self):
         game=self.ready()

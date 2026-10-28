@@ -125,14 +125,18 @@ for auto in (1,0):
     if auto==0 and values[2:5]!=(0x0001000000000100,2,7):
         raise ValueError('Original explicit destination fields differ')
     game=OfflineGameplay(inventory_enabled=True,ground_loot_enabled=True,actor_uid=0x0001000000000100)
-    game.handle(0x2a,struct.pack('>I3i',1,325800,271700,6488))
+    # The original request carries the live camera, independently of an older
+    # walking keyframe. This exercises the previously rejected 650 cm case.
+    game.handle(0x2a,struct.pack('>I3i',1,325300,271700,6488))
     replies=game.handle(0x3b63,body)
-    if game.reserve!=180 or game.ground_loot.stacks or [m for m,_ in replies]!=[0x3e82,0x82b,0x3b64]:
+    if (game.reserve!=180 or game.ground_loot.stacks or game.player_position!=(325300,271700,6488)
+            or [m for m,_ in replies]!=[0x3e82,0x82b,0x3b64]):
         raise ValueError('Server does not accept original pickup request')
     report['cases'].append({'automatic':auto,'wire_body_hex':body.hex(),
                             'native_bytes':len(native),'wire_bytes':len(body),
                             'server_reserve':game.reserve,**check})
 report['ui_wait_flags']=ui_wait
+report['stale_actor_live_camera_pickup']=True
 report['limitation']='Synthetic model/UI accessors and message sink; no live input, proximity or graphics proof'
 OUT.mkdir(parents=True,exist_ok=True)
 (OUT/'native-ground-pickup-validation.json').write_text(json.dumps(report,indent=2),encoding='utf-8')

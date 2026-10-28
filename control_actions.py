@@ -6,7 +6,7 @@ import random
 
 from offline_control import WEATHER_NAMES, WEAPON_NAMES, validate_command
 from offline_environment import environment_weather
-from offline_gameplay import OfflineGameplay, TYPED_VEHICLE_UID
+from offline_gameplay import OfflineGameplay, TYPED_VEHICLE_UID, TYPED_ACTOR_UID
 from offline_ground_loot import MAX_GROUND_STACKS
 from offline_inventory import Item
 from offline_weapons import WEAPONS
@@ -37,6 +37,7 @@ class ControlSession:
         self.gameplay = gameplay
         self.vehicle_template = vehicle_template
         self.vehicles = {}
+        self.peer_positions = {}
         self.active_vehicle = None
         self.weather_id = None
         self.placement_map = None
@@ -54,7 +55,9 @@ class ControlSession:
                     weapons_enabled=bool(game and game.ground_loot),
                     vehicles_enabled=bool(game and self.vehicle_template),
                     vehicles=[dict(uid=str(uid), name='吉普车', position=list(car.vehicle_position),
-                                   seated=car.seated) for uid, car in self.vehicles.items()])
+                                   seated=car.seated) for uid, car in self.vehicles.items()],
+                    peers=[dict(name=f'OfflineBot{uid-TYPED_ACTOR_UID-0x1000+1}',position=list(actor['position']))
+                           for uid,actor in self.peer_positions.items()])
 
     def execute(self, command):
         command = validate_command({k: v for k, v in command.items() if k != 'id'})
@@ -114,8 +117,8 @@ class ControlSession:
         game = self.gameplay
         if self.vehicle_template is None:
             raise ValueError('此入口未提供吉普车样本')
-        if len(self.vehicles) >= 8:
-            raise ValueError('本轮最多刷新 8 辆吉普车')
+        if len(self.vehicles) >= 16:
+            raise ValueError('本轮最多刷新 16 辆吉普车')
         uid = TYPED_VEHICLE_UID + 0x1000 + len(self.vehicles)
         body = vehicle_spawn(self.vehicle_template, uid, position)
         car = OfflineGameplay(actor_uid=game.actor_uid, vehicle_uid=uid, initialize_vehicle=True)
