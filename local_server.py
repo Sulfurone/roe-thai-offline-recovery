@@ -561,6 +561,10 @@ def main():
                     extra_items=args.world_extra_items) if args.world_populate else None
                 ai=BotAI(gameplay,bots,population,bot_visibility) if args.world_bot_ai else None
                 blast=BlastCombat(gameplay,bots,bot_visibility) if args.world_throwable_combat else None
+                if bot_visibility is not None and bot_visibility.doors is not None:
+                    bot_visibility.doors.states=gameplay.doors.states
+                    emit('world_door_collision_ready',doors=len(bot_visibility.doors.items),
+                         unmatched=bot_visibility.doors.fallback,scope='Local door rotation candidate; destructible glass pending')
                 if bot_visibility is not None and bot_visibility.assets is not None:
                     emit('world_collision_ready',**bot_visibility.assets.summary,
                          scope='Owned source primitives; unmatched shapes use conservative bounds; dynamic doors pending')

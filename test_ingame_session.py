@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import local_server
@@ -21,6 +22,7 @@ from test_medicine import request as medicine_request
 from test_hit_reports import hit_body
 from test_collision_assets import collision_xml,sfc
 from offline_collision_assets import sfc_path_key
+from offline_visibility import StaticVisibility
 from test_offline_motion import move_body, plane_body
 from test_control_panel import jeep_template
 from offline_bots import POSITION_MARKER,BotRoster
@@ -123,6 +125,16 @@ class IngameSessionTests(unittest.TestCase):
                         'mRotateX="0" mRotateY="0" mRotateZ="0" mScale="1" '
                         'mBoundingX="10000" mBoundingY="10000" mBoundingZ="6600" mBoundingRadius="200"/></r>')
                     argv.extend(['--world-collision-archives',str(archive)])
+                    entity=root/'ENTITYSTATUSINPXSCENE.XML'
+                    entity.write_text('<r ObjName="x.eu_killzone_2048.ClientTable.EntityStatusInPxScene">'
+                        '<mTable mID="67" mEntityFullName="data.world.EU_KillZone_2048.Own_door_mesh123a" '
+                        'mPosX="0" mPosY="0" mPosZ="7000" mRotateX="0" mRotateY="0" mRotateZ="0" mScale="1">'
+                        '<mSwitcherStatus mType="EStatus_REVERSIBLE" mSwitcherType="ESwitcher_DOOR" mStatus="0">'
+                        '<mDoorRelativeZRotation ArrayCount="3"><mDoorRelativeZRotation v="0"/>'
+                        '<mDoorRelativeZRotation v="-1.68"/><mDoorRelativeZRotation v="1.68"/>'
+                        '</mDoorRelativeZRotation></mSwitcherStatus></mTable></r>')
+                    door_path='Data/Scene/general/building/Own_door_collision.xml'
+                    (archive/'Own_door.sfc').write_bytes(sfc(collision_xml(),sfc_path_key(door_path)))
             if interface == '--ingame-overlay':
                 world = root / 'world.bin'
                 original_world = struct.pack('>III', 0, 1, 0) + bytes(18)
@@ -149,6 +161,9 @@ class IngameSessionTests(unittest.TestCase):
             games=[]
             combats=[]
             ais=[]
+            views=[]
+            def construct_visibility(*args):
+                result=StaticVisibility.from_scene(*args);views.append(result);return result
             def construct_ai(*args):
                 result=BotAI(*args)
                 result.WARMUP=result.EQUIP_DELAY=0
@@ -173,6 +188,7 @@ class IngameSessionTests(unittest.TestCase):
                     (patch.object(local_server,'OfflineGameplay',side_effect=construct_game) if throws or medicine or hit_reports or combat else contextlib.nullcontext()), \
                     (patch.object(local_server,'BotCombat',side_effect=construct_combat) if combat else contextlib.nullcontext()), \
                     (patch.object(local_server,'BotAI',side_effect=construct_ai) if ai else contextlib.nullcontext()), \
+                    (patch.object(local_server,'StaticVisibility',SimpleNamespace(from_scene=construct_visibility)) if collision else contextlib.nullcontext()), \
                     (patch.object(BotRoster,'tick',return_value=[]) if combat else contextlib.nullcontext()), \
                     patch.object(local_server, 'ControlServer', side_effect=AssertionError('Native mode must not start HTTP')), \
                     patch.object(local_server, 'OverlayProcess', return_value=contextlib.nullcontext()) as overlay, \
@@ -276,6 +292,17 @@ class IngameSessionTests(unittest.TestCase):
                         clock_time = struct.unpack_from('>I', clock_body, 4)[0]
                         self.assertLess(abs(clock_time - world_time), 3)
                     if population:
+                        if collision:
+                            geometry=views[0].doors
+                            self.assertIs(geometry.states,games[0].doors.states)
+                            ray=((0,-150,7000),(0,150,7000))
+                            self.assertFalse(geometry.blocks(*ray))
+                            send(0x6f57,struct.pack('>II',67,1))
+                            self.assertEqual(receive(),(0x6f55,struct.pack('>5I',67,1,1,0,0)))
+                            self.assertTrue(geometry.blocks(*ray))
+                            send(0x6f57,struct.pack('>II',67,0))
+                            self.assertEqual(receive(),(0x6f55,struct.pack('>5I',67,0,1,0,0)))
+                            self.assertFalse(geometry.blocks(*ray))
                         send(0x6f57, struct.pack('>II', 17415, 1))
                         self.assertEqual(receive(), (0x6f55, struct.pack('>5I', 17415, 1, 1, 0, 0)))
                         send(0xbe6, struct.pack('>IIQ', 2, 1, bot_uid))
@@ -456,7 +483,9 @@ class IngameSessionTests(unittest.TestCase):
                 self.assertEqual([(r['target_uid'],r['current']) for r in hits],[(256,0)])
                 if collision:
                     ready=[r for r in rows if r.get('event')=='world_collision_ready']
-                    self.assertEqual([(r['models'],r['shapes'],r['fallback_models']) for r in ready],[(1,2,0)])
+                    self.assertEqual([(r['models'],r['shapes'],r['fallback_models']) for r in ready],[(2,4,0)])
+                    doors=[r for r in rows if r.get('event')=='world_door_collision_ready']
+                    self.assertEqual([(r['doors'],r['unmatched']) for r in doors],[(1,0)])
             if combat and not ai:
                 rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
                 changes=[r for r in rows if r.get('event')=='bot_combat']

@@ -10,6 +10,7 @@ class StaticVisibility:
         self.terrain=terrain
         self.instances=instances or {}
         self.assets=assets
+        self.doors=None
         self.bounds=tuple(dict.fromkeys(tuple(row) for row in bounds))
         self.grid={}
         if len(self.bounds)>100000:raise ValueError('Too many static bounds')
@@ -42,9 +43,19 @@ class StaticVisibility:
                 if instance not in entries:entries.append(instance)
         if not bounds:raise ValueError('Static scene has no occlusion bounds')
         assets=CollisionAssets(archives) if archives is not None else None
+        doors=[]
+        entity_path=Path(path).with_name('ENTITYSTATUSINPXSCENE.XML')
         if assets is not None:
-            assets.prepare(i.path for rows in instances.values() for i in rows if i is not None)
-        return cls(terrain,bounds,instances,assets)
+            if entity_path.is_file():
+                from offline_dynamic_doors import read_doors
+                doors=read_doors(entity_path)
+            assets.prepare([i.path for rows in instances.values() for i in rows if i is not None]
+                           +[door.instance.path for door in doors])
+        result=cls(terrain,bounds,instances,assets)
+        if doors:
+            from offline_dynamic_doors import DynamicDoors
+            result.doors=DynamicDoors(doors,assets)
+        return result
 
     def candidates(self,start,end,padding=0):
         result=set()
@@ -72,6 +83,7 @@ class StaticVisibility:
         if (len(start)!=3 or len(end)!=3 or not 0<=padding<=100
                 or any(not math.isfinite(v) or abs(v)>=2000000 for v in (*start,*end))
                 or math.dist(start,end)>100000):return False
+        if self.doors is not None and self.doors.blocks(start,end,padding,mode):return False
         for bound in self.candidates(start,end,padding):
             x,y,z,radius=bound
             if self.distance_to_segment((x,y,z),start,end)>radius+padding:continue
