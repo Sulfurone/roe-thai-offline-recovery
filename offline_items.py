@@ -17,18 +17,20 @@ class ExtraSpec:
     part_index:int=0
     extra_weight:int=0
     durability:int=0
+    defense:int=0
+    head_defense:int=0
 
 
 EXTRA_ITEMS={
     70001:ExtraSpec(7,'绷带',20),
     70002:ExtraSpec(7,'急救包',20),
     70003:ExtraSpec(7,'医疗箱',20),
-    200101:ExtraSpec(20,'一级头盔',slot=10,durability=800),
-    200102:ExtraSpec(20,'二级头盔',slot=10,durability=1500),
-    200103:ExtraSpec(20,'三级头盔',slot=10,durability=2300),
-    201001:ExtraSpec(20,'一级防弹衣',slot=12,extra_weight=50,durability=2000),
-    201002:ExtraSpec(20,'二级防弹衣',slot=12,extra_weight=50,durability=2200),
-    201003:ExtraSpec(20,'三级防弹衣',slot=12,extra_weight=50,durability=2500),
+    200101:ExtraSpec(20,'一级头盔',slot=10,durability=800,head_defense=30),
+    200102:ExtraSpec(20,'二级头盔',slot=10,durability=1500,head_defense=40),
+    200103:ExtraSpec(20,'三级头盔',slot=10,durability=2300,head_defense=55),
+    201001:ExtraSpec(20,'一级防弹衣',slot=12,extra_weight=50,durability=2000,defense=30),
+    201002:ExtraSpec(20,'二级防弹衣',slot=12,extra_weight=50,durability=2200,defense=40),
+    201003:ExtraSpec(20,'三级防弹衣',slot=12,extra_weight=50,durability=2500,defense=55),
     200901:ExtraSpec(20,'一级背包',slot=11,extra_weight=150),
     200902:ExtraSpec(20,'二级背包',slot=11,extra_weight=200),
     200903:ExtraSpec(20,'三级背包',slot=11,extra_weight=250),

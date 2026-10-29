@@ -22,6 +22,8 @@ echo Motion recovery: self-read position observer, walking receipts and loaded-c
 echo Aircraft opening uses the verified west-to-east route. Use the native jump key.
 echo The menu starts compact; F6 opens it when you need it.
 echo Keep this console open while playing.
+echo Loading map collision data BEFORE the game window opens.
+echo This can take about 1 minute. Please keep this window open and wait.
 echo Streaming population: sixteen weapon/ammo pairs, four of each equipment group and three mixed roadside vehicles per region.
 set "ROE_BOT_ARGS="
 if defined ROE_EXPERIMENTAL_BOTS set ROE_BOT_ARGS=--world-bots 1 --world-bot-profile "%~dp0private\typed-gameplay\bot-basic-profile.bin"

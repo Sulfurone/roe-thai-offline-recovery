@@ -23,7 +23,10 @@ def stack_limit(item):
 def supported(item):
     base=is_weapon(item) or is_extra(item) or (item.kind==3 and item.template in AMMUNITION and 0<item.count<=MAX_AMMO)
     indices=[index for index,_ in item.parts]
-    return (base and len(indices)<=7 and len(set(indices))==len(indices)
+    spec=EXTRA_ITEMS.get(item.template)
+    condition=(item.durability is None or item.kind==20 and spec is not None and spec.durability>0
+               and type(item.durability) is int and 0<=item.durability<=spec.durability)
+    return (base and condition and len(indices)<=7 and len(set(indices))==len(indices)
             and all(type(index) is int and 0<=index<7 and not part.parts
                     and compatible(item,part,index) for index,part in item.parts))
 
@@ -35,6 +38,7 @@ class Item:
     uid: int
     count: int
     parts: tuple = ()
+    durability: int | None = None
 
     def wire(self,magazine=0):
         spec=EXTRA_ITEMS.get(self.template)
@@ -58,7 +62,8 @@ class Item:
             # the remaining, still unidentified attributes at the old zero.
             attributes=((30000 if 10401<=self.template<=10403 else 100000,0,0,0,20,
                          magazine_capacity(self),0) if weapon else (0,)*7)
-            extra=struct.pack('>9I',spec.durability if self.kind==20 and spec else 0,
+            condition=(self.durability if self.durability is not None else spec.durability) if self.kind==20 and spec else 0
+            extra=struct.pack('>9I',condition,
                               *attributes,len(rows))
             extra+=b''.join(struct.pack('>3I',*row) for row in rows)+bytes(4)
         elif wire_kind==2:
@@ -79,14 +84,17 @@ def item_fields(item):
     row=dict(kind=item.kind,template=item.template,uid=item.uid,count=item.count)
     if item.parts:
         row['parts']=[dict(index=index,**item_fields(part)) for index,part in sorted(item.parts)]
+    if item.durability is not None:row['durability']=item.durability
     return row
 
 
 def read_item(row,nested=False):
     fields={'kind','template','uid','count'}
-    if (not isinstance(row,dict) or set(row) not in (fields,fields|{'parts'})
+    if (not isinstance(row,dict) or not fields<=set(row)<=fields|{'parts','durability'}
             or any(type(row[k]) is not int for k in fields)):
         raise ValueError('Unknown offline item schema')
+    if 'durability' in row and type(row['durability']) is not int:
+        raise ValueError('Invalid item durability field')
     parts=row.get('parts',[])
     if nested and parts or not isinstance(parts,list) or len(parts)>7:
         raise ValueError('Invalid nested offline parts')
@@ -95,7 +103,7 @@ def read_item(row,nested=False):
         if not isinstance(part,dict) or set(part)!=fields|{'index'} or type(part['index']) is not int:
             raise ValueError('Unknown installed part schema')
         decoded.append((part['index'],read_item({k:part[k] for k in fields},True)))
-    item=Item(*(row[k] for k in ('kind','template','uid','count')),tuple(decoded))
+    item=Item(*(row[k] for k in ('kind','template','uid','count')),tuple(decoded),row.get('durability'))
     if not supported(item):
         raise ValueError('Unsupported offline item or installed part')
     return item
@@ -345,8 +353,8 @@ class OfflineInventory:
         inventory.next_uid=data['next_uid']
         uids=set()
         for row in data['items']:
-            if not isinstance(row,dict) or set(row) not in ({'container','slot','kind','template','uid','count'},
-                                                           {'container','slot','kind','template','uid','count','parts'}):
+            required={'container','slot','kind','template','uid','count'}
+            if not isinstance(row,dict) or not required<=set(row)<=required|{'parts','durability'}:
                 raise ValueError('Unknown offline item schema')
             if any(type(row[k]) is not int for k in ('container','slot')):
                 raise ValueError('Offline item fields must be integers')

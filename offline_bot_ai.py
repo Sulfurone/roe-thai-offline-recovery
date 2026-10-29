@@ -11,6 +11,7 @@ import time
 from offline_bots import peer_motion
 from offline_combat import death_packet,hit_feedback
 from offline_peer_messages import peer_equipment,peer_fire
+from offline_armour import absorb_bullet,local_region
 
 
 @dataclass
@@ -71,14 +72,27 @@ class BotAI:
 
     def damage_player(self,uid,impact):
         g=self.game
-        applied=g.vitals.damage(self.DAMAGE)
+        if not g.vitals.current:return []
+        region=local_region(impact,g.player_position)
+        previous=dict(g.inventory.items) if g.inventory is not None else None
+        armour=absorb_bullet(g.inventory,self.DAMAGE,region)
+        if armour.absorbed:
+            try:g.save_state()
+            except (OSError,ValueError):
+                g.inventory.items=previous
+                raise
+        applied=g.vitals.damage(armour.damage)
         if not applied:return []
-        replies=[g.vitals.packet(g.actor_uid),hit_feedback(uid,g.actor_uid,
+        replies=([g.inventory.delta([(1,armour.slot)])] if armour.absorbed else [])
+        replies.extend([g.vitals.packet(g.actor_uid),hit_feedback(uid,g.actor_uid,
             tuple(round(v-p) for v,p in zip(impact,g.player_position)),2,applied,not g.vitals.current)]
+        )
         if not g.vitals.current:
             g.medicine.pending=None
             replies.append(death_packet(g.actor_uid))
         self.events.append(dict(action='player_hit',shooter_uid=uid,damage=applied,
+                                local_region=region,armour_absorbed=armour.absorbed,
+                                armour_uid=armour.uid,armour_remaining=armour.after,
                                 current=g.vitals.current,original_damage_formula=False))
         return replies
 
@@ -141,9 +155,9 @@ class BotAI:
                 continue
             point=actor['position']
             origin=(point[0],point[1],point[2]+150)
-            # Low torso/leg target avoids inventing a headshot or assuming a
-            # standing head height. Exact pose-dependent capsules are pending.
-            target=(*g.player_position[:2],g.player_position[2]+35)
+            # Local torso aim, consistent with the coarse body capsule and
+            # armour region. Exact pose-dependent bones remain pending.
+            target=(*g.player_position[:2],g.player_position[2]+90)
             distance=math.dist(point,g.player_position)
             sight=getattr(self.visibility,'sight_clear',self.visibility.clear)
             visible=distance<=self.DETECT_DISTANCE and sight(origin,target)
