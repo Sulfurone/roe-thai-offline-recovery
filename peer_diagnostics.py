@@ -10,6 +10,8 @@ from self_position import SAMPLE
 
 HEADER = struct.Struct('<8s32s7I')
 ROW = struct.Struct('<9I3f')
+VISUAL_HEADER=struct.Struct('<8s32s3I')
+VISUAL_ROW=struct.Struct('<10I')
 STATUS = {0: 'position_ready', 1: 'scene_unavailable', 2: 'actor_absent',
           3: 'actor_without_position', 4: 'lookup_unavailable', 5: 'actor_removed'}
 
@@ -58,8 +60,42 @@ def read_peers(position_path, *, now=None):
     return decode_peers(path.read_bytes(), position[1], position[2])
 
 
+def decode_visuals(raw,token,pid):
+    if len(raw)!=VISUAL_HEADER.size+5*VISUAL_ROW.size:raise ValueError('Visual snapshot size differs')
+    magic,actual_token,actual_pid,sequence,count=VISUAL_HEADER.unpack_from(raw)
+    if (magic!=b'ROEVIS2\0' or actual_token!=token or actual_pid!=pid or count!=5):
+        raise ValueError('Visual snapshot identity differs')
+    rows=[]
+    for index in range(count):
+        low,high,status,actor,mask,visual,vtable,secondary,gates,nested=VISUAL_ROW.unpack_from(raw,VISUAL_HEADER.size+index*VISUAL_ROW.size)
+        if (low,high)!=(0x10ff+index if index else 0x100,0x10000) or status not in (0,1,2):
+            raise ValueError('Visual snapshot row differs')
+        if status==0 and (not actor or secondary>255 or gates>0xffffff or visual and not vtable):
+            raise ValueError('Visual snapshot ready fields differ')
+        rows.append(dict(uid=hex((high<<32)|low),status=('fields_ready','actor_absent','read_unavailable')[status],
+                         actor=hex(actor),display_mask=hex(mask) if status==0 else None,
+                         visual=hex(visual),visual_vtable=hex(vtable),
+                         secondary_gate=secondary if status==0 else None,
+                         appearance_gates=[(gates>>(i*8))&255 for i in range(3)] if status==0 and visual else None,
+                         nested=hex(nested)))
+    return dict(pid=pid,sequence=sequence,actors=rows,
+                limitation='Appearance object and raw display mask do not prove rendered model, pixels or visibility')
+
+
+def read_visuals(position_path,*,now=None):
+    position_path=Path(position_path);path=position_path.with_name(position_path.name+'.visuals')
+    now=time.time() if now is None else now
+    for current,size in ((position_path,SAMPLE.size),(path,VISUAL_HEADER.size+5*VISUAL_ROW.size)):
+        info=current.stat()
+        if info.st_size!=size or not -1<=now-info.st_mtime<=3:raise ValueError('Visual/position sample stale or wrong size')
+    position=SAMPLE.unpack(position_path.read_bytes())
+    if position[0]!=b'ROEPOS1\0':raise ValueError('Position format differs')
+    return decode_visuals(path.read_bytes(),position[1],position[2])
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('position_sample', type=Path)
+    parser.add_argument('--visuals',action='store_true')
     args = parser.parse_args()
-    print(json.dumps(read_peers(args.position_sample), ensure_ascii=False))
+    print(json.dumps((read_visuals if args.visuals else read_peers)(args.position_sample), ensure_ascii=False))

@@ -98,6 +98,20 @@ void WINAPI TestEntry(void) {
     health_fixture[0x7ec]=0;
     player_health(fn-0x2aedc7c,&peers);
     expect(peers.hp_status==3 && peers.current==0 && peers.maximum==0);
+    VisualRow visual;clear_bytes(&visual,sizeof(visual));
+    visual_row(0,fn,&visual);expect(visual.status==1);
+    value=0xfffffffd;copy_bytes(health_fixture+0x340,&value,4);
+    value=(uint32_t)fixture;copy_bytes(health_fixture+0x104,&value,4);
+    value=(uint32_t)(fixture+256);copy_bytes(fixture,&value,4);health_fixture[0x11a]=1;
+    uint32_t target=fn+0x8f1330;copy_bytes(fixture+256+0xb0,&target,4);
+    target=fn+0x90d2b0;copy_bytes(fixture+256+0x1c4,&target,4);
+    fixture[0xc]=1;fixture[0xd]=1;fixture[0xe]=1;
+    target=(uint32_t)health_fixture;copy_bytes(fixture+0x828,&target,4);
+    visual_row((uint32_t)health_fixture,fn,&visual);
+    expect(visual.status==0 && visual.display_mask==0xfffffffd &&
+           visual.visual==(uint32_t)fixture && visual.visual_vtable==value && visual.secondary_gate==1 &&
+           visual.gates==0x010101 && visual.nested==(uint32_t)health_fixture);
+    visual_row(1,fn,&visual);expect(visual.status==2);
     DWORD written;
     const char text[]="SELF_POSITION_ACCESSOR_TESTS_PASS\n";
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,sizeof(text)-1,&written,NULL);

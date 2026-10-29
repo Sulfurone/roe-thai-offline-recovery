@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from peer_diagnostics import HEADER, ROW, decode_peers, read_peers
+from peer_diagnostics import HEADER, ROW, decode_peers, read_peers,VISUAL_HEADER,VISUAL_ROW,decode_visuals,read_visuals
 from self_position import SAMPLE
 
 
@@ -39,6 +39,25 @@ class PeerDiagnosticsTests(unittest.TestCase):
             stamp = position.stat().st_mtime
             self.assertEqual(read_peers(position, now=stamp)['pid'], 123)
             with self.assertRaises(ValueError): read_peers(position, now=stamp+4)
+
+    def test_visual_fields_are_session_bound_and_never_claim_model_rendering(self):
+        raw=VISUAL_HEADER.pack(b'ROEVIS2\0',b'a'*32,123,91,5)+b''.join(
+            VISUAL_ROW.pack(0x10ff+i if i else 0x100,0x10000,0 if i<2 else 1,
+                            0x10800000 if i<2 else 0,0xfffffffd,0x10801000,0x25a1234,0,0x010101,0) for i in range(5))
+        result=decode_visuals(raw,b'a'*32,123)
+        self.assertEqual(result['actors'][1]['display_mask'],'0xfffffffd')
+        self.assertIn('do not prove',result['limitation'])
+        for offset,value in ((VISUAL_HEADER.size,7),(VISUAL_HEADER.size+8,3),(VISUAL_HEADER.size+28,256)):
+            broken=bytearray(raw);broken[offset:offset+4]=value.to_bytes(4,'little')
+            with self.assertRaises(ValueError):decode_visuals(broken,b'a'*32,123)
+        with self.assertRaises(ValueError):decode_visuals(raw,b'b'*32,123)
+        with tempfile.TemporaryDirectory() as folder:
+            position=Path(folder)/'position.bin'
+            position.write_bytes(SAMPLE.pack(b'ROEPOS1\0',b'a'*32,123,101,0,1,2,1.,2.,3.,bytes(64)))
+            position.with_name('position.bin.visuals').write_bytes(raw)
+            stamp=position.stat().st_mtime
+            self.assertEqual(read_visuals(position,now=stamp)['pid'],123)
+            with self.assertRaises(ValueError):read_visuals(position,now=stamp+4)
 
 
 if __name__ == '__main__':

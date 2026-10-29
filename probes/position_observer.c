@@ -22,10 +22,19 @@ typedef struct {
     uint32_t hp_status,current,maximum,death_tag;
     PeerRow rows[4];
 } PeerSample;
+typedef struct {
+    uint32_t low,high,status,actor,display_mask,visual,visual_vtable,secondary_gate,gates,nested;
+} VisualRow;
+typedef struct {
+    char magic[8],token[32];
+    uint32_t pid,sequence,count;
+    VisualRow rows[5];
+} VisualSample;
 #pragma pack(pop)
 _Static_assert(sizeof(void*)==4,"Build for x86");
 _Static_assert(sizeof(Sample)==136,"Position sample layout changed");
 _Static_assert(sizeof(PeerSample)==260,"Peer diagnostic layout changed");
+_Static_assert(sizeof(VisualSample)==252,"Visual diagnostic layout changed");
 
 static int self_read(uintptr_t address,void *out,SIZE_T size) {
     SIZE_T read=0;
@@ -295,6 +304,28 @@ static void player_health(uintptr_t base,PeerSample *out) {
     out->hp_status=0;out->current=current;out->maximum=maximum;out->death_tag=death;
 }
 
+/* 10F3630 writes interface+330 == actor+340; 10F3690 consumes that
+ * mask, actor+11A and the actor+104 appearance object. No virtual calls. */
+static void visual_row(uint32_t actor,uintptr_t base,VisualRow *row) {
+    row->actor=actor;row->status=1;
+    if(!actor)return;
+    unsigned char hidden=0;
+    row->status=2;
+    if(!self_read(actor+0x340,&row->display_mask,4) ||
+       !self_read(actor+0x104,&row->visual,4) || !self_read(actor+0x11a,&hidden,1))return;
+    row->secondary_gate=hidden;
+    if(row->visual && !self_read(row->visual,&row->visual_vtable,4))return;
+    if(row->visual) {
+        uint32_t aggregate=0,has_nested=0;
+        unsigned char flags[3];
+        if(!self_read(row->visual_vtable+0xb0,&aggregate,4) || aggregate!=base+0x8f1330 ||
+           !self_read(row->visual_vtable+0x1c4,&has_nested,4) || has_nested!=base+0x90d2b0 ||
+           !self_read(row->visual+0xc,flags,3) || !self_read(row->visual+0x828,&row->nested,4))return;
+        row->gates=(uint32_t)flags[0]|((uint32_t)flags[1]<<8)|((uint32_t)flags[2]<<16);
+    }
+    row->status=0;
+}
+
 static void write_atomic(const wchar_t *output,const wchar_t *temporary,const void *data,DWORD size) {
     HANDLE file=CreateFileW(temporary,GENERIC_WRITE,0,NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);
     if(file!=INVALID_HANDLE_VALUE) {
@@ -309,6 +340,7 @@ typedef struct {char magic[8],token[32];wchar_t expected[1024],output[1024];} Co
 static DWORD WINAPI observe(void *module) {
     static wchar_t expected[1024],actual[1024],output[1024],temporary[1040];
     static wchar_t peer_output[1040],peer_temporary[1040];
+    static wchar_t visual_output[1040],visual_temporary[1040];
     static wchar_t config_path[1024],original_path[1024];
     DWORD module_len=GetModuleFileNameW((HMODULE)module,config_path,1024);
     if(!module_len || module_len>=980)return 0;
@@ -332,6 +364,8 @@ static DWORD WINAPI observe(void *module) {
     lstrcpyW(temporary,output);lstrcatW(temporary,L".tmp");
     lstrcpyW(peer_output,output);lstrcatW(peer_output,L".peers");
     lstrcpyW(peer_temporary,peer_output);lstrcatW(peer_temporary,L".tmp");
+    lstrcpyW(visual_output,output);lstrcatW(visual_output,L".visuals");
+    lstrcpyW(visual_temporary,visual_output);lstrcatW(visual_temporary,L".tmp");
     uintptr_t base=(uintptr_t)GetModuleHandleW(NULL);
     unsigned char dos[2];
     if(base!=0x400000 || !self_read(base,dos,2) || dos[0]!='M' || dos[1]!='Z')return 0;
@@ -342,6 +376,9 @@ static DWORD WINAPI observe(void *module) {
     PeerSample peers;clear_bytes(&peers,sizeof(peers));
     copy_bytes(peers.magic,"ROEPEER2",8);copy_bytes(peers.token,config.token,32);
     peers.pid=sample.pid;peers.count=4;
+    VisualSample visuals;clear_bytes(&visuals,sizeof(visuals));
+    copy_bytes(visuals.magic,"ROEVIS2",7);copy_bytes(visuals.token,config.token,32);
+    visuals.pid=sample.pid;visuals.count=5;
     for(;;) {
         uint32_t manager=0,actor=0,vt=0,getter=0;
         sample.sequence++;sample.status=1;sample.actor=sample.getter=0;
@@ -364,6 +401,13 @@ static DWORD WINAPI observe(void *module) {
         if(sample.sequence%10==1) {
             peers.sequence=sample.sequence;peer_rows(manager,base,&peers);player_health(base,&peers);
             write_atomic(peer_output,peer_temporary,&peers,sizeof(peers));
+            visuals.sequence=sample.sequence;
+            for(unsigned i=0;i<5;i++) {
+                VisualRow *row=visuals.rows+i;clear_bytes(row,sizeof(*row));
+                row->low=i?0x10ff+i:0x100;row->high=0x10000;
+                visual_row(i?peers.rows[i-1].actor:actor,base,row);
+            }
+            write_atomic(visual_output,visual_temporary,&visuals,sizeof(visuals));
         }
         Sleep(100);
     }

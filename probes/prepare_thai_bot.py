@@ -32,9 +32,10 @@ for offset, data in components:
 # A unique marker lets the runtime replace its exact wire coordinates.
 struct.pack_into('<3i',native,0x48+0x107c,123456,234567,34567)
 # Original 1281F30 +228C sets interface flag 2 when this signed byte is
-# nonpositive. Zero-filled profiles therefore request the hidden state.
-# This is a display-state fix; it is not a claim of combat/health recovery.
-native[0x48+0x106a]=1
+# nonpositive. A true flag keeps mask FFFFFFFF and appearance gate +C=1;
+# the old positive candidate cleared the flag and closed the aggregate gate.
+# Confirmed by original setters/getters; actual pixels still require validation.
+native[0x48+0x106a]=0
 native[0x48+0x4b74:0x48+0x4b74+0x50c]=runtime_common
 code, body = codec.pack_type(0xdc5790, bytes(native))
 decoded = codec.decode_server(0xbe7, body)

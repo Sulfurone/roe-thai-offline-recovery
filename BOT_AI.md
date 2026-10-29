@@ -58,3 +58,21 @@ python probes/validate_bot_ai_map.py
 固定种子v18进一步拿到**真实客户端属性消费证据**：51条HP样本覆盖1000、980直到0；50次下降全部与当前连接的50次`player_hit`在3秒内对应。客户端最终当前/最大HP为0/1000，原始死亡标记从DA变为原533消费分支设置的DC。仍不代表模型/枪火可见、HUD/死亡动画/界面、原版伤害平衡或完整吃鸡对局已验收。实机日志、角色地址及原资源保持私有，公开只记录方法和限度。
 
 门旋转候选现把2374扇匹配资源的门按本地确认状态参与射线/步行筛查，保留打开后门板；原生动画轴、残片与玻璃破坏未验收，见COLLISION.md后续节。
+
+## 2026-10-29 显示开关方向纠正
+
+旧文把资料native+106A=1解释成解除隐藏，这个解释已被后续原函数证据否定。该值为正时，1281F30调用接口flag(2,0)；10F3630清除actor+340掩码的位2，FFFFFFFF变为FFFFFFFD。10F3690随后向actor+104外观对象的虚表AC传入0。实机v20的机器人恰为FFFFFFFD，本角色为FFFFFFFF，二者都有相同类的外观对象。
+
+新`validate_peer_display_mask.py`除记录虚表调用外，还执行原D08BB0写标志、CF1300读取和CF1330三路合取。旧positive候选造成外观+C/D/E=[0,1,1]、aggregate=0；106A=0对应flag(2,1)，保留FFFFFFFF，得到[1,1,1]、aggregate=1。模型更新通知为隔离边界，没有执行渲染器。生成器现设0，并重新生成本机私有bot-basic-profile.bin；旧资料须重新生成。
+
+`prepare_thai_bot.py`和已有profile回调探针现在同时验证此新值，缺失角色构造路径应传flag(2,1)。这修正了一个实际显示门控方向错误，但仍不能把原函数验证当成真实像素、外观资源、持枪/动作或完整机器人验收。
+
+v20仅为修正前基线：真实场景/身体/外观对象已就绪，客户端记录到机器人FFFFFFFD。本轮窗口截图两次超时（FrameArrived、window capture），未得到新画面；服务已按240秒结束。修正后的原函数和资料已准备，尚未重新进图验收。
+
+```powershell
+python probes/prepare_thai_bot.py
+python probes/validate_peer_visibility.py
+python probes/validate_peer_display_mask.py
+```
+
+后续实机v21（修正后同一固定种子）连续10个新鲜ROEVIS2样本：机器人显示掩码FFFFFFFF，外观+C/D/E为[1,1,1]，与本角色一致；场景/身体及1000/1000生命状态就绪。与v20旧资料FFFFFFFD对照，确认修正被真实客户端消费。新窗口截图仍window capture timeout，模型像素/枪火/动作仍未验收。

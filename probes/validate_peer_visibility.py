@@ -93,6 +93,7 @@ body=(ROOT/'private/typed-gameplay/bot-basic-profile.bin').read_bytes()
 result=c.decode_server(0xbe7,body)
 if result['code'] or result['consumed']!=result['bytes']:raise ValueError(result)
 basic=bytearray(c.uc.mem_read(c.ROOT_OBJECT+10+0x48,0x4b74))
+if basic[0x106a]!=0:raise ValueError('Regenerate corrected peer profile: positive 106A closes the appearance gate')
 checks=[]
 for state in (0,1):
     basic[0x106a]=state
@@ -121,11 +122,11 @@ def register():
     finish(1,12)
 hook(0x344ab74,register)
 hook(0x13257f0,lambda:finish())
-basic[0x106a]=1
+basic[0x106a]=0
 c.uc.mem_write(c.OBJECT,bytes(basic))
 flags.clear()
 c.invoke(0x1281f30,0,[uid&0xffffffff,uid>>32,c.OBJECT])
-if created!=[True] or registered!=[(uid&0xffffffff,uid>>32,actor)] or flags!=[(2,0)]:
+if created!=[True] or registered!=[(uid&0xffffffff,uid>>32,actor)] or flags!=[(2,1)]:
     raise ValueError(f'Original missing-actor branch differs: {created}, {registered}, {flags}')
 report=dict(passed=True,interest_uid=hex(uid),checks=checks,
     missing_actor_factory=True,scene_registration_arguments=[list(r) for r in registered],

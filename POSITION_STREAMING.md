@@ -71,3 +71,17 @@ python probes/validate_peer_scene_lookup.py
 
 
 本机实测：v15/v16/v17都记录到远端场景对象、身体及位置；固定种子v18记录51条原生HP值（1000→0），50次扣血与真实连接命中记录对应，归零时原死亡标记变DC。该结论仅覆盖属性/场景状态，未补作画面验收。
+
+## 外观门控只读记录
+
+同一模块另写252字节`position.bin.visuals`（ROEVIS2），含会话token/PID/序号及本角色+4个固定机器人。每行40字节，保存actor+340原显示掩码、+104外观对象与虚表、+11A原门控字节；仅当原虚表B0/1C4与CF1330/D0D2B0匹配时读取外观+C/D/E三字节及+828内层对象指针。不调用虚表、不改游戏数据或页面权限。
+
+Reader核对完整长度、token、PID、固定UID、状态、原字段范围和两个文件3秒时效。状态为字段就绪/角色缺失/读取不可用。不存在外观对象时不伪造三路门控已就绪；模型存在或原开关非零仍不是画面证据。
+
+```powershell
+python peer_diagnostics.py private/self-position/SESSION/position.bin --visuals
+```
+
+原10F3630/10F3690/D08BB0/CF1300/CF1330对照详见BOT_AI.md最新纠正；先前把106A=1说成解除隐藏的解释已撤销。v20记录旧profile导致的FFFFFFFD基线，新profile0及ROEVIS2等待重启实机。C自检覆盖掩码/外观/门控读取与无效地址，公开Reader测试覆盖身份、越界及陈旧记录。
+
+实机v21已获得10条ROEVIS2字段就绪样本：机器人FFFFFFFF/[1,1,1]，与本角色一致。原生内层对象+828为0时仍有主外观对象；不把这个0误判为无模型。截图依然超时，未声明画面验收。
