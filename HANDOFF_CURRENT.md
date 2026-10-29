@@ -315,3 +315,12 @@ python probes/validate_posture_speeds.py
 自有地图SFC中MapZone/BaseArea两份精确命名DDS均为512×512且全透明、内容相同，不能从中还原危险分区。新inspect_match_regions.py只读提取/严格解析这些资源，输出留private/match-regions，不公开资源。空白也不证明原模式无分区。原模式区域、撤离及结算仍未完成，详见MATCH_STATUS.md及MATCH_ZONES.md。
 
 最终292项本地、234项无私有素材公开检查通过；原生survivor-status探针及原地图空白蒙版检查通过。本轮没有重新启动真实游戏，因此剩余人数HUD画面、机器人像素/枪火仍未验收。13:50会话已终止并恢复原DLL，最新SHA256复核8162e1d985cb3190903ca5645f40e5223d7c4fa9c7e8432eea233de14da02b37；没有运行中的Europa_Client。目标保持完整单机吃鸡，不将这些局部候选当作目标完成。
+
+
+## 落地弹窗与F6焦点修复候选（2026-10-29 16:35）
+
+用户报告落地瞬间F6程序弹出卡操作。原菜单部分入口expanded=True，首次显示focus_force；collapsed仅隐藏body仍映射窗口。现游戏模式初始化立即withdraw、统一expanded=False，关闭后withdraw，定时tick从不因ready/落地/切前台打开窗口或强制焦点。预览模式保留显示。
+
+第一轮只重启菜单，用户确认不再弹出但F6打不开；原日志有HOTKEY_RECEIVED无F6_TOGGLE。补同进程/根窗口active识别及F6_INACTIVE日志，并保留当前按键上升沿/短按低位、进入焦点先清旧状态。第二轮重载临近300秒诊断结束，未取得有效实测。32项菜单/邮箱/加密会话回归通过；最后版本真实F6、下拉及落地仍待复验，不把模拟窗口当画面确认。
+
+v22无反击诊断14:45:38 finished，旧游戏退出，收据original_restored。16:33重新启动日常白天跳伞入口，服务PID159292/批进程268392，日志handshake-20261029-163504-419568，F6邮箱session-e0h4xaww，16:35:10请求启动游戏。入口43200秒，避免短诊断自动结束误判快捷键。日志/进程仍需下次重新核对；原生机器人/配件工作暂让位于本次菜单故障。

@@ -106,10 +106,14 @@ class Windows:
         return point.x, point.y, rect.right, rect.bottom
 
     def active(self, game):
+        if not game:return False
         foreground = self.user.GetForegroundWindow()
-        ident = wt.DWORD()
-        self.user.GetWindowThreadProcessId(foreground, ctypes.byref(ident))
-        return foreground == game or ident.value == os.getpid()
+        foreground_pid,game_pid = wt.DWORD(),wt.DWORD()
+        self.user.GetWindowThreadProcessId(foreground, ctypes.byref(foreground_pid))
+        self.user.GetWindowThreadProcessId(game, ctypes.byref(game_pid))
+        return (foreground == game or self.user.GetAncestor(foreground,2)==game
+                or foreground_pid.value == os.getpid()
+                or bool(game_pid.value and foreground_pid.value==game_pid.value))
 
 
 class Hotkey:
@@ -153,6 +157,7 @@ class Overlay:
         self.win = Windows()
         self.client = MailboxClient(args.session) if args.session else None
         self.root = tk.Tk()
+        self.root.withdraw()
         self.root.title('ROE 离线控制 · F6')
         self.root.configure(bg='#151e27')
         self.root.resizable(False, False)
@@ -160,11 +165,12 @@ class Overlay:
         self.root.protocol('WM_DELETE_WINDOW', self.toggle)
         self.root.bind('<Escape>', lambda _: self.toggle())
         self.root.bind('<F6>', lambda _: self.request_toggle('tk'))
-        self.root.withdraw()
-        self.expanded, self.game, self.was_ready = True, None, False
+        # Gameplay starts with no mapped Tk window. Map readiness, landing and
+        # focus changes must never open the menu or take game keyboard focus.
+        self.expanded, self.game, self.was_ready = bool(args.preview), None, False
         self.ever_found, self.geometry = False, None
-        self.missing_since, self.first_show = None, True
-        self.f6_down, self.last_toggle = False, 0.0
+        self.missing_since = None
+        self.f6_down, self.f6_armed, self.last_toggle = False, False, 0.0
         self.parent = (self.win.kernel.OpenProcess(0x100000, False, args.parent_pid)
                        if args.parent_pid else None)
         self.buttons = []
@@ -234,7 +240,7 @@ class Overlay:
         ttk.Label(self.body, textvariable=self.result, wraplength=350, justify='left').pack(anchor='w')
         ttk.Button(self.body, text='返回游戏 · F6', command=self.toggle).pack(fill='x', pady=(12, 0))
         ttk.Label(self.shell, text='F6 展开 / 收起  ·  Esc 收起', foreground='#aab8c4').pack(anchor='w', pady=(10, 0))
-        if args.collapsed:
+        if not self.expanded:
             self.expanded = False
             self.body.pack_forget()
             self.toggle_button.configure(text='展开 · F6')
@@ -320,6 +326,7 @@ class Overlay:
                 self.root.lift()
                 self.root.focus_force()
             else:
+                self.root.withdraw()
                 self.win.user.SetForegroundWindow(self.game)
 
     def request_toggle(self, source):
@@ -329,14 +336,20 @@ class Overlay:
                 self.last_toggle = now
                 print('F6_TOGGLE ' + source, flush=True)
                 self.toggle()
+        else:
+            print(f'F6_INACTIVE source={source} game={self.game}',flush=True)
 
     def poll_f6(self):
         # Some game input modes swallow WM_HOTKEY. Observe only the dedicated
         # F6 key, without hooks, input injection, or changing the game's input.
         state = self.win.user.GetAsyncKeyState(0x75)
         down = bool(state & 0x8000)
-        if state & 1 or down and not self.f6_down:
+        # Flush old key state when entering game focus, then retain both quick
+        # taps and rising edges while that game/overlay process is foreground.
+        active=bool(self.args.preview or self.game and self.win.active(self.game))
+        if active and self.f6_armed and (state & 1 or down and not self.f6_down):
             self.request_toggle('key-state')
+        self.f6_armed=active
         self.f6_down = down
         self.root.after(40, self.poll_f6)
 
@@ -377,7 +390,7 @@ class Overlay:
                 bounds, visible = (100, 100, 600, 760), True
             else:
                 bounds = self.win.bounds(game) if game else None
-                visible = bool(game and bounds and not self.win.user.IsIconic(game) and self.win.active(game))
+                visible = bool(self.expanded and game and bounds and not self.win.user.IsIconic(game) and self.win.active(game))
             if self.dropdown_open():
                 # Keep a posted combobox's focus and geometry untouched. In
                 # particular, wm deiconify on an already visible Tk window
@@ -394,11 +407,6 @@ class Overlay:
                     self.geometry = geometry
                 if self.root.state() == 'withdrawn':
                     self.root.deiconify()
-                if self.first_show:
-                    if self.expanded:
-                        self.root.lift()
-                        self.root.focus_force()
-                    self.first_show = False
             else:
                 if self.root.state() != 'withdrawn':
                     self.root.withdraw()
@@ -429,7 +437,7 @@ def main():
     parser.add_argument('--game-pid', type=int)
     parser.add_argument('--parent-pid', type=int)
     parser.add_argument('--preview', action='store_true')
-    parser.add_argument('--collapsed', action='store_true', help='Start compact without taking the game focus')
+    parser.add_argument('--collapsed', action='store_true', help='Legacy option; gameplay menus now always start hidden')
     args = parser.parse_args()
     if sys.platform != 'win32':
         parser.error('Windows is required')

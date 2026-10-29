@@ -20,7 +20,7 @@ echo This is a native Windows overlay attached to the game window.
 echo Daytime: synchronize lobby time, then set noon after player readiness.
 echo Motion recovery: self-read position observer, walking receipts and loaded-client vehicle boarding.
 echo Aircraft opening uses the verified west-to-east route. Use the native jump key.
-echo The menu starts compact; F6 opens it when you need it.
+echo The menu starts fully hidden; press F6 to open it, and F6 or Esc to close it.
 echo Keep this console open while playing.
 echo Loading map collision data BEFORE the game window opens.
 echo This can take about 1 minute. Please keep this window open and wait.
