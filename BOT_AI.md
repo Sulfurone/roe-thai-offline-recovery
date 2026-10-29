@@ -67,7 +67,7 @@ python probes/validate_bot_ai_map.py
 
 `prepare_thai_bot.py`和已有profile回调探针现在同时验证此新值，缺失角色构造路径应传flag(2,1)。这修正了一个实际显示门控方向错误，但仍不能把原函数验证当成真实像素、外观资源、持枪/动作或完整机器人验收。
 
-v20仅为修正前基线：真实场景/身体/外观对象已就绪，客户端记录到机器人FFFFFFFD。本轮窗口截图两次超时（FrameArrived、window capture），未得到新画面；服务已按240秒结束。修正后的原函数和资料已准备，尚未重新进图验收。
+v20仅为修正前基线：真实场景/身体/外观对象已就绪，客户端记录到机器人FFFFFFFD。本轮窗口截图两次超时（FrameArrived、window capture），未得到新画面；服务已按240秒结束。该时点修正后的原函数和资料已准备、尚未重新进图；后续v21结果如下。
 
 ```powershell
 python probes/prepare_thai_bot.py

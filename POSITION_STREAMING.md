@@ -82,6 +82,6 @@ Reader核对完整长度、token、PID、固定UID、状态、原字段范围和
 python peer_diagnostics.py private/self-position/SESSION/position.bin --visuals
 ```
 
-原10F3630/10F3690/D08BB0/CF1300/CF1330对照详见BOT_AI.md最新纠正；先前把106A=1说成解除隐藏的解释已撤销。v20记录旧profile导致的FFFFFFFD基线，新profile0及ROEVIS2等待重启实机。C自检覆盖掩码/外观/门控读取与无效地址，公开Reader测试覆盖身份、越界及陈旧记录。
+原10F3630/10F3690/D08BB0/CF1300/CF1330对照详见BOT_AI.md最新纠正；先前把106A=1说成解除隐藏的解释已撤销。v20记录旧profile导致的FFFFFFFD基线，新profile0及ROEVIS2的后续v21结果见下段。C自检覆盖掩码/外观/门控读取与无效地址，公开Reader测试覆盖身份、越界及陈旧记录。
 
 实机v21已获得10条ROEVIS2字段就绪样本：机器人FFFFFFFF/[1,1,1]，与本角色一致。原生内层对象+828为0时仍有主外观对象；不把这个0误判为无模型。截图依然超时，未声明画面验收。
