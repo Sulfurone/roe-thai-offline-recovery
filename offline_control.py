@@ -24,6 +24,7 @@ WEAPON_NAMES = dict(zip(sorted(WEAPONS), (
     'USP45', 'Glock17', 'Desert Eagle')))
 AMMO_NAMES = {30001: '5.56 mm', 30002: '7.62 mm', 30003: '9 mm',
               30004: '12 号霰弹', 30005: '.45 ACP', 30006: '.50'}
+BOT_MODE_NAMES={0:'静止练习靶',1:'巡逻（不反击）',2:'对战（会反击）'}
 
 
 def integer(data, name, minimum, maximum, default=None):
@@ -37,6 +38,9 @@ def validate_command(data):
     if not isinstance(data, dict):
         raise ValueError('操作必须是 JSON 对象')
     action = data.get('action')
+    if action=='bots':
+        if set(data)-{'action','mode'}:raise ValueError('未知机器人参数')
+        return dict(action=action,mode=integer(data,'mode',0,2))
     if action == 'weather':
         if set(data) - {'action', 'weather_id', 'transition'}:
             raise ValueError('未知天气参数')
@@ -87,7 +91,7 @@ class ControlHub:
         self.events = deque(maxlen=20)
         self.state = dict(connected=False, ready=False, seated=False, position=None,
                           weather_id=None, ground_items=0, vehicles=[],
-                          weapons_enabled=False, vehicles_enabled=False)
+                          weapons_enabled=False, vehicles_enabled=False,bots_enabled=False)
 
     def update(self, **values):
         with self.lock:
@@ -113,9 +117,9 @@ class ControlHub:
         with self.lock:
             if not self.state['connected'] or not self.state['ready']:
                 raise RuntimeError('等待游戏进入地图后再操作')
-            if command['action'] != 'weather' and self.state['seated']:
+            if command['action'] not in ('weather','bots') and self.state['seated']:
                 raise RuntimeError('请先离开载具，再刷新物品')
-            capability = {'weapon': 'weapons_enabled','item':'weapons_enabled', 'vehicle': 'vehicles_enabled'}.get(command['action'])
+            capability = {'weapon': 'weapons_enabled','item':'weapons_enabled', 'vehicle': 'vehicles_enabled','bots':'bots_enabled'}.get(command['action'])
             if capability and not self.state[capability]:
                 raise RuntimeError('当前入口未启用此功能，请使用控制台专用入口')
             if len(self.pending) >= 24:

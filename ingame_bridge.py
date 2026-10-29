@@ -55,6 +55,8 @@ class IngameMailbox:
                     command=dict(action=action,template=ident,distance=distance,count=count)
                 elif action == 'vehicle':
                     command = dict(action=action, config=ident, distance=distance)
+                elif action=='bots':
+                    command=dict(action=action,mode=ident)
                 else:
                     raise ValueError('未知指令')
                 self.command_ids[hub.enqueue(command)] = seq
@@ -69,6 +71,7 @@ class IngameMailbox:
         seq, status, message = self.last_result
         message = message.replace('\n', ' ').replace('\r', ' ')[:240]
         body = f'token={self.token}\nready={int(snapshot["ready"])}\nseq={seq}\nstatus={status}\nmessage={message}\n'
+        body+='bots_enabled='+str(int(snapshot.get('bots_enabled',False)))+'\nbot_mode='+str(snapshot.get('bot_mode') or '')+'\n'
         position = snapshot.get('position')
         if position is not None:
             body += 'position=' + ','.join(map(str, position)) + '\n'

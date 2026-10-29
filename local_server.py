@@ -127,6 +127,8 @@ def main():
                         help='Experimental original HUD event for the active local roster; no victory or round result')
     parser.add_argument('--world-bot-ai',action='store_true',
                         help='Experimental local perception/chase/fire; requires explicit combat and static bounds')
+    parser.add_argument('--world-bot-mode',choices=('target','patrol','combat'),default='combat',
+                        help='Initial local bot mode; the native overlay can change it in-session')
     parser.add_argument('--world-throwable-combat',action='store_true',
                         help='Experimental native-range frag blast damage with terrain/static screening')
     parser.add_argument('--world-bot-occlusion',type=Path,
@@ -568,7 +570,7 @@ def main():
                 work_counts=dict(packets=0,population=0,control=0,position=0)
                 work_started=time.monotonic()
                 max_loop_seconds=max_background_seconds=max_dispatch_seconds=0.
-                phase_max=dict(position=0.,control=0.,population=0.,world_send=0.)
+                phase_max=dict(position=0.,control=0.,population=0.,world_send=0.,ai=0.)
                 challenge = os.urandom(16)
                 state = 'await_auth'
                 loaded_pushes_sent = False
@@ -608,7 +610,8 @@ def main():
                 population = WorldPopulation(control_session,population_surface,args.world_seed,bots=bots,
                     clusters=args.world_loot_clusters,vehicle_clusters=args.world_vehicle_clusters,
                     extra_items=args.world_extra_items) if args.world_populate else None
-                ai=BotAI(gameplay,bots,population,bot_visibility) if args.world_bot_ai else None
+                ai=BotAI(gameplay,bots,population,bot_visibility,mode=args.world_bot_mode) if args.world_bot_ai else None
+                if control_session is not None:control_session.bot_ai=ai
                 blast=BlastCombat(gameplay,bots,bot_visibility) if args.world_throwable_combat else None
                 zones=ZoneSchedule(gameplay,population_surface,zone_plan) if zone_plan is not None else None
                 survivors=SurvivorStatus(gameplay,bots) if args.world_survivor_status else None
@@ -765,12 +768,14 @@ def main():
                             phase_max['world_send']=max(phase_max['world_send'],time.monotonic()-phase_started)
                         if (ai is not None and state=='transport_ready' and loaded_pushes_sent
                                 and cadence.due('ai')):
+                            phase_started=time.monotonic()
                             for response_id,response_body in ai.tick():
                                 response=struct.pack('>IHI',1,response_id,response_id)+response_body
                                 send(connection,0,body=encrypt(response,key))
                                 emit('bot_ai_response_sent',message_id=response_id,body_bytes=len(response_body))
                             for event in ai.events:
                                 emit('bot_ai',**event)
+                            phase_max['ai']=max(phase_max['ai'],time.monotonic()-phase_started)
                         if survivors is not None and state=='transport_ready' and loaded_pushes_sent:
                             for response_id,response_body in survivors.tick():
                                 response=struct.pack('>IHI',1,response_id,response_id)+response_body

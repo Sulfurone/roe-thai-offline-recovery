@@ -59,6 +59,23 @@ class PeerDiagnosticsTests(unittest.TestCase):
             self.assertEqual(read_visuals(position,now=stamp)['pid'],123)
             with self.assertRaises(ValueError):read_visuals(position,now=stamp+4)
 
+    def test_model_snapshot_distinguishes_missing_wrapper_and_missing_model(self):
+        from peer_diagnostics import VISUAL_MODEL_ROW
+        rows=[]
+        for i in range(5):
+            rows.append(VISUAL_MODEL_ROW.pack(0x10ff+i if i else 0x100,0x10000,0,
+                        0x10800000,0xffffffff,0x10801000,0x2597960,0,0x010101,0,
+                        0x10802000 if i else 0,0x10803000 if i==2 else 0,1))
+        raw=VISUAL_HEADER.pack(b'ROEVIS3\0',b'a'*32,123,91,5)+b''.join(rows)
+        parsed=decode_visuals(raw,b'a'*32,123)['actors']
+        self.assertEqual(parsed[0]['model_wrapper'],'0x0')
+        self.assertEqual(parsed[1]['render_model'],'0x0')
+        self.assertEqual(parsed[2]['render_model'],'0x10803000')
+        for offset,value in ((VISUAL_HEADER.size+48,256),(VISUAL_HEADER.size+44,1)):
+            broken=bytearray(raw);broken[offset:offset+4]=value.to_bytes(4,'little')
+            with self.assertRaises(ValueError):decode_visuals(broken,b'a'*32,123)
+        with self.assertRaises(ValueError):decode_visuals(raw[:-4],b'a'*32,123)
+
 
 if __name__ == '__main__':
     unittest.main()

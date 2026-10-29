@@ -31,6 +31,26 @@ def nearby_hint(state,key,title):
         return title+'：位置暂不可用'
 
 
+def bot_hint(state):
+    if state.get('bots_enabled')!='1':return '当前入口未启用机器人'
+    phases={'preparing':'准备','waiting':'等待','target':'静止靶','patrol':'巡逻','search':'搜索',
+            'aim':'瞄准','chase':'追击','cooldown':'射击间隔','reload':'换弹','empty':'弹尽','dead':'已死亡'}
+    modes={'target':'静止练习靶','patrol':'巡逻（不反击）','combat':'对战'}
+    result='当前模式：'+modes.get(state.get('bot_mode'),'等待同步')
+    try:
+        rows=json.loads(state.get('peers','[]'))
+        if not isinstance(rows,list) or len(rows)>4:raise ValueError('Invalid peers')
+        if not rows:return result+'\n等待落地并找到可站立的出生点'
+        for row in rows:
+            p=row['position'];hp=row['hp']
+            if len(p)!=3 or any(type(v) is not int or abs(v)>=2000000 for v in p) or type(hp) is not int or not 0<=hp<=1000:
+                raise ValueError('Invalid bot status')
+            result+=f'\n{str(row["name"])[:32]}  HP {hp}  '+phases.get(row.get('phase'),'准备')
+            result+=f'\nX {p[0]/100:.1f}，Y {p[1]/100:.1f}'
+        return result
+    except (TypeError,KeyError,ValueError):return result+'\n状态暂不可用'
+
+
 class MailboxClient:
     def __init__(self, directory):
         self.directory = Path(directory).resolve()
@@ -80,6 +100,8 @@ class MailboxClient:
             values = command['template'], command['ammo'], command['distance'], command['count']
         elif action=='item':
             values=command['template'],0,command['distance'],command['count']
+        elif action=='bots':
+            values=command['mode'],0,0,0
         else:
             values = command['config'], 0, command['distance'], 0
         line = '\t'.join(map(str, (self.token, sequence, action, *values))) + '\n'

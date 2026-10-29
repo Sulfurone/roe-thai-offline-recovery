@@ -194,10 +194,11 @@ class IngameSessionTests(unittest.TestCase):
             views=[]
             def construct_visibility(*args):
                 result=StaticVisibility.from_scene(*args);views.append(result);return result
-            def construct_ai(*args):
-                result=BotAI(*args)
+            def construct_ai(*args,**kwargs):
+                result=BotAI(*args,**kwargs)
                 result.WARMUP=result.EQUIP_DELAY=0
                 result.AIM_SECONDS=result.FIRE_INTERVAL=.1
+                result.AIM_ERROR_DEGREES=0
                 ais.append(result)
                 return result
             def construct_combat(game,bots):
@@ -569,7 +570,7 @@ class IngameSessionTests(unittest.TestCase):
                         hp=[];firing=[];feedback=[];dead=None;conditions=[]
                         deadline=time.monotonic()+5
                         client.settimeout(.5)
-                        while time.monotonic()<deadline and dead is None:
+                        while time.monotonic()<deadline and (dead is None or firing and firing[-1]==0):
                             games[0].accept_self_position((325850,271700,6501))
                             try:mid,body=receive_raw()
                             except socket.timeout:continue

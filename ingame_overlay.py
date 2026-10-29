@@ -12,8 +12,8 @@ import queue
 import threading
 import time
 
-from ingame_client import MailboxClient,nearby_hint
-from offline_control import WEATHER_NAMES, WEAPON_NAMES, AMMO_NAMES
+from ingame_client import MailboxClient,nearby_hint,bot_hint
+from offline_control import WEATHER_NAMES, WEAPON_NAMES, AMMO_NAMES, BOT_MODE_NAMES
 from offline_weapons import WEAPONS
 from offline_items import SPAWNABLE_EXTRA_ITEMS as EXTRA_ITEMS
 from offline_vehicles import SPAWNABLE_LAND_VEHICLES as LAND_VEHICLES
@@ -216,8 +216,8 @@ class Overlay:
         self.body.pack(fill='both', expand=True)
         tabs = ttk.Notebook(self.body)
         tabs.pack(fill='both', expand=True)
-        weather, weapon, equipment, vehicle = [ttk.Frame(tabs, padding=14) for _ in range(4)]
-        for page, title in zip((weather, weapon,equipment, vehicle), ('天气', '武器','装备', '载具')):
+        weather, weapon, equipment, vehicle, bots = [ttk.Frame(tabs, padding=14) for _ in range(5)]
+        for page, title in zip((weather, weapon,equipment, vehicle,bots), ('天气', '武器','装备', '载具','机器人')):
             tabs.add(page, text=title)
         self.weather_ids = list(WEATHER_NAMES)
         self.weather = tk.StringVar(value='晴天')
@@ -249,7 +249,11 @@ class Overlay:
         self.number(vehicle, '刷新距离（米）', self.vehicle_distance, 5, 20)
         self.action(vehicle, '刷新吉普车', self.send_vehicle)
         ttk.Label(vehicle,textvariable=self.vehicle_hint,wraplength=330).pack(anchor='w',pady=(12,0))
-        ttk.Label(vehicle,textvariable=self.peer_hint,wraplength=330).pack(anchor='w',pady=(8,0))
+        self.bot_mode=tk.StringVar(value=BOT_MODE_NAMES[1])
+        self.combo(bots,'行为模式',self.bot_mode,list(BOT_MODE_NAMES.values()))
+        self.action(bots,'应用机器人模式',self.send_bot_mode)
+        ttk.Label(bots,text='落地后附近生成最多 3 名机器人。默认巡逻、不反击。\n切到对战后会攻击；死亡后本轮不复活。',wraplength=330).pack(anchor='w',pady=12)
+        ttk.Label(bots,textvariable=self.peer_hint,wraplength=330).pack(anchor='w',pady=(8,0))
         ttk.Separator(self.body).pack(fill='x', pady=12)
         ttk.Label(self.body, textvariable=self.result, wraplength=350, justify='left').pack(anchor='w')
         ttk.Button(self.body, text='返回游戏 · F6', command=self.toggle).pack(fill='x', pady=(12, 0))
@@ -317,6 +321,9 @@ class Overlay:
             self.submit(dict(action='weather', weather_id=next(k for k, v in WEATHER_NAMES.items() if v == self.weather.get()), transition=self.transition.get()))
         except self.tk.TclError:
             self.result.set('过渡时间请输入整数。')
+
+    def send_bot_mode(self):
+        self.submit(dict(action='bots',mode=next(k for k,v in BOT_MODE_NAMES.items() if v==self.bot_mode.get())))
 
     def send_weapon(self):
         try:
@@ -407,7 +414,7 @@ class Overlay:
             if state.get('position'):
                 self.position_text.set('当前位置（米）：' + ' / '.join(f'{int(v) / 100:.1f}' for v in state['position'].split(',')))
             self.vehicle_hint.set(nearby_hint(state,'vehicles','路边车辆'))
-            self.peer_hint.set(nearby_hint(state,'peers','测试角色'))
+            self.peer_hint.set(bot_hint(state))
             self.status.set('已连接 · 可操作' if ready else '界面预览 · 操作已禁用' if self.args.preview else '等待角色进入地图…')
             enabled = ready and self.client.pending is None
             if enabled != self.enabled:

@@ -12,6 +12,7 @@ HEADER = struct.Struct('<8s32s7I')
 ROW = struct.Struct('<9I3f')
 VISUAL_HEADER=struct.Struct('<8s32s3I')
 VISUAL_ROW=struct.Struct('<10I')
+VISUAL_MODEL_ROW=struct.Struct('<13I')
 STATUS = {0: 'position_ready', 1: 'scene_unavailable', 2: 'actor_absent',
           3: 'actor_without_position', 4: 'lookup_unavailable', 5: 'actor_removed'}
 
@@ -61,13 +62,18 @@ def read_peers(position_path, *, now=None):
 
 
 def decode_visuals(raw,token,pid):
-    if len(raw)!=VISUAL_HEADER.size+5*VISUAL_ROW.size:raise ValueError('Visual snapshot size differs')
+    if len(raw)<VISUAL_HEADER.size:raise ValueError('Visual snapshot size differs')
     magic,actual_token,actual_pid,sequence,count=VISUAL_HEADER.unpack_from(raw)
-    if (magic!=b'ROEVIS2\0' or actual_token!=token or actual_pid!=pid or count!=5):
+    row_type={b'ROEVIS2\0':VISUAL_ROW,b'ROEVIS3\0':VISUAL_MODEL_ROW}.get(magic)
+    if (row_type is None or actual_token!=token or actual_pid!=pid or count!=5):
         raise ValueError('Visual snapshot identity differs')
+    if len(raw)!=VISUAL_HEADER.size+5*row_type.size:raise ValueError('Visual snapshot size differs')
     rows=[]
     for index in range(count):
-        low,high,status,actor,mask,visual,vtable,secondary,gates,nested=VISUAL_ROW.unpack_from(raw,VISUAL_HEADER.size+index*VISUAL_ROW.size)
+        fields=row_type.unpack_from(raw,VISUAL_HEADER.size+index*row_type.size)
+        low,high,status,actor,mask,visual,vtable,secondary,gates,nested=fields[:10]
+        if len(fields)>10 and status==0 and (fields[12]>255 or fields[11] and not fields[10]):
+            raise ValueError('Visual snapshot model fields differ')
         if (low,high)!=(0x10ff+index if index else 0x100,0x10000) or status not in (0,1,2):
             raise ValueError('Visual snapshot row differs')
         if status==0 and (not actor or secondary>255 or gates>0xffffff or visual and not vtable):
@@ -78,6 +84,9 @@ def decode_visuals(raw,token,pid):
                          secondary_gate=secondary if status==0 else None,
                          appearance_gates=[(gates>>(i*8))&255 for i in range(3)] if status==0 and visual else None,
                          nested=hex(nested)))
+        if len(fields)>10:
+            rows[-1].update(model_wrapper=hex(fields[10]),render_model=hex(fields[11]),
+                            model_gate=fields[12] if status==0 and visual else None)
     return dict(pid=pid,sequence=sequence,actors=rows,
                 limitation='Appearance object and raw display mask do not prove rendered model, pixels or visibility')
 
@@ -85,9 +94,9 @@ def decode_visuals(raw,token,pid):
 def read_visuals(position_path,*,now=None):
     position_path=Path(position_path);path=position_path.with_name(position_path.name+'.visuals')
     now=time.time() if now is None else now
-    for current,size in ((position_path,SAMPLE.size),(path,VISUAL_HEADER.size+5*VISUAL_ROW.size)):
+    for current,sizes in ((position_path,(SAMPLE.size,)),(path,tuple(VISUAL_HEADER.size+5*r.size for r in (VISUAL_ROW,VISUAL_MODEL_ROW)))):
         info=current.stat()
-        if info.st_size!=size or not -1<=now-info.st_mtime<=3:raise ValueError('Visual/position sample stale or wrong size')
+        if info.st_size not in sizes or not -1<=now-info.st_mtime<=3:raise ValueError('Visual/position sample stale or wrong size')
     position=SAMPLE.unpack(position_path.read_bytes())
     if position[0]!=b'ROEPOS1\0':raise ValueError('Position format differs')
     return decode_visuals(path.read_bytes(),position[1],position[2])

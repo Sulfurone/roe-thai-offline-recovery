@@ -4,7 +4,7 @@ import struct
 import math
 import random
 
-from offline_control import WEATHER_NAMES, WEAPON_NAMES, validate_command
+from offline_control import WEATHER_NAMES, WEAPON_NAMES, BOT_MODE_NAMES, validate_command
 from offline_environment import environment_weather
 from offline_gameplay import OfflineGameplay, TYPED_VEHICLE_UID, TYPED_ACTOR_UID
 from offline_ground_loot import MAX_GROUND_STACKS
@@ -44,6 +44,7 @@ class ControlSession:
         self.vehicles = {}
         self.next_vehicle_uid=TYPED_VEHICLE_UID+0x1000
         self.peer_positions = {}
+        self.bot_ai=None
         self.active_vehicle = None
         self.client_boarding=client_boarding
         self.last_board_event=None
@@ -64,9 +65,13 @@ class ControlSession:
                     ground_items=len(game.ground_loot.stacks) if game and game.ground_loot else 0,
                     weapons_enabled=bool(game and game.ground_loot),
                     vehicles_enabled=bool(game and self.vehicle_template),
+                    bots_enabled=self.bot_ai is not None,
+                    bot_mode=self.bot_ai.mode if self.bot_ai else None,
                     vehicles=[dict(uid=str(uid), name=LAND_VEHICLES[car.vehicle_config].name, position=list(car.vehicle_position),
                                    seated=car.seated) for uid, car in self.vehicles.items()],
-                    peers=[dict(name=f'OfflineBot{uid-TYPED_ACTOR_UID-0x1000+1}',position=list(actor['position']))
+                    peers=[dict(name=f'OfflineBot{uid-TYPED_ACTOR_UID-0x1000+1}',position=list(actor['position']),
+                                hp=self.bot_ai.bots.vitals[uid].current if self.bot_ai else None,
+                                phase=self.bot_ai.brains[uid].phase if self.bot_ai and uid in self.bot_ai.brains else 'preparing')
                            for uid,actor in self.peer_positions.items()])
 
     def execute(self, command):
@@ -76,6 +81,10 @@ class ControlSession:
             raise ValueError('等待角色进入地图')
         if game.vitals_enabled and not game.vitals.current:
             raise ValueError('角色已死亡，当前回合不能继续操作')
+        if command['action']=='bots':
+            if self.bot_ai is None:raise ValueError('当前入口未启用机器人')
+            mode=command['mode']
+            return self.bot_ai.set_mode(self.bot_ai.MODES[mode]),'机器人模式：'+BOT_MODE_NAMES[mode]
         if command['action'] == 'weather':
             self.weather_id = command['weather_id']
             return [environment_weather(self.weather_id, command['transition'])], f"已发送{WEATHER_NAMES[self.weather_id]}，过渡 {command['transition']} 秒"
