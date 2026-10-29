@@ -5,6 +5,8 @@ from offline_inventory import OfflineInventory,Item
 from offline_vitals import Vitals
 from offline_medicine import MedicineUse,MEDICINES
 from offline_gameplay import OfflineGameplay
+from test_offline_motion import move_body
+from offline_motion import actor_actions
 
 
 def request(slot=3):return struct.pack('>BBHBIB',3,2,slot,0,0,1)
@@ -66,6 +68,48 @@ class MedicineTests(unittest.TestCase):
             self.assertEqual([m for m,b in g.tick(108)],[0x3e82,0x1069])
             saved.assert_called_once()
         self.assertEqual(g.vitals.current,1000)
+
+    def test_native_cancel_can_be_in_first_batched_point_and_preserves_hp_and_item(self):
+        g=OfflineGameplay(inventory_enabled=True,vitals_enabled=True)
+        g.actor_ready=g.vitals_sent=True
+        g.vitals.damage(600)
+        g.inventory.items[2,3]=Item(7,70003,0x100110,1)
+        with patch('offline_medicine.time.monotonic',return_value=100):
+            g.handle(0x3e80,request())
+        body=bytearray(move_body(10,[(325800,271700,6501)]*2))
+        body[17]=20
+        self.assertEqual(actor_actions(body),(20,0))
+        g.handle(0x2a,bytes(body))
+        self.assertTrue(g.last_medicine_cancel)
+        self.assertIsNone(g.medicine.pending)
+        self.assertEqual(g.tick(110),[])
+        self.assertEqual((g.vitals.current,g.inventory.items[2,3].count),(400,1))
+        g.handle(0x2a,bytes(body))
+        self.assertFalse(g.last_medicine_cancel)
+        with patch('offline_medicine.time.monotonic',return_value=111):
+            self.assertEqual(g.handle(0x3e80,request()),[g.inventory.reply(3,template=70003)])
+        g.tick(119)
+        self.assertEqual(g.vitals.current,1000)
+        self.assertNotIn((2,3),g.inventory.items)
+
+    def test_non_action_fields_or_malformed_trajectory_do_not_cancel_treatment(self):
+        base=move_body(10,[(325800,271700,6501)]*2)
+        candidates=[base,struct.pack('>I3i',20,325800,271700,6501)]
+        for offset in (16,18,19):
+            body=bytearray(base);body[offset]=20;candidates.append(bytes(body))
+        body=bytearray(base);body[17]=20
+        candidates.extend((bytes(body)[:-1],bytes(body)+b'\0'))
+        for body in candidates:
+            g=OfflineGameplay(inventory_enabled=True,vitals_enabled=True)
+            g.actor_ready=g.vitals_sent=True
+            g.vitals.damage(600)
+            g.inventory.items[2,3]=Item(7,70001,0x100110,2)
+            with patch('offline_medicine.time.monotonic',return_value=100):g.handle(0x3e80,request())
+            g.handle(0x2a,body)
+            self.assertFalse(g.last_medicine_cancel)
+            self.assertIsNotNone(g.medicine.pending)
+            g.tick(103)
+            self.assertEqual((g.vitals.current,g.inventory.items[2,3].count),(500,1))
 
 
 if __name__=='__main__':unittest.main()

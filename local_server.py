@@ -791,6 +791,8 @@ def main():
                                         emit('vehicle_board_request',**control_session.last_board_event)
                                 gameplay_replies=(gameplay.handle(message_id,application[26:])
                                                   if control_replies is None else control_replies)
+                                if message_id==0x2a and gameplay.last_medicine_cancel:
+                                    emit('medicine_cancelled',source='native_movement_action',action=20)
                                 if combat is not None and message_id==0x11d3:
                                     combat.record_shot(application[26:],previous_magazine)
                                 if combat is not None and message_id==0x11e9:

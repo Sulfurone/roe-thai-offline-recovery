@@ -22,6 +22,11 @@ MEDICINES={70001:Medicine(3,100),70002:Medicine(6,500),70003:Medicine(8,1000,Tru
 class MedicineUse:
     def __init__(self):self.pending=None
 
+    def cancel(self):
+        pending=self.pending is not None
+        self.pending=None
+        return pending
+
     def begin(self,body,inventory,vitals,allowed,now=None):
         now=time.monotonic() if now is None else now
         if len(body) not in (10,18) or body[:1]!=b'\3':return []

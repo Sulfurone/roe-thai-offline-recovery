@@ -27,6 +27,18 @@ def actor_motion(body):
     return points[-1], struct.unpack_from('>I', body, common)[0]
 
 
+def actor_actions(body):
+    """Actions carried by complete 2A trajectory points, or None if invalid.
+
+    Original medicine cancel 1303C20 -> movement action 20 -> 12CE3A0
+    writes the first point's action byte; the second point can be zero.
+    Neither the preceding position flag nor the final common flags are it.
+    """
+    if len(body)==16 or actor_motion(body) is None:return None
+    count=struct.unpack_from('>I',body)[0]
+    return tuple(body[4+19*index+13] for index in range(count))
+
+
 def aircraft_spawn_heading(body, endpoint):
     """Orient config-4 spawn from local +Y toward the horizontal route."""
     if len(body) < 53:

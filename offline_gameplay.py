@@ -11,7 +11,7 @@ from pathlib import Path
 import random
 import struct
 import time
-from offline_motion import actor_motion
+from offline_motion import actor_motion,actor_actions
 from offline_doors import DoorState
 from offline_inventory import Item,OfflineInventory
 from offline_ground_loot import OfflineGroundLoot,MAX_GROUND_STACKS
@@ -99,6 +99,7 @@ class OfflineGameplay:
     throwables_enabled: bool = False
     throws: Throws = field(default_factory=Throws,init=False)
     medicine: MedicineUse = field(default_factory=MedicineUse,init=False)
+    last_medicine_cancel: bool = field(default=False,init=False)
 
     def __post_init__(self):
         if not math.isfinite(self.auto_board_delay) or not 0<=self.auto_board_delay<=30:
@@ -542,12 +543,15 @@ class OfflineGameplay:
 
     def _handle(self, message, body):
         self.last_drop_event=None
+        self.last_medicine_cancel=False
         if self.vitals_enabled and not self.vitals.current:
             if message==0x49c and self.valid_length(body,4):
                 return [(0x49d,struct.pack('>II',struct.unpack_from('>I',body)[0],1))]
             if message==0x3e80 and body and self.inventory is not None:
                 return [self.inventory.reply(body[0],1)]
             if message in (0x11d3,0x49e,0x3b63,0x6541,0x6f57):return []
+        if self.vitals_enabled and message==0x2a and 20 in (actor_actions(body) or ()):
+            self.last_medicine_cancel=self.medicine.cancel()
         if self.vitals_enabled and message==0x3e80 and body[:1]==b'\3':
             return self.medicine.begin(body,self.inventory,self.vitals,
                 self.actor_ready and not self.seated

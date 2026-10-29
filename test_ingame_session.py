@@ -52,6 +52,9 @@ class IngameSessionTests(unittest.TestCase):
     def test_timed_medical_use_and_hp_delta_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',vitals=True,medicine=True)
 
+    def test_native_medical_cancel_does_not_spend_or_heal_and_new_cast_restarts_timer(self):
+        self.run_session('--ingame-overlay',vitals=True,medicine=True,cancel_medicine=True)
+
     def test_collision_reports_are_diagnostic_without_invented_hp_or_ammo_changes(self):
         self.run_session('--ingame-overlay',vitals=True,hit_reports=True)
 
@@ -61,7 +64,7 @@ class IngameSessionTests(unittest.TestCase):
     def test_bot_ai_arms_fires_and_damages_local_player_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,ai=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False):
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -336,6 +339,19 @@ class IngameSessionTests(unittest.TestCase):
                         started=time.monotonic()
                         send(0x3e80,medicine_request()+b'\x18'*8)
                         self.assertEqual(receive(),(0x3e81,struct.pack('>BIIB',3,0,70001,1)))
+                        if cancel_medicine:
+                            motion=bytearray(move_body(20,[(325850,271700,6501)]*2))
+                            motion[17]=20
+                            send(0x2a,bytes(motion))
+                            client.settimeout(3.3)
+                            with self.assertRaises(socket.timeout):read_frame(client)
+                            client.settimeout(4)
+                            self.assertEqual(games[0].vitals.current,400)
+                            self.assertEqual(games[0].inventory.items[2,3].count,2)
+                            self.assertIsNone(games[0].medicine.pending)
+                            started=time.monotonic()
+                            send(0x3e80,medicine_request())
+                            self.assertEqual(receive(),(0x3e81,struct.pack('>BIIB',3,0,70001,1)))
                         send(0x3e80,medicine_request()+b'\x29'*8)
                         self.assertEqual(receive()[0],0x3e82)
                         self.assertGreaterEqual(time.monotonic()-started,2.8)
@@ -412,6 +428,11 @@ class IngameSessionTests(unittest.TestCase):
                 rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
                 changes=[r for r in rows if r.get('event')=='bot_ai' and r.get('action')=='player_hit']
                 self.assertEqual([r['current'] for r in changes],[20,0])
+            if cancel_medicine:
+                rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
+                cancelled=[r for r in rows if r.get('event')=='medicine_cancelled']
+                self.assertEqual(len(cancelled),1)
+                self.assertEqual(cancelled[0]['action'],20)
             if posture:
                 self.assertEqual(output.getvalue().count('"event": "posture_speed_delta_sent"'),1)
             if interface == '--ingame-overlay':
