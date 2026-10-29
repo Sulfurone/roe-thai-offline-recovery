@@ -64,7 +64,27 @@ for template in (50001,50002,50003):
     if bool(address)!=expected:raise ValueError('Original config availability differs')
     if expected and c.read32(result+0x20)!=template:raise ValueError('Original template setter differs')
     checks.append(dict(template=template,created=bool(address),class_selection=list(selected)))
+# The equipped frag object must also survive the real weapon RTTI lookup.
+# Only the small slot map dependency is replaced; original type getters,
+# hierarchy comparison and selected-slot reader execute without RTTI stubs.
+inventory,slot_cell=0x10905000,0x10906000
+lookups=[]
+def slot_lookup():
+    sp=c.uc.reg_read(UC_X86_REG_ESP)
+    key=c.read32(c.read32(sp+4))
+    lookups.append(key)
+    put(slot_cell,result if key==5 else 0)
+    done(slot_cell,4)
+hook(0x793e90,slot_lookup)
+put(result,0x25a3ef0)  # Original EuFragGrenade vtable from the native ack probe.
+put(inventory+0x168,5)
+c.uc.mem_write(inventory+0x16c,b'\1')
+cast=c.invoke(0xf5fba0,0,[result])
+selected_weapon=c.invoke(0xf60b30,inventory,[])
+if cast!=result or selected_weapon!=result or set(lookups)!={5}:
+    raise ValueError('Equipped native frag was rejected by the original weapon reader')
 report=dict(passed=True,checks=checks,
-    limitation='Original lookup/selection/setter; synthetic table storage/string allocation/class factory, no render or equip proof')
+    equipped_frag_original_rtti=True,selected_slot=5,
+    limitation='Original config lookup/class selection/setter plus frag weapon RTTI/selected-slot reader; synthetic table/slot storage and final class factory, no model creation/rendered selection proof')
 (ROOT/'private/typed-gameplay/throwable-factory-validation.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf8')
 print(json.dumps(report))
