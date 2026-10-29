@@ -13,6 +13,9 @@ from unicorn.x86_const import UC_X86_REG_EAX,UC_X86_REG_ECX,UC_X86_REG_EDI,UC_X8
 c=NativeCodec()
 sys.path.insert(0,str(ROOT))
 from offline_zones import Circle,zone_state,interpolated_circle
+from offline_zone_schedule import ZonePlan,ZoneStage,ZoneSchedule
+from offline_gameplay import OfflineGameplay
+from types import SimpleNamespace
 c.uc.mem_map(0,4096)
 record,manager=0x10900000,0x10901000
 current,target=Circle(200000,190000,150000.),Circle(215000,180000,90000.)
@@ -73,9 +76,25 @@ c.invoke(0x13186a0,manager,[120,struct.unpack('<I',struct.pack('<f',30.))[0]])
 remaining=c.read32(manager+0x48)
 clock_anchor=struct.unpack('<f',c.uc.mem_read(manager+0x50,4))[0]
 if remaining!=90 or clock_anchor!=123.5:raise ValueError('Original countdown initialization differs')
+game=OfflineGameplay();game.actor_ready=True;game.player_position=(200000,190000,6501)
+schedule=ZoneSchedule(game,SimpleNamespace(height_at=lambda x,y:6500),
+                      ZonePlan(current,(ZoneStage(target,10,120),)))
+if schedule.tick(0):raise ValueError('Circle pacing skipped ground stability delay')
+scheduled=[]
+for now in (3,13,43,73,133):
+    packets=schedule.tick(now)
+    if len(packets)!=1:raise ValueError('Missing scheduled circle packet')
+    mid,body=packets[0]
+    result=c.decode_server(mid,body)
+    if result['code'] or result['consumed']!=result['bytes']:raise ValueError(result)
+    original=bytes(c.uc.mem_read(c.ROOT_OBJECT+10,36))
+    code,repacked=c.pack_type(0xdd3210,original)
+    if code or repacked!=body:raise ValueError('Original writer changed scheduled circle state')
+    scheduled.append(dict(now=now,phase=struct.unpack_from('>I',body)[0],finished=schedule.finished))
 report=dict(passed=True,message='0x047b',body_bytes=len(wire),codec_reader='0xdd32e0',codec_writer='0xdd3210',
     original_phase_zero_circles=phase_zero,original_shrink_interpolation=blends,
     countdown_initialization=dict(total=120,elapsed=30.,remaining=remaining,synthetic_clock_anchor=clock_anchor),
+    scheduled_packets=scheduled,
     limitation='Original codec/writer and phase-zero/phase-two arithmetic to setter boundary; no live map rendering, wall-clock timing, damage, helicopter or match outcome')
 (ROOT/'private/typed-gameplay/zone-state-validation.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf8')
 print(json.dumps(report))

@@ -32,6 +32,8 @@ from tpdu import decrypt, encrypt, frame, read_frame
 
 
 class IngameSessionTests(unittest.TestCase):
+    def test_opt_in_local_circle_wait_shrink_and_final_state_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay',population=True,zones=True)
     def test_partial_throwable_equipment_swap_then_throw_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',vitals=True,throws=True,throwable_equip=True)
     def test_native_mailbox_replies_and_owned_file_cleanup(self):
@@ -91,7 +93,7 @@ class IngameSessionTests(unittest.TestCase):
     def test_armour_wear_and_hp_over_encrypted_bot_battle(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,ai=True,armour=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False,armour=False,throwable_equip=False):
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False,armour=False,throwable_equip=False,zones=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -108,6 +110,12 @@ class IngameSessionTests(unittest.TestCase):
                     '--gameplay-prototype', '--gameplay-inventory', '--gameplay-ground-loot']
             if posture:
                 argv.append('--gameplay-posture-speeds')
+            if zones:
+                zone_file=root/'zone-plan.json'
+                zone_file.write_text(json.dumps(dict(version=1,
+                    initial=dict(x=325800,y=271700,radius=50000),
+                    stages=[dict(target=dict(x=326000,y=271700,radius=10000),wait=1,shrink=1)])),encoding='utf8')
+                argv.extend(['--world-zone-plan',str(zone_file)])
             if timed_reload:argv.extend(['--gameplay-original-reload'] if original_reload else ['--gameplay-reload-seconds','.3'])
             if extensions:argv.append('--gameplay-original-reload')
             if vitals:
@@ -249,6 +257,7 @@ class IngameSessionTests(unittest.TestCase):
 
                     startup, flight_packets = True, []
                     life_packets=[]
+                    zone_packets=[]
 
                     def receive_raw():
                         _, _, cipher, *_ = read_frame(client)
@@ -258,6 +267,9 @@ class IngameSessionTests(unittest.TestCase):
                     def receive():
                         while True:
                             message, body = receive_raw()
+                            if zones and message==0x47b:
+                                zone_packets.append(body)
+                                continue
                             if ai and message==0x547:
                                 self.assertEqual(struct.unpack_from('>Q',body)[0],next(iter(combats[0].bots.actors)))
                                 continue
@@ -560,11 +572,32 @@ class IngameSessionTests(unittest.TestCase):
                             self.assertEqual(games[0].inventory.items[1,12].durability,0)
                         self.assertEqual(dead,struct.pack('>IQ',0,256))
                         self.assertEqual(ais[0].brains[bot_uid].magazine,27 if armour else 28)
+                    if zones:
+                        limit=time.monotonic()+8
+                        final=False
+                        while time.monotonic()<limit and not final:
+                            message,body=receive_raw()
+                            if message==0x47b:
+                                zone_packets.append(body)
+                                row=struct.unpack('>IfIiifiif',body)
+                                final=row[:3]==(0,0.,1) and row[3:6]==row[6:9]
+                            else:
+                                self.assertIn(message,(0x27,0x565,0xbe7,0x1069,0x821,0x654b,0x6554,0x656e))
+                        decoded=[struct.unpack('>IfIiifiif',body) for body in zone_packets]
+                        self.assertTrue(final)
+                        self.assertEqual(decoded[0][0],0)
+                        self.assertIn(2,[row[0] for row in decoded])
+                        self.assertEqual(decoded[-1][3:6],(326000,271700,10000.))
                     client.sendall(frame(13))
                 thread.join(5)
                 self.assertFalse(thread.is_alive())
             if not errors.empty():
                 raise errors.get()
+            if zones:
+                rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
+                states=[row for row in rows if row.get('event')=='local_zone_state_sent']
+                self.assertEqual(sum(row['finished'] for row in states),1)
+                self.assertEqual(states[-1]['stage'],1)
             if hit_reports:
                 rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
                 reports=[r for r in rows if r.get('event')=='character_hit_report']

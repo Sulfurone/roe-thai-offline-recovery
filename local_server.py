@@ -29,6 +29,7 @@ from offline_combat import BotCombat
 from offline_bot_ai import BotAI
 from offline_blast import BlastCombat
 from offline_visibility import StaticVisibility
+from offline_zone_schedule import ZonePlan,ZoneSchedule
 from offline_posture import posture_speed_delta,CROUCH_CM_PER_SECOND,PRONE_CM_PER_SECOND
 from self_position import PositionInstallation,recover_previous
 
@@ -129,6 +130,8 @@ def main():
     parser.add_argument('--world-collision-archives',type=Path,
                         help='Owned Thai SFC directory for source static primitives; unknown models use bounds')
     parser.add_argument('--gameplay-throwables',action='store_true',help='Acknowledge native throws, consume one item and complete original effects')
+    parser.add_argument('--world-zone-plan',type=Path,
+                        help='Experimental local circle-stage JSON; requires prototype and population terrain, not original match rules')
     parser.add_argument('--gameplay-posture-speeds',action='store_true',
                         help='Sparse local crouch/prone tuning after player readiness; standing stays unchanged')
     parser.add_argument('--gameplay-initialize-vehicle',action='store_true',
@@ -264,6 +267,12 @@ def main():
     if args.environment_once and args.environment_trigger != 'load':
         parser.error('--environment-once is only valid with --environment-trigger load')
     opening_glider_body=None
+    zone_plan=None
+    if args.world_zone_plan is not None:
+        if not (args.gameplay_prototype and args.world_populate):
+            parser.error('--world-zone-plan requires --gameplay-prototype and --world-populate')
+        try:zone_plan=ZonePlan.read(args.world_zone_plan)
+        except (OSError,ValueError,TypeError) as error:parser.error(f'Cannot prepare local circle plan: {error}')
     population_surface=None
     bot_profile=None
     if args.world_bots:
@@ -575,6 +584,7 @@ def main():
                     extra_items=args.world_extra_items) if args.world_populate else None
                 ai=BotAI(gameplay,bots,population,bot_visibility) if args.world_bot_ai else None
                 blast=BlastCombat(gameplay,bots,bot_visibility) if args.world_throwable_combat else None
+                zones=ZoneSchedule(gameplay,population_surface,zone_plan) if zone_plan is not None else None
                 if bot_visibility is not None and bot_visibility.doors is not None:
                     bot_visibility.doors.states=gameplay.doors.states
                     emit('world_door_collision_ready',doors=len(bot_visibility.doors.items),
@@ -685,6 +695,11 @@ def main():
                                          sequence=observer.feed.sequence,client_pid=observer.feed.pid)
                                     observer.last_report=time.monotonic()
                         send_control_commands()
+                        if zones is not None and state=='transport_ready' and loaded_pushes_sent:
+                            for response_id,response_body in zones.tick():
+                                response=struct.pack('>IHI',1,response_id,response_id)+response_body
+                                send(connection,0,body=encrypt(response,key))
+                                emit('local_zone_state_sent',message_id=response_id,**zones.last_event)
                         if population is not None and state == 'transport_ready' and loaded_pushes_sent:
                             population_replies=population.tick()
                             for response_id,response_body in population_replies:

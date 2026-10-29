@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "initial": {"x": 204800, "y": 204800, "radius": 300000},
+  "stages": [
+    {"target": {"x": 325800, "y": 271700, "radius": 80000}, "wait": 120, "shrink": 120},
+    {"target": {"x": 387400, "y": 241100, "radius": 10000}, "wait": 60, "shrink": 120}
+  ]
+}
