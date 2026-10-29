@@ -86,7 +86,10 @@ class IngameSessionTests(unittest.TestCase):
     def test_extended_magazine_reload_and_detach_return_ammo_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',attachments=True,extensions=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False):
+    def test_armour_wear_and_hp_over_encrypted_bot_battle(self):
+        self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,ai=True,armour=True)
+
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False,armour=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -287,9 +290,10 @@ class IngameSessionTests(unittest.TestCase):
                     if posture:
                         message,payload=receive()
                         self.assertEqual(message,0x516)
-                        self.assertEqual(len(payload),83)
+                        self.assertEqual(len(payload),101)
                         records=[struct.unpack_from('>BII',payload,i) for i in range(2,len(payload),9)]
-                        self.assertEqual(records,[(i,280,280) for i in range(17,22)]
+                        self.assertEqual(records,[(i,560,560) for i in (15,16)]
+                                         +[(i,280,280) for i in range(17,22)]
                                          +[(i,120,120) for i in range(24,28)])
                         send(0x002a,struct.pack('>I3i',1,325850,271700,6501))
                     if population:
@@ -506,7 +510,10 @@ class IngameSessionTests(unittest.TestCase):
                         roster=combats[0].bots
                         roster.actors[bot_uid]['position']=(326000,271700,6500)
                         games[0].vitals.current=40
-                        hp=[];firing=[];feedback=[];dead=None
+                        if armour:
+                            games[0].inventory.items[1,12]=Item(20,201002,0x100120,1,durability=10)
+                            games[0].inventory.next_uid=max(games[0].inventory.next_uid,0x100121)
+                        hp=[];firing=[];feedback=[];dead=None;conditions=[]
                         deadline=time.monotonic()+5
                         client.settimeout(.5)
                         while time.monotonic()<deadline and dead is None:
@@ -523,13 +530,19 @@ class IngameSessionTests(unittest.TestCase):
                                 self.assertEqual(struct.unpack_from('>QQ',body),(bot_uid,256))
                                 feedback.append(body)
                             elif mid==0x533:dead=body
+                            elif armour and mid==0x3e82:
+                                self.assertEqual(struct.unpack_from('>BHB',body),(1,12,1))
+                                conditions.append(struct.unpack_from('>I',body,34)[0])
                             else:self.assertEqual(mid,0x547)
                         client.settimeout(4)
-                        self.assertEqual(hp,[20,0])
-                        self.assertEqual(firing,[0,1,0,1])
-                        self.assertEqual(len(feedback),2)
+                        self.assertEqual(hp,[28,10,0] if armour else [20,0])
+                        self.assertEqual(firing,[0,1]*(3 if armour else 2))
+                        self.assertEqual(len(feedback),3 if armour else 2)
+                        if armour:
+                            self.assertEqual(conditions,[2,0])
+                            self.assertEqual(games[0].inventory.items[1,12].durability,0)
                         self.assertEqual(dead,struct.pack('>IQ',0,256))
-                        self.assertEqual(ais[0].brains[bot_uid].magazine,28)
+                        self.assertEqual(ais[0].brains[bot_uid].magazine,27 if armour else 28)
                     client.sendall(frame(13))
                 thread.join(5)
                 self.assertFalse(thread.is_alive())
@@ -557,12 +570,12 @@ class IngameSessionTests(unittest.TestCase):
             if combat and not ai:
                 rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
                 changes=[r for r in rows if r.get('event')=='bot_combat']
-                self.assertEqual([r['current'] for r in changes],[20,0])
+                self.assertEqual([r['current'] for r in changes],[28,10,0] if armour else [20,0])
                 self.assertTrue(all(r['accepted'] and r['damage_applied'] for r in changes))
             if ai:
                 rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
                 changes=[r for r in rows if r.get('event')=='bot_ai' and r.get('action')=='player_hit']
-                self.assertEqual([r['current'] for r in changes],[20,0])
+                self.assertEqual([r['current'] for r in changes],[28,10,0] if armour else [20,0])
             if cancel_medicine:
                 rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
                 cancelled=[r for r in rows if r.get('event')=='medicine_cancelled']
