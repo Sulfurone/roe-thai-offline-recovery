@@ -4,6 +4,7 @@ This samples collision solids, not recovered original loot nodes. A roof
 without a ceiling is excluded; no fixed floor-height offset is invented.
 """
 import math
+import time
 from offline_collision import euler_xyz,rotate,dot,sub,bounds_entry
 
 
@@ -34,6 +35,7 @@ class IndoorFloors:
         self.jobs={}
         self.failures={}
         self.executor=None
+        self.cooperative=background
         if background:
             from concurrent.futures import ThreadPoolExecutor
             self.executor=ThreadPoolExecutor(max_workers=1,thread_name_prefix='indoor-floors')
@@ -53,8 +55,12 @@ class IndoorFloors:
                 model=visibility.assets.get(instance.path)
                 if model is not None:solids.extend((instance,s) for s in model.shapes)
         def intervals(px,py):
-            return [hit for instance,shape in solids
-                    if (hit:=vertical_interval(instance,shape,px,py,base-300,base+2200)) is not None]
+            hits=[]
+            for index,(instance,shape) in enumerate(solids):
+                if self.cooperative and index%128==127:time.sleep(0)
+                hit=vertical_interval(instance,shape,px,py,base-300,base+2200)
+                if hit is not None:hits.append(hit)
+            return hits
         result=[]
         # 9x9 world-space samples. Covers rotated buildings via their world
         # bounds; ceiling and footprint tests reject the surrounding yard.

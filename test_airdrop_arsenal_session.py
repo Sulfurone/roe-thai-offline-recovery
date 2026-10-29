@@ -54,7 +54,7 @@ class AirdropArsenalSessionTests(unittest.TestCase):
             def serve():
                 try:local_server.main()
                 except BaseException as error:errors.put(error)
-            with patch.object(local_server,'__file__',str(root/'local_server.py')),patch('sys.argv',argv),contextlib.redirect_stdout(output):
+            with patch.object(local_server,'__file__',str(root/'recovery/local_server.py')),patch('sys.argv',argv),contextlib.redirect_stdout(output):
                 thread=threading.Thread(target=serve,daemon=True)
                 thread.start()
                 client=None
@@ -132,7 +132,8 @@ class AirdropArsenalSessionTests(unittest.TestCase):
                 thread.join(9)
                 self.assertFalse(thread.is_alive())
             if not errors.empty():raise errors.get()
-            events=[json.loads(line) for line in output.getvalue().splitlines()]
+            log=next((root/'recovery/logs').glob('*/server.jsonl'))
+            events=[json.loads(line) for line in log.read_text(encoding='utf8').splitlines()]
             first_move=next(i for i,e in enumerate(events) if e['event']=='application_message' and e.get('message_id')==0x2a)
             spawn=next(i for i,e in enumerate(events) if e['event']=='player_ready_push_sent' and e.get('message_id')==0x654b)
             self.assertGreater(spawn,first_move)

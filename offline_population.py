@@ -35,6 +35,7 @@ class WorldPopulation:
         self.auto_vehicles = 0
         self.auto_item_ids=set()
         self.auto_vehicle_ids=set()
+        self.vehicle_cells={}
         self.upstairs_houses=set()
         self.bots = bots
         self.peer_visibility=None
@@ -152,9 +153,6 @@ class WorldPopulation:
 
     def tick(self):
         game = self.control.gameplay
-        finder=getattr(self.terrain,'indoor_floors',None)
-        if game and game.actor_ready and finder is not None:
-            finder.ready_buildings(game.vehicle_position if game.seated else game.player_position,self.terrain.houses)
         if (not game or not game.actor_ready
                 or game.seated and self.control.active_vehicle is None):
             return []
@@ -169,7 +167,8 @@ class WorldPopulation:
         cell = position[0] // self.CELL, position[1] // self.CELL
         if cell in self.visited or len(self.visited) >= 1024:
             spawned=self.try_peers(position)
-            return replies+spawned+(self.bots.tick(self) if self.bots and not spawned else [])
+            vehicles=self.try_vehicles(position,random.Random(self.seed^cell[0]*73856093^cell[1]*19349663),cell)
+            return replies+vehicles+spawned+(self.bots.tick(self) if self.bots and not spawned else [])
         self.visited.add(cell)
         rng = random.Random((self.seed ^ cell[0] * 73856093 ^ cell[1] * 19349663) & (2**64 - 1))
         world = game.ground_loot
@@ -227,8 +226,15 @@ class WorldPopulation:
                         game.inventory.next_uid+=1
                         self.auto_item_ids.add(item.entity)
                         replies.append(item.spawn())
+        replies.extend(self.try_vehicles(position,rng,cell))
+        if self.bots is not None:
+            replies.extend(self.try_peers(position,rng))
+        return replies
+
+    def try_vehicles(self,position,rng,cell):
+        replies=[]
         if self.vehicles and self.control.vehicle_template is not None:
-            for _ in range(self.vehicle_clusters):
+            for _ in range(self.vehicle_clusters-self.vehicle_cells.get(cell,0)):
                 if self.auto_vehicles>=12 or len(self.control.vehicles)>=16:
                     break
                 spot = self.choose_spot(position, rng, vehicle=True)
@@ -236,8 +242,7 @@ class WorldPopulation:
                     replies.extend(self.control.spawn_vehicle(spot,rng.choice(sorted(LAND_VEHICLES)) if self.extra_items else 101))
                     self.auto_vehicle_ids.add(self.control.next_vehicle_uid-1)
                     self.auto_vehicles += 1
-        if self.bots is not None:
-            replies.extend(self.try_peers(position,rng))
+                    self.vehicle_cells[cell]=self.vehicle_cells.get(cell,0)+1
         return replies
 
     def unload_far(self,position):
@@ -269,4 +274,5 @@ class WorldPopulation:
         self.visited={cell for cell in self.visited
                       if math.dist(position[:2],((cell[0]+.5)*self.CELL,(cell[1]+.5)*self.CELL))
                       <=self.UNLOAD_DISTANCE+2*self.CELL}
+        self.vehicle_cells={cell:count for cell,count in self.vehicle_cells.items() if cell in self.visited}
         return replies

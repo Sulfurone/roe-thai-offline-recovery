@@ -325,11 +325,15 @@ class IngameSessionTests(unittest.TestCase):
                                          +[(i,280,280) for i in range(17,22)]
                                          +[(i,120,120) for i in range(24,28)])
                         send(0x002a,struct.pack('>I3i',1,325850,271700,6501))
+                    pending_clock=None
                     if population:
                         generated=[]
                         while len(generated)<69:
                             row=receive_raw()
-                            if vitals and row[0]==0x1069 and struct.unpack_from('>Q',row[1])[0]==256:
+                            if row[0]==0x4816:
+                                self.assertIsNone(pending_clock,'Readiness clock sent twice')
+                                pending_clock=row
+                            elif vitals and row[0]==0x1069 and struct.unpack_from('>Q',row[1])[0]==256:
                                 life_packets.append(row[1])
                             else:generated.append(row)
                         self.assertEqual([m for m, _ in generated],
@@ -338,7 +342,7 @@ class IngameSessionTests(unittest.TestCase):
                         self.assertNotEqual(bot_uid, 256)
                         self.assertEqual(struct.unpack('>QBBBII',generated[-2][1]),(bot_uid,0,1,0,1000,1000))
                     if interface == '--ingame-overlay':
-                        clock_id, clock_body = receive()
+                        clock_id, clock_body = pending_clock if pending_clock is not None else receive()
                         self.assertEqual(clock_id, 0x4816)
                         self.assertEqual(struct.unpack_from('>I', clock_body)[0], 12)
                         clock_time = struct.unpack_from('>I', clock_body, 4)[0]
@@ -551,7 +555,10 @@ class IngameSessionTests(unittest.TestCase):
                             # after the death broadcast, on the same AES stream.
                             send(0x6f57,struct.pack('>II',17415,0))
                             self.assertEqual(receive(),(0x6f55,struct.pack('>5I',17415,0,1,0,0)))
-                            self.assertEqual(survivor_counts,[2,1])
+                            # The local player can be announced before the
+                            # cadence-limited first bot spawn. Keep the actual
+                            # roster semantics: optional 1, then 2, then death 1.
+                            self.assertIn(survivor_counts,([2,1],[1,2,1]))
                     if ai:
                         roster=combats[0].bots
                         roster.actors[bot_uid]['position']=(326000,271700,6500)

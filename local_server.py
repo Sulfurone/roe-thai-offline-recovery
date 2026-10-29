@@ -33,6 +33,7 @@ from offline_zone_schedule import ZonePlan,ZoneSchedule
 from offline_match_status import SurvivorStatus
 from offline_posture import posture_speed_delta,CROUCH_CM_PER_SECOND,PRONE_CM_PER_SECOND
 from self_position import PositionInstallation,recover_previous
+from service_pacing import ServiceCadence
 
 
 def main():
@@ -483,11 +484,21 @@ def main():
     folder.mkdir(parents=True)
     log = (folder / 'server.jsonl').open('w', encoding='utf-8')
 
+    log_flush_at = 0.
+    transport_events = {'received','application_message','sent','self_position_updated','actor_motion_ack_sent'}
     def emit(event, **fields):
+        nonlocal log_flush_at
         record = {'time': datetime.datetime.now().astimezone().isoformat(), 'event': event, **fields}
-        log.write(json.dumps(record) + '\n')
-        log.flush()
-        print(json.dumps(record), flush=True)
+        encoded = json.dumps(record)
+        log.write(encoded + '\n')
+        now = time.monotonic()
+        # Retain every transport record without repainting the Windows
+        # console twice per packet or flushing tiny file writes each time.
+        if event not in transport_events or now >= log_flush_at:
+            log.flush()
+            log_flush_at = now + 1
+        if event not in transport_events:
+            print(encoded, flush=True)
 
     def send(connection, command, extension=b'', body=b''):
         packet = frame(command, extension, body)
@@ -496,6 +507,9 @@ def main():
 
     deadline = time.monotonic() + args.seconds
     with socket.socket() as listener, ExitStack() as resources:
+        if args.world_client_map and population_surface is not None:
+            population_surface.enable_background_roads()
+            resources.callback(population_surface.close)
         if getattr(population_surface,'indoor_floors',None) is not None:
             resources.callback(population_surface.indoor_floors.close)
         listener.bind(('127.0.0.1', args.port))
@@ -546,8 +560,15 @@ def main():
             except socket.timeout:
                 continue
             number += 1
-            with connection:
+            with connection, (folder / f'{number}-received.bin').open('ab') as received_raw, \
+                    (folder / f'{number}-application.bin').open('ab') as application_raw:
                 connection.settimeout(min(45, max(1, deadline - time.monotonic())))
+                connection.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)
+                cadence=ServiceCadence()
+                work_counts=dict(packets=0,population=0,control=0,position=0)
+                work_started=time.monotonic()
+                max_loop_seconds=max_background_seconds=max_dispatch_seconds=0.
+                phase_max=dict(position=0.,control=0.,population=0.,world_send=0.)
                 challenge = os.urandom(16)
                 state = 'await_auth'
                 loaded_pushes_sent = False
@@ -692,7 +713,21 @@ def main():
                         mailbox.publish(control.snapshot())
                 try:
                     while time.monotonic() < deadline:
-                        if observer is not None and gameplay is not None and loaded_pushes_sent:
+                        loop_started=time.monotonic()
+                        if cadence.due('capture_flush'):
+                            received_raw.flush();application_raw.flush();log.flush()
+                        if cadence.due('statistics'):
+                            emit('service_loop_statistics',elapsed_seconds=round(loop_started-work_started,3),
+                                 max_loop_ms=round(max_loop_seconds*1000,3),
+                                 max_background_ms=round(max_background_seconds*1000,3),
+                                 max_dispatch_ms=round(max_dispatch_seconds*1000,3),
+                                 phases_ms={k:round(v*1000,3) for k,v in phase_max.items()},**work_counts)
+                            max_loop_seconds=max_background_seconds=max_dispatch_seconds=0.
+                            phase_max=dict.fromkeys(phase_max,0.)
+                        if (observer is not None and gameplay is not None and loaded_pushes_sent
+                                and cadence.due('position')):
+                            work_counts['position']+=1
+                            phase_started=time.monotonic()
                             gameplay.require_self_position_for_drop=True
                             current_position=observer.feed.take()
                             if current_position is not None and gameplay.accept_self_position(current_position):
@@ -700,14 +735,25 @@ def main():
                                     emit('self_position_updated',position=current_position,
                                          sequence=observer.feed.sequence,client_pid=observer.feed.pid)
                                     observer.last_report=time.monotonic()
-                        send_control_commands()
-                        if zones is not None and state=='transport_ready' and loaded_pushes_sent:
+                            phase_max['position']=max(phase_max['position'],time.monotonic()-phase_started)
+                        if cadence.due('control'):
+                            work_counts['control']+=1
+                            phase_started=time.monotonic()
+                            send_control_commands()
+                            phase_max['control']=max(phase_max['control'],time.monotonic()-phase_started)
+                        if (zones is not None and state=='transport_ready' and loaded_pushes_sent
+                                and cadence.due('zones')):
                             for response_id,response_body in zones.tick():
                                 response=struct.pack('>IHI',1,response_id,response_id)+response_body
                                 send(connection,0,body=encrypt(response,key))
                                 emit('local_zone_state_sent',message_id=response_id,**zones.last_event)
-                        if population is not None and state == 'transport_ready' and loaded_pushes_sent:
+                        if (population is not None and state == 'transport_ready' and loaded_pushes_sent
+                                and cadence.due('population')):
+                            work_counts['population']+=1
+                            phase_started=time.monotonic()
                             population_replies=population.tick()
+                            phase_max['population']=max(phase_max['population'],time.monotonic()-phase_started)
+                            phase_started=time.monotonic()
                             for response_id,response_body in population_replies:
                                 response=struct.pack('>IHI',1,response_id,response_id)+response_body
                                 send(connection,0,body=encrypt(response,key))
@@ -716,24 +762,30 @@ def main():
                                      actor_position=gameplay.player_position,cells=len(population.visited),
                                      ground_items=len(gameplay.ground_loot.stacks),vehicles=population.auto_vehicles,
                                      peers=len(bots.actors) if bots is not None else 0)
-                            if ai is not None:
-                                for response_id,response_body in ai.tick():
-                                    response=struct.pack('>IHI',1,response_id,response_id)+response_body
-                                    send(connection,0,body=encrypt(response,key))
-                                    emit('bot_ai_response_sent',message_id=response_id,body_bytes=len(response_body))
-                                for event in ai.events:
-                                    emit('bot_ai',**event)
+                            phase_max['world_send']=max(phase_max['world_send'],time.monotonic()-phase_started)
+                        if (ai is not None and state=='transport_ready' and loaded_pushes_sent
+                                and cadence.due('ai')):
+                            for response_id,response_body in ai.tick():
+                                response=struct.pack('>IHI',1,response_id,response_id)+response_body
+                                send(connection,0,body=encrypt(response,key))
+                                emit('bot_ai_response_sent',message_id=response_id,body_bytes=len(response_body))
+                            for event in ai.events:
+                                emit('bot_ai',**event)
                         if survivors is not None and state=='transport_ready' and loaded_pushes_sent:
                             for response_id,response_body in survivors.tick():
                                 response=struct.pack('>IHI',1,response_id,response_id)+response_body
                                 send(connection,0,body=encrypt(response,key))
                                 emit('local_survivor_status_sent',count=survivors.last_count,
                                      scope='Active local roster only; no match outcome')
-                        # Advance timers when the client is quiet. Socket reads
+                        # Advance timers even when the client is continuously
+                        # sending; boarding/jump/reload must not wait for quiet.
+                        # Socket reads
                         # still use the original framed reader; a partial frame
                         # remains subject to its existing connection timeout.
                         gameplay_timers=(gameplay is not None and loaded_pushes_sent
                                          and state=='transport_ready')
+                        if gameplay_timers:
+                            send_gameplay_timers()
                         if (gameplay_timers and args.gameplay_posture_speeds
                                 and gameplay.actor_ready and not posture_delta_sent):
                             payload=posture_speed_delta()
@@ -748,6 +800,7 @@ def main():
                                                     and schedule.armed_at is not None
                                                     and not schedule.sent)
                         environment_timer=bool(environment_schedules and state=='transport_ready')
+                        max_background_seconds=max(max_background_seconds,time.monotonic()-loop_started)
                         if gameplay_timers or environment_timer or control is not None or population is not None:
                             wait=min(.25,max(0,deadline-time.monotonic()))
                             if environment_timer:
@@ -761,8 +814,9 @@ def main():
                                 send_environment_timers()
                                 continue
                         command, extension, body, encrypted_length, packet = read_frame(connection)
-                        with (folder / f'{number}-received.bin').open('ab') as raw:
-                            raw.write(packet)
+                        dispatch_started=time.monotonic()
+                        received_raw.write(packet)
+                        work_counts['packets']+=1
                         emit('received', connection=number, command=command, bytes=len(packet), state=state)
                         if command == 3 and state == 'await_auth':
                             info = auth_info(extension)
@@ -791,8 +845,7 @@ def main():
                             if len(plain) < encrypted_length:
                                 raise ValueError('Decrypted body is shorter than its header')
                             application = plain[encrypted_length:]
-                            with (folder / f'{number}-application.bin').open('ab') as raw:
-                                raw.write(application)
+                            application_raw.write(application)
                             message_id = struct.unpack_from('>H', application, 4)[0] if len(application) >= 6 else None
                             emit('application_message', bytes=len(application), message_id=message_id)
                             if gameplay is not None and message_id==0x11e9 and combat is None:
@@ -1131,6 +1184,8 @@ def main():
                             break
                         else:
                             emit('unhandled_command', command=command)
+                        max_loop_seconds=max(max_loop_seconds,time.monotonic()-loop_started)
+                        max_dispatch_seconds=max(max_dispatch_seconds,time.monotonic()-dispatch_started)
                 except (EOFError, OSError, ValueError) as error:
                     emit('connection_ended', state=state, reason=str(error))
                 if control is not None:

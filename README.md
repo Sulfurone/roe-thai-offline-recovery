@@ -6,9 +6,11 @@ This is an experimental, community-maintained reconstruction for the original Ga
 
 ## 当前进度与边界
 
+当前交互延迟排查见[SERVICE_PERFORMANCE.md](SERVICE_PERFORMANCE.md)：用户已确认第一轮跳伞无延迟，拾取和开门仍有延迟；第二轮后台道路选址候选已通过检查，尚待重启实机验证。
+
 只读脚点、丢弃再拾取和沿途高密度物资已获用户实机确认，见[实时位置与流式生成](POSITION_STREAMING.md)。主入口需先构建自有只读观测库；原DLL按哈希备份、转发和恢复。背包增量仍为128行；地面实体为自动384/总512，远处自动对象会回收。
 
-蹲趴速度、站立/跳跃仍维持已验收配置。弹药扣除、打空、换弹及同种弹药合并已获本轮用户确认；配件安装/拆卸仍待实机复验，主入口已使用20枪原基础字段/ReloadType时长公式，快换配件、逐发中断和动画仍待恢复或验收，见[弹药说明](AMMUNITION.md)。本地302项、公开无私有素材244项检查通过（含菜单替身及新装备诊断）。机器人显示门控方向已纠正、实机显示仍待验收；1000点满血与计时治疗/原移动动作取消候选见[VITALS.md](VITALS.md)及[MEDICINE.md](MEDICINE.md)，投掷握手与本地手雷伤害候选见[THROWABLES.md](THROWABLES.md)；命中及受击/死亡候选见[HIT_REPORTS.md](HIT_REPORTS.md)。新增可选本地反击原型见[BOT_AI.md](BOT_AI.md)。静态碰撞已接入原资源形状查询，覆盖56234/56239实例，2374扇门另有随开关状态旋转的碰撞候选，详见[碰撞说明](COLLISION.md)。原版伤害平衡、完整AI、原buff节奏和效果画面仍未完成。
+蹲趴速度、站立/跳跃仍维持已验收配置。弹药扣除、打空、换弹及同种弹药合并已获本轮用户确认；配件安装/拆卸仍待实机复验，主入口已使用20枪原基础字段/ReloadType时长公式，快换配件、逐发中断和动画仍待恢复或验收，见[弹药说明](AMMUNITION.md)。本地306项、公开无私有素材248项检查通过（含菜单替身及新装备诊断）。机器人显示门控方向已纠正、实机显示仍待验收；1000点满血与计时治疗/原移动动作取消候选见[VITALS.md](VITALS.md)及[MEDICINE.md](MEDICINE.md)，投掷握手与本地手雷伤害候选见[THROWABLES.md](THROWABLES.md)；命中及受击/死亡候选见[HIT_REPORTS.md](HIT_REPORTS.md)。新增可选本地反击原型见[BOT_AI.md](BOT_AI.md)。静态碰撞已接入原资源形状查询，覆盖56234/56239实例，2374扇门另有随开关状态旋转的碰撞候选，详见[碰撞说明](COLLISION.md)。原版伤害平衡、完整AI、原buff节奏和效果画面仍未完成。
 
 原表目录26项，正常刷新提供25项（闪光弹缺少本构建原生投掷配置，尚未恢复使用），药品/护甲拾取装备及实时脚点后的丢弃再拾取已获确认，菜单有装备和8种原车型选择（当前使用鼠标入口，F6待修复）。扩容已接入明确的本地容量/拆卸退弹规则；配件模型和上轮安装异常仍待实机复验，扣弹、打空与换弹、同种弹药合并及二楼物资已获本轮用户确认；本轮投掷物所测拿出/抛出及对应效果已获用户确认，闪光弹及完整烟雾遮蔽/原伤害平衡仍未恢复。计时治疗与手雷已有本地候选；护甲仅有实验子弹的本地减伤规则，完整背包与战斗仍待恢复，见[装备操作说明](EQUIPMENT_ACTIONS.md)。
 
@@ -42,7 +44,7 @@ git clone https://github.com/Sulfurone/roe-thai-offline-recovery.git recovery
 cd recovery
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m unittest test_offline_gameplay test_opening_airdrop test_scatter_loot test_aircraft_launcher_phases test_environment_schedule test_environment_session test_control_panel test_control_panel_session test_ingame_bridge test_ingame_session test_offline_motion test_population test_client_map test_extra_items test_equipment_actions test_self_position test_ammunition test_vitals test_throwables test_medicine test_hit_reports test_combat test_bot_ai test_peer_diagnostics test_blast test_collision test_collision_assets test_dynamic_doors test_reload_timing test_extended_magazines test_armour test_ammo_collection test_indoor_loot test_throwable_equipment test_zones test_zone_schedule test_match_status test_ingame_overlay test_equipment_diagnostics -q
+.\.venv\Scripts\python.exe -m unittest test_offline_gameplay test_opening_airdrop test_scatter_loot test_aircraft_launcher_phases test_environment_schedule test_environment_session test_control_panel test_control_panel_session test_ingame_bridge test_ingame_session test_offline_motion test_population test_client_map test_extra_items test_equipment_actions test_self_position test_ammunition test_vitals test_throwables test_medicine test_hit_reports test_combat test_bot_ai test_peer_diagnostics test_blast test_collision test_collision_assets test_dynamic_doors test_reload_timing test_extended_magazines test_armour test_ammo_collection test_indoor_loot test_throwable_equipment test_zones test_zone_schedule test_match_status test_ingame_overlay test_equipment_diagnostics test_service_pacing -q
 $env:ROE_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
 ```
 

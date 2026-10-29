@@ -9,6 +9,7 @@ import math
 from pathlib import Path
 import re
 import struct
+import time
 import xml.etree.ElementTree as ET
 
 HEIGHT_SCALE = 120000 / 65535
@@ -64,6 +65,9 @@ class ThaiClientMap:
         self.houses, self.doors = houses, doors
         self.width = heightfield.width
         self.road_cache = {}
+        self.road_jobs = {}
+        self.road_failures = {}
+        self.road_executor = None
         self.indoor_floors = None
         self.house_grid = {}
         for house in houses:
@@ -132,9 +136,40 @@ class ThaiClientMap:
         key = int(position[0])//20000, int(position[1])//20000
         if key in self.road_cache:
             return self.road_cache[key]
+        if self.road_executor is not None:
+            # Retire finished work even when the player has left its region.
+            # Only this thread publishes caches; workers read immutable map data.
+            for pending, job in list(self.road_jobs.items()):
+                if job.done():
+                    try:self._cache_road(pending,job.result())
+                    except Exception as error:
+                        self.road_failures[pending]=type(error).__name__
+                        if len(self.road_failures)>32:self.road_failures.pop(next(iter(self.road_failures)))
+                    del self.road_jobs[pending]
+            if key in self.road_cache:return self.road_cache[key]
+            if key not in self.road_jobs and key not in self.road_failures and len(self.road_jobs)<4:
+                self.road_jobs[key]=self.road_executor.submit(self._roadside_candidates,key)
+            return []
+        return self._cache_road(key,self._roadside_candidates(key))
+
+    def enable_background_roads(self):
+        if self.road_executor is None:
+            from concurrent.futures import ThreadPoolExecutor
+            self.road_executor=ThreadPoolExecutor(max_workers=1,thread_name_prefix='road-placement')
+
+    def close(self):
+        if self.road_executor is not None:self.road_executor.shutdown(wait=False,cancel_futures=True)
+
+    def _cache_road(self,key,result):
+        if len(self.road_cache)>=32:self.road_cache.pop(next(iter(self.road_cache)))
+        self.road_cache[key]=result
+        return result
+
+    def _roadside_candidates(self,key):
         cx,cy = key[0]*20000+10000,key[1]*20000+10000
         candidates = set()
         for row in range(max(4,(cy-45000)//200),min(2044,(cy+45000)//200),2):
+            if self.road_executor is not None and row%16==0:time.sleep(0)
             for col in range(max(4,(cx-45000)//200),min(2044,(cx+45000)//200),2):
                 x,y = col*200+100,row*200+100
                 if not self.is_road(x,y):
@@ -149,11 +184,7 @@ class ThaiClientMap:
                             if height is not None and not any(math.hypot(px-h[0],py-h[1]) < h[2]+200 for h in self.near_houses(px,py)):
                                 candidates.add((px,py,round(height)+100))
                             break
-        result = sorted(candidates)
-        if len(self.road_cache) >= 32:
-            self.road_cache.pop(next(iter(self.road_cache)))
-        self.road_cache[key] = result
-        return result
+        return sorted(candidates)
 
     def spawn_spot(self, position, rng, kind, occupied):
         x,y,_ = position

@@ -2,6 +2,8 @@
 import random
 import struct
 import unittest
+import threading
+from types import SimpleNamespace
 
 from offline_client_map import ClientHeightfield, ThaiClientMap, HEIGHT_SCALE
 from control_actions import ControlSession
@@ -14,6 +16,35 @@ def tile(values):
 
 
 class ClientMapTests(unittest.TestCase):
+    def test_background_road_scan_does_not_block_or_lose_late_vehicle_generation(self):
+        entered=threading.Event();release=threading.Event()
+        data=ThaiClientMap(SimpleNamespace(width=409600,height_at=lambda x,y:7000),b'',[],[])
+        def compute(key):
+            entered.set()
+            if not release.wait(3):raise ValueError('Unreleased synthetic road worker')
+            return [(102500,200000,7100),(103500,200000,7100),(104500,200000,7100)]
+        data._roadside_candidates=compute
+        data.enable_background_roads()
+        game=ready_game();game.player_position=(100000,200000,7020)
+        control=ControlSession(game,jeep_template())
+        from offline_population import WorldPopulation
+        population=WorldPopulation(control,data,loot=False)
+        try:
+            self.assertEqual(population.tick(),[])
+            self.assertTrue(entered.wait(1))
+            self.assertEqual(len(control.vehicles),0)
+            self.assertTrue(population.visited)
+            self.assertEqual(population.tick(),[])
+            release.set()
+            next(iter(data.road_jobs.values())).result(timeout=2)
+            replies=population.tick()
+            self.assertEqual([m for m,_ in replies],[0x654b,0x6554,0x656e]*3)
+            self.assertEqual(len(control.vehicles),3)
+            self.assertEqual(population.tick(),[])
+            self.assertEqual(len(control.vehicles),3)
+        finally:
+            release.set();data.close()
+
     def test_peer_search_widens_when_nearby_coast_has_no_dry_ground(self):
         class Coast(ThaiClientMap):
             def __init__(self):pass
