@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from offline_collision import Instance,Model,primitive
 from offline_dynamic_doors import Door,DynamicDoors,read_doors
 from offline_doors import DoorState
+from offline_visibility import StaticVisibility
 
 
 class DoorCollisionTests(unittest.TestCase):
@@ -34,6 +35,22 @@ class DoorCollisionTests(unittest.TestCase):
         state.handle(struct.pack('>II',68,1))
         self.assertEqual(state.handle(struct.pack('>II',67,3)),[])
         self.assertTrue(geometry.blocks((25,-30,7000),(25,30,7000)))
+
+    def test_opening_door_never_removes_an_independent_house_wall(self):
+        door_model=Model([primitive('box',(50,0,100),extents=(50,3,100))])
+        wall=Model([primitive('box',(50,0,100),extents=(100,10,200))])
+        door=Door(67,Instance('door.xml',(0,0,7000),(0,0,0),1),(0,-1.68,1.68),0)
+        geometry=DynamicDoors([door],SimpleNamespace(get=lambda path:door_model))
+        geometry.states={67:1}
+        class Flat:
+            def height_at(self,x,y):return 6500
+        bound=(50,0,7100,300)
+        scene=StaticVisibility(Flat(),[bound],{bound:[Instance('wall.xml',(0,0,7000),(0,0,0),1)]},
+                               SimpleNamespace(get=lambda path:wall))
+        scene.doors=geometry
+        ray=((50,-30,7100),(50,30,7100))
+        self.assertFalse(geometry.blocks(*ray))
+        self.assertFalse(scene.clear(*ray))
 
     def test_catalogue_uses_three_original_rotations_and_does_not_treat_glass_as_a_door(self):
         with tempfile.TemporaryDirectory() as folder:
