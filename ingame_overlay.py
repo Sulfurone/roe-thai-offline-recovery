@@ -16,7 +16,7 @@ from ingame_client import MailboxClient,nearby_hint
 from offline_control import WEATHER_NAMES, WEAPON_NAMES, AMMO_NAMES
 from offline_weapons import WEAPONS
 from offline_items import SPAWNABLE_EXTRA_ITEMS as EXTRA_ITEMS
-from offline_vehicles import LAND_VEHICLES
+from offline_vehicles import SPAWNABLE_LAND_VEHICLES as LAND_VEHICLES
 
 
 class OverlayProcess(AbstractContextManager):

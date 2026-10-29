@@ -7,9 +7,9 @@ import unittest
 from unittest.mock import patch
 
 from offline_items import SPAWNABLE_EXTRA_ITEMS as EXTRA_ITEMS
-from offline_vehicles import LAND_VEHICLES
+from offline_vehicles import SPAWNABLE_LAND_VEHICLES as LAND_VEHICLES
 from offline_control import ControlHub,validate_command
-from control_actions import ControlSession
+from control_actions import ControlSession,vehicle_spawn
 from offline_world_state import restore,snapshot
 from ingame_bridge import IngameMailbox
 from ingame_client import MailboxClient
@@ -17,6 +17,38 @@ from test_control_panel import ready_game,jeep_template
 
 
 class ExtraItemTests(unittest.TestCase):
+    def test_motorbike_rejected_before_allocating_or_sending_vehicle(self):
+        game=ready_game()
+        control=ControlSession(game,jeep_template())
+        next_uid=control.next_vehicle_uid
+        with self.assertRaisesRegex(ValueError,'车轮'):
+            validate_command(dict(action='vehicle',config=108))
+        with self.assertRaisesRegex(ValueError,'车轮'):
+            control.execute(dict(action='vehicle',config=108))
+        # Automatic spawning has its own entry, bypassing menu validation.
+        with self.assertRaisesRegex(ValueError,'车轮'):
+            control.spawn_vehicle(game.player_position,108)
+        with self.assertRaisesRegex(ValueError,'车轮'):
+            vehicle_spawn(jeep_template(),next_uid,game.player_position,108)
+        self.assertEqual(control.next_vehicle_uid,next_uid)
+        self.assertEqual(control.vehicles,{})
+
+    def test_mixed_roadside_population_keeps_other_models_without_motorbike(self):
+        import random
+        from offline_population import WorldPopulation
+        from test_population import Surface
+        configs=set()
+        for seed in range(32):
+            game=ready_game()
+            game.player_position=(100000,200000,7250)
+            control=ControlSession(game,jeep_template())
+            population=WorldPopulation(control,Surface(),extra_items=True)
+            replies=population.try_vehicles(game.player_position,random.Random(seed),(0,0))
+            self.assertEqual(sum(m==0x654b for m,_ in replies),3)
+            configs.update(car.vehicle_config for car in control.vehicles.values())
+        self.assertNotIn(108,configs)
+        self.assertEqual(configs,set(range(101,108)))
+
     def test_spawn_pickup_equip_and_drop_preserve_identity(self):
         game=ready_game()
         control=ControlSession(game)

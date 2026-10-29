@@ -12,7 +12,7 @@ import time
 from offline_environment import NATIVE_WEATHER_IDS
 from offline_weapons import WEAPONS
 from offline_items import EXTRA_ITEMS,SPAWNABLE_EXTRA_ITEMS
-from offline_vehicles import LAND_VEHICLES
+from offline_vehicles import LAND_VEHICLES, SPAWNABLE_LAND_VEHICLES, UNAVAILABLE_LAND_VEHICLES
 
 WEATHER_NAMES = dict(zip(sorted(NATIVE_WEATHER_IDS), (
     '原生默认', '晴天', '小雨', '大雨', '雷雨', '雷电', '阴天', '大风',
@@ -59,6 +59,8 @@ def validate_command(data):
         if set(data) - {'action', 'config', 'distance'}:
             raise ValueError('未知载具参数')
         config=integer(data,'config',min(LAND_VEHICLES),max(LAND_VEHICLES),101)
+        if config not in SPAWNABLE_LAND_VEHICLES:
+            raise ValueError(UNAVAILABLE_LAND_VEHICLES.get(config,'不支持的地面载具'))
         return dict(action=action, config=config,
                     distance=integer(data, 'distance', 5, 20, 6))
     if action=='item':

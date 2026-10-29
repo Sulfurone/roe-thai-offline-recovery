@@ -10,7 +10,7 @@ from offline_gameplay import OfflineGameplay, TYPED_VEHICLE_UID, TYPED_ACTOR_UID
 from offline_ground_loot import MAX_GROUND_STACKS
 from offline_inventory import Item
 from offline_weapons import WEAPONS
-from offline_vehicles import LAND_VEHICLES
+from offline_vehicles import LAND_VEHICLES, SPAWNABLE_LAND_VEHICLES, UNAVAILABLE_LAND_VEHICLES
 from offline_items import EXTRA_ITEMS
 import offline_world_state
 
@@ -25,8 +25,8 @@ def vehicle_spawn(template, uid, position, config=101):
         raise ValueError('吉普车样本名称边界无效')
     if struct.unpack_from('>I', template, start)[0] != 101:
         raise ValueError('载具样本必须是 config 101 吉普车')
-    if config not in LAND_VEHICLES:
-        raise ValueError('不支持的地面载具')
+    if config not in SPAWNABLE_LAND_VEHICLES:
+        raise ValueError(UNAVAILABLE_LAND_VEHICLES.get(config,'不支持的地面载具'))
     if len(position) != 3 or any(type(v) is not int or abs(v) >= 2_000_000 for v in position):
         raise ValueError('载具坐标越界')
     body = bytearray(template)
