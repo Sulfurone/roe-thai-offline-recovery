@@ -68,6 +68,10 @@ class Windows:
         self.user.GetAsyncKeyState.restype = wt.SHORT
         self.user.GetAncestor.argtypes = [wt.HWND, wt.UINT]
         self.user.GetAncestor.restype = wt.HWND
+        self.user.GetWindowLongW.argtypes = [wt.HWND,ctypes.c_int]
+        self.user.GetWindowLongW.restype = wt.LONG
+        self.user.SetWindowLongW.argtypes = [wt.HWND,ctypes.c_int,wt.LONG]
+        self.user.SetWindowLongW.restype = wt.LONG
         self.user.GetClientRect.argtypes = [wt.HWND, ctypes.POINTER(wt.RECT)]
         self.user.ClientToScreen.argtypes = [wt.HWND, ctypes.POINTER(wt.POINT)]
         self.user.RegisterHotKey.argtypes = [wt.HWND, ctypes.c_int, wt.UINT, wt.UINT]
@@ -114,6 +118,15 @@ class Windows:
         return (foreground == game or self.user.GetAncestor(foreground,2)==game
                 or foreground_pid.value == os.getpid()
                 or bool(game_pid.value and foreground_pid.value==game_pid.value))
+
+    def no_activate(self,window_id):
+        """A compact mouse entry must never become the keyboard foreground."""
+        hwnd=self.user.GetAncestor(window_id,2)
+        if not hwnd:raise OSError('Menu entry window is unavailable')
+        style=self.user.GetWindowLongW(hwnd,-20)
+        ctypes.set_last_error(0)
+        previous=self.user.SetWindowLongW(hwnd,-20,style|0x08000000|0x80)
+        if not previous and ctypes.get_last_error():raise ctypes.WinError(ctypes.get_last_error())
 
 
 class Hotkey:
@@ -171,6 +184,7 @@ class Overlay:
         self.ever_found, self.geometry = False, None
         self.missing_since = None
         self.f6_down, self.f6_armed, self.last_toggle = False, False, 0.0
+        self.input_context = None
         self.parent = (self.win.kernel.OpenProcess(0x100000, False, args.parent_pid)
                        if args.parent_pid else None)
         self.buttons = []
@@ -250,6 +264,16 @@ class Overlay:
             self.result.set('F6 已被其他程序占用，可点击“收起”与悬浮按钮。')
         self.root.after(200, self.tick)
         self.root.after(40, self.poll_f6)
+        self.entry=tk.Toplevel(self.root)
+        self.entry.withdraw()
+        self.entry.title('ROE 离线控制入口')
+        self.entry.overrideredirect(True)
+        self.entry.attributes('-topmost',True)
+        self.entry.attributes('-toolwindow',True)
+        ttk.Button(self.entry,text='离线控制 · 点击',command=self.toggle,takefocus=False).pack(fill='both',expand=True)
+        self.entry.update_idletasks()
+        self.win.no_activate(self.entry.winfo_id())
+        self.entry_geometry=None
 
     def combo(self, parent, label, variable, values):
         self.ttk.Label(parent, text=label).pack(anchor='w', pady=(0, 5))
@@ -309,11 +333,11 @@ class Overlay:
     def send_item(self):
         self.submit(dict(action='item',template=next(i for i,s in EXTRA_ITEMS.items() if s.name==self.extra_item.get()),count=1,distance=3))
 
-    def toggle(self):
+    def toggle(self,source='button'):
         for combo in self.combos:
             self.root.tk.call('ttk::combobox::Unpost', str(combo))
         self.expanded = not self.expanded
-        print(f'OVERLAY_EXPANDED={int(self.expanded)}', flush=True)
+        print(f'OVERLAY_EXPANDED={int(self.expanded)} source={source}', flush=True)
         self.toggle_button.configure(text='收起 · F6' if self.expanded else '展开 · F6')
         if self.expanded:
             self.body.pack(fill='both', expand=True, before=self.shell.winfo_children()[-1])
@@ -322,6 +346,7 @@ class Overlay:
         self.geometry = None
         if self.game:
             if self.expanded:
+                self.entry.withdraw()
                 self.root.deiconify()
                 self.root.lift()
                 self.root.focus_force()
@@ -335,7 +360,7 @@ class Overlay:
             if now - self.last_toggle >= .3:
                 self.last_toggle = now
                 print('F6_TOGGLE ' + source, flush=True)
-                self.toggle()
+                self.toggle('f6:'+source)
         else:
             print(f'F6_INACTIVE source={source} game={self.game}',flush=True)
 
@@ -347,6 +372,12 @@ class Overlay:
         # Flush old key state when entering game focus, then retain both quick
         # taps and rising edges while that game/overlay process is foreground.
         active=bool(self.args.preview or self.game and self.win.active(self.game))
+        foreground=self.win.user.GetForegroundWindow()
+        context=(self.game,foreground,active,self.expanded)
+        if context!=self.input_context or state:
+            print(f'F6_WATCH game={self.game} foreground={foreground} active={int(active)} '
+                  f'armed={int(self.f6_armed)} state={state} expanded={int(self.expanded)}',flush=True)
+            self.input_context=context
         if active and self.f6_armed and (state & 1 or down and not self.f6_down):
             self.request_toggle('key-state')
         self.f6_armed=active
@@ -391,6 +422,15 @@ class Overlay:
             else:
                 bounds = self.win.bounds(game) if game else None
                 visible = bool(self.expanded and game and bounds and not self.win.user.IsIconic(game) and self.win.active(game))
+            entry_visible=bool(not self.args.preview and not self.expanded and game and bounds
+                               and not self.win.user.IsIconic(game) and self.win.active(game))
+            if entry_visible:
+                x,y,width,height=bounds
+                entry_geometry=f'140x34{x+max(8,width-164):+d}{y+min(45,max(0,height-34)):+d}'
+                if entry_geometry!=self.entry_geometry:
+                    self.entry.geometry(entry_geometry);self.entry_geometry=entry_geometry
+                if self.entry.state()=='withdrawn':self.entry.deiconify()
+            elif self.entry.state()!='withdrawn':self.entry.withdraw()
             if self.dropdown_open():
                 # Keep a posted combobox's focus and geometry untouched. In
                 # particular, wm deiconify on an already visible Tk window

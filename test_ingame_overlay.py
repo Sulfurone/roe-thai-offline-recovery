@@ -28,6 +28,12 @@ def menu(preview=False,collapsed=False):
     args=SimpleNamespace(preview=preview,collapsed=collapsed,session=None,parent_pid=None,game_pid=None)
     tk,ttk=ModuleType('tkinter'),ModuleType('tkinter.ttk')
     tk.Tk=lambda:root;tk.StringVar=tk.IntVar=Variable
+    tk.Toplevel=MagicMock()
+    entry_state={'value':'withdrawn'}
+    entry=tk.Toplevel.return_value
+    entry.state.side_effect=lambda:entry_state['value']
+    entry.withdraw.side_effect=lambda:entry_state.update(value='withdrawn')
+    entry.deiconify.side_effect=lambda:entry_state.update(value='normal')
     tk.TclError=type('TclError',(Exception,),{});tk.ttk=ttk
     for name in ('Style','Frame','Notebook','Label','Button','Combobox','Spinbox','Separator'):
         setattr(ttk,name,MagicMock())
@@ -62,6 +68,21 @@ class IngameOverlayTests(unittest.TestCase):
         overlay.root.focus_force.assert_not_called()
         overlay.root.geometry.assert_not_called()
         overlay.win.user.SetForegroundWindow.assert_not_called()
+        overlay.win.no_activate.assert_called_once()
+        overlay.entry.focus_force.assert_not_called()
+        overlay.entry.deiconify.assert_called_once_with()
+
+    def test_mouse_entry_hides_outside_game_and_never_opens_the_panel_on_return(self):
+        overlay=menu();overlay.tick()
+        self.assertEqual(overlay.entry.state(),'normal')
+        overlay.win.active.return_value=False
+        overlay.tick()
+        self.assertEqual(overlay.entry.state(),'withdrawn')
+        overlay.win.active.return_value=True
+        overlay.tick()
+        self.assertEqual(overlay.entry.state(),'normal')
+        overlay.root.deiconify.assert_not_called()
+        overlay.root.focus_force.assert_not_called()
 
     def test_explicit_open_close_hides_window_and_ready_does_not_reopen_it(self):
         overlay=menu();overlay.game=123
@@ -98,6 +119,15 @@ class IngameOverlayTests(unittest.TestCase):
         ids[124]=78;self.assertFalse(win.active(123))
         win.user.GetAncestor.return_value=123;self.assertTrue(win.active(123))
         self.assertFalse(win.active(None))
+
+    def test_compact_mouse_entry_uses_no_activate_style_without_foreground_calls(self):
+        win=Windows.__new__(Windows);win.user=MagicMock()
+        win.user.GetAncestor.return_value=123
+        win.user.GetWindowLongW.return_value=0x100
+        win.user.SetWindowLongW.return_value=0x100
+        win.no_activate(124)
+        win.user.SetWindowLongW.assert_called_once_with(123,-20,0x08000180)
+        win.user.SetForegroundWindow.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()
