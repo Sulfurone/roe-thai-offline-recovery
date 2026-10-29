@@ -28,3 +28,36 @@ AMMO_STACK_MAX=999  # Original ItemTable nPackMax for these ammunition items.
 def is_weapon(item):
     spec=WEAPONS.get(item.template)
     return spec is not None and item.kind==spec.kind and item.count==1
+
+# WeaponInfo suffix +444/+448 and WeaponParams +1E8; original float32 values.
+RELOAD_TIMINGS={
+    10101:(3.1700000762939453,1.0,0),
+    10102:(3.4000000953674316,1.0,0),
+    10103:(3.1700000762939453,1.0,0),
+    10104:(2.130000114440918,1.0,0),
+    10105:(2.6700000762939453,1.0,0),
+    10201:(1.899999976158142,1.0,0),
+    10202:(2.25,1.0,0),
+    10203:(1.5,1.0,0),
+    10204:(1.600000023841858,1.0,0),
+    10205:(2.25,1.0,0),
+    10207:(1.7000000476837158,1.0,0),
+    10301:(1.899999976158142,1.0,0),
+    10302:(1.9333300590515137,1.0,0),
+    10303:(1.399999976158142,1.0,0),
+    10401:(1.2599999904632568,0.699999988079071,1),
+    10402:(1.9700000286102295,1.0,0),
+    10403:(1.6299999952316284,1.0,0),
+    20001:(1.2699999809265137,1.0,0),
+    20002:(1.2699999809265137,1.0,0),
+    20003:(1.899999976158142,1.0,0),
+}
+
+
+def reload_duration(template,amount):
+    spec=WEAPONS[template]
+    if type(amount) is not int or not 1<=amount<=spec.capacity:
+        raise ValueError("Reload transfer must fit the firearm capacity")
+    base,extra,mode=RELOAD_TIMINGS[template]
+    # Original 12D6466..12D64A1: type 1 adds time for each further shell.
+    return base+(amount-1)*extra if mode==1 else base

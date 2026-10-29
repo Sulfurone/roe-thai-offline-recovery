@@ -62,5 +62,37 @@ class ReloadTimingTests(unittest.TestCase):
         self.assertEqual(g.pending_reload['deadline'],102.5)
         self.assertEqual([m for m,b in g.tick(103)],[0x4a0,0x3e82])
 
+    def test_recovered_magazine_duration_and_r870_round_count(self):
+        g=game();g.reload_seconds=0;g.reload_original=True
+        self.begin(g)
+        self.assertEqual(g.tick(101.89),[])
+        self.assertEqual([m for m,b in g.tick(101.91)],[0x4a0,0x3e82])
+        self.assertEqual((g.magazine,g.inventory.reserve_for(30001)),(26,0))
+        for reserve,wait,loaded in ((5,4.06,5),(2,1.96,2)):
+            g=game();g.reload_seconds=0;g.reload_original=True
+            g.inventory.items={key:replace(item,template=10401 if key==(1,1) else 30004,
+                    count=1 if key==(1,1) else reserve)
+                for key,item in g.inventory.items.items()}
+            g.set_weapon_magazine((1,1),0)
+            self.begin(g)
+            self.assertEqual(g.tick(100+wait-.01),[])
+            self.assertEqual([m for m,b in g.tick(100+wait+.01)],[0x4a0,0x3e82])
+            self.assertEqual((g.magazine,g.inventory.reserve_for(30004)),(loaded,0))
+
+    def test_extra_shells_acquired_during_reload_cannot_skip_their_loading_time(self):
+        g=game();g.reload_seconds=0;g.reload_original=True
+        g.inventory.items={key:replace(item,template=10401 if key==(1,1) else 30004,
+                count=1 if key==(1,1) else 2) for key,item in g.inventory.items.items()}
+        g.set_weapon_magazine((1,1),0)
+        self.begin(g)
+        for key,item in list(g.inventory.items.items()):
+            if item.template==30004:g.inventory.items[key]=replace(item,count=5)
+        g.tick(102)
+        self.assertEqual((g.magazine,g.inventory.reserve_for(30004)),(2,3))
+        self.begin(g,103)
+        self.assertEqual(g.tick(105.65),[])
+        g.tick(105.67)
+        self.assertEqual((g.magazine,g.inventory.reserve_for(30004)),(5,0))
+
 
 if __name__=='__main__':unittest.main()

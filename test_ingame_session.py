@@ -77,7 +77,10 @@ class IngameSessionTests(unittest.TestCase):
     def test_reload_wait_and_switch_cancel_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',timed_reload=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False):
+    def test_recovered_reload_duration_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay',timed_reload=True,original_reload=True)
+
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -94,7 +97,7 @@ class IngameSessionTests(unittest.TestCase):
                     '--gameplay-prototype', '--gameplay-inventory', '--gameplay-ground-loot']
             if posture:
                 argv.append('--gameplay-posture-speeds')
-            if timed_reload:argv.extend(['--gameplay-reload-seconds','.3'])
+            if timed_reload:argv.extend(['--gameplay-original-reload'] if original_reload else ['--gameplay-reload-seconds','.3'])
             if vitals:
                 argv.append('--gameplay-vitals')
             if throws:
@@ -386,7 +389,7 @@ class IngameSessionTests(unittest.TestCase):
                         send(0x11d3,shot);send(0x49c,struct.pack('>I',1))
                         self.assertEqual(receive(),(0x49d,struct.pack('>II',1,0)))
                         send(0x49e,bytes(4))
-                        client.settimeout(.6)
+                        client.settimeout(2.1 if original_reload else .6)
                         with self.assertRaises(socket.timeout):read_frame(client)
                         client.settimeout(4)
                         self.assertEqual(games[0].inventory.weapon_magazines[0x100101],29)

@@ -116,6 +116,8 @@ def main():
     parser.add_argument('--gameplay-vitals',action='store_true',help='Initialize original HP once and handle timed medicine-use candidates')
     parser.add_argument('--gameplay-reload-seconds',type=float,default=0,
                         help='Local reload wait before ammo transfer; 0 retains the protocol baseline')
+    parser.add_argument('--gameplay-original-reload',action='store_true',
+                        help='Use recovered per-gun base reload time and ReloadType duration formula')
     parser.add_argument('--world-bot-combat',action='store_true',
                         help='Experimental consumed-shot/collision damage against local peers; no combat AI')
     parser.add_argument('--world-bot-ai',action='store_true',
@@ -216,9 +218,11 @@ def main():
     parser.add_argument('--key-hex', default='00' * 16,
                         help='Test session key; not yet established for this client')
     args = parser.parse_args()
-    if (not 0<=args.gameplay_reload_seconds<=60 or args.gameplay_reload_seconds and
+    if (not 0<=args.gameplay_reload_seconds<=60 or (args.gameplay_reload_seconds or args.gameplay_original_reload) and
             not (args.gameplay_prototype and args.gameplay_inventory)):
         parser.error('Timed reload needs prototype/inventory and a finite duration in 0..60 seconds')
+    if args.gameplay_original_reload and args.gameplay_reload_seconds:
+        parser.error('Choose recovered gun durations or a fixed reload duration, not both')
     if args.ingame_menu_collapsed and not args.ingame_overlay:
         parser.error('--ingame-menu-collapsed requires --ingame-overlay')
     if args.aircraft_align_heading and args.gameplay_aircraft_route_end is None:
@@ -538,7 +542,7 @@ def main():
                                            args.environment_weather_transition,
                                            args.environment_weather_ready_delay)
                            if args.environment_weather is not None else None)
-                gameplay = OfflineGameplay(reload_seconds=args.gameplay_reload_seconds,vitals_enabled=args.gameplay_vitals,throwables_enabled=args.gameplay_throwables,auto_board=args.gameplay_auto_seat,
+                gameplay = OfflineGameplay(reload_original=args.gameplay_original_reload,reload_seconds=args.gameplay_reload_seconds,vitals_enabled=args.gameplay_vitals,throwables_enabled=args.gameplay_throwables,auto_board=args.gameplay_auto_seat,
                     auto_board_delay=args.gameplay_auto_board_delay,
                     magazine=args.gameplay_starting_magazine,
                     inventory_enabled=args.gameplay_inventory,state_file=args.gameplay_state_file,
