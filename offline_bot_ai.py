@@ -145,7 +145,8 @@ class BotAI:
             # standing head height. Exact pose-dependent capsules are pending.
             target=(*g.player_position[:2],g.player_position[2]+35)
             distance=math.dist(point,g.player_position)
-            visible=distance<=self.DETECT_DISTANCE and self.visibility.clear(origin,target)
+            sight=getattr(self.visibility,'sight_clear',self.visibility.clear)
+            visible=distance<=self.DETECT_DISTANCE and sight(origin,target)
             if not visible:
                 brain.phase='search'
                 if brain.target is not None and now-brain.last_seen<=5:

@@ -19,6 +19,8 @@ from offline_inventory import Item
 from test_throwables import start as throw_start,finish as throw_finish
 from test_medicine import request as medicine_request
 from test_hit_reports import hit_body
+from test_collision_assets import collision_xml,sfc
+from offline_collision_assets import sfc_path_key
 from test_offline_motion import move_body, plane_body
 from test_control_panel import jeep_template
 from offline_bots import POSITION_MARKER,BotRoster
@@ -67,7 +69,10 @@ class IngameSessionTests(unittest.TestCase):
     def test_native_throw_completion_applies_self_blast_once_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,throws=True,blast=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False):
+    def test_collision_assets_prepared_before_encrypted_throw_session(self):
+        self.run_session('--ingame-overlay',population=True,vitals=True,throws=True,blast=True,collision=True)
+
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -109,6 +114,15 @@ class IngameSessionTests(unittest.TestCase):
                 argv.extend(['--world-bot-occlusion',str(occlusion)])
                 if ai:argv.append('--world-bot-ai')
                 if blast:argv.append('--world-throwable-combat')
+                if collision:
+                    archive=root/'SFC';archive.mkdir()
+                    model_path='Data/Scene/general/building/Own_Room_collision.xml'
+                    (archive/'Scene_General_Building_Own_Room.sfc').write_bytes(sfc(collision_xml(),sfc_path_key(model_path)))
+                    occlusion.write_text('<r ObjName="x.eu_killzone_2048.ClientTable.RigidStaticInPxScene">'
+                        f'<mItems mID="1" mModelFullPath="{model_path}" mPosX="10000" mPosY="10000" mPosZ="6600" '
+                        'mRotateX="0" mRotateY="0" mRotateZ="0" mScale="1" '
+                        'mBoundingX="10000" mBoundingY="10000" mBoundingZ="6600" mBoundingRadius="200"/></r>')
+                    argv.extend(['--world-collision-archives',str(archive)])
             if interface == '--ingame-overlay':
                 world = root / 'world.bin'
                 original_world = struct.pack('>III', 0, 1, 0) + bytes(18)
@@ -440,6 +454,9 @@ class IngameSessionTests(unittest.TestCase):
                 rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
                 hits=[r for r in rows if r.get('event')=='throwable_combat' and r.get('action')=='blast_hit']
                 self.assertEqual([(r['target_uid'],r['current']) for r in hits],[(256,0)])
+                if collision:
+                    ready=[r for r in rows if r.get('event')=='world_collision_ready']
+                    self.assertEqual([(r['models'],r['shapes'],r['fallback_models']) for r in ready],[(1,2,0)])
             if combat and not ai:
                 rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
                 changes=[r for r in rows if r.get('event')=='bot_combat']

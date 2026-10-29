@@ -122,6 +122,8 @@ def main():
                         help='Experimental native-range frag blast damage with terrain/static screening')
     parser.add_argument('--world-bot-occlusion',type=Path,
                         help='Thai static scene XML; defaults to the selected client map scene')
+    parser.add_argument('--world-collision-archives',type=Path,
+                        help='Owned Thai SFC directory for source static primitives; unknown models use bounds')
     parser.add_argument('--gameplay-throwables',action='store_true',help='Acknowledge native throws, consume one item and complete original effects')
     parser.add_argument('--gameplay-posture-speeds',action='store_true',
                         help='Sparse local crouch/prone tuning after player readiness; standing stays unchanged')
@@ -308,11 +310,13 @@ def main():
         if occlusion is None or population_surface is None:
             parser.error('Local combat needs a Thai static scene and population terrain')
         try:
-            bot_visibility=StaticVisibility.from_scene(population_surface,occlusion)
+            bot_visibility=StaticVisibility.from_scene(population_surface,occlusion,args.world_collision_archives)
         except (OSError,ValueError,TypeError) as error:
             parser.error(f'Cannot prepare local combat visibility: {error}')
     elif args.world_bot_occlusion is not None:
         parser.error('--world-bot-occlusion requires --world-bot-ai or --world-throwable-combat')
+    if args.world_collision_archives is not None and bot_visibility is None:
+        parser.error('--world-collision-archives requires local bot AI or throwable combat')
     landing_height=None
     if args.gameplay_opening_glider_file is not None:
         if not args.gameplay_opening_airdrop or args.gameplay_landing_terrain is None:
@@ -557,6 +561,9 @@ def main():
                     extra_items=args.world_extra_items) if args.world_populate else None
                 ai=BotAI(gameplay,bots,population,bot_visibility) if args.world_bot_ai else None
                 blast=BlastCombat(gameplay,bots,bot_visibility) if args.world_throwable_combat else None
+                if bot_visibility is not None and bot_visibility.assets is not None:
+                    emit('world_collision_ready',**bot_visibility.assets.summary,
+                         scope='Owned source primitives; unmatched shapes use conservative bounds; dynamic doors pending')
                 if population is not None:
                     emit('world_population_ready',seed=args.world_seed,door_replies=args.gameplay_doors,
                          experimental_peers=args.world_bots,scope='Synthetic finite scenario, not original AI/collision')

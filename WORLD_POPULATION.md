@@ -48,3 +48,5 @@ python -m unittest test_client_map test_population test_ingame_session -q
 - `6F57` 为对象 ID、期望状态两个 BE DWORD。泰服 `6F55` 使用 DWORD 状态和数量，且部件列表不能为空；不能复制 2022 示例的字节布局。本轮开关门已获实机确认，破坏物件与门持久化尚未恢复。
 - `565` 单条列表为 22 字节；`BE7` mode 3 资料由原 writer `DC5790` 生成，`1285290` 分别转交 `1281F30` 和 `1284C90`。本地原配置 `mNetflowOptimize=true`，无需改客户端开关。
 - 泰服 `27` 位置广播为 36 字节；`2B` 是另一 12 字节消息。必须检查完整消息消费量，不能只看原生返回码为零。
+
+静态阻挡进一步查询已匹配的自有原始物理形状，未匹配模型保留包围球，加载在游戏启动前完成；当前范围和动态门窗限制见[COLLISION.md](COLLISION.md)。
