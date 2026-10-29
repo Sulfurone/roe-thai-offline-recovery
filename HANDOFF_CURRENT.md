@@ -294,3 +294,5 @@ python probes/validate_posture_speeds.py
 投掷测试窗口仍在保留；截至14:01未收到新的装备/1004/1007请求，没有本轮新投掷视觉结论。继续独立核对完整单机对局的区域接口：047B原回调128D890，原DD32E0/DD3210编解码36字节IfIiifiif；原阶段0与阶段2算术已离线执行，证明偏移4为elapsed float、偏移8为total DWORD，阶段2按elapsed/total插值。这两个字段不是环境时钟epoch，初步时间猜测经原函数反例已纠正。
 
 新增offline_zones.py、test_zones.py、probes/validate_zone_state.py与MATCH_ZONES.md；2项专项和原生reader/writer/0%、25%、50%、100%原算术通过，尚未重跑新增模块后的完整套件。没有接入默认入口或正在运行的回合；圆接口是否属于本目标模式原版区域规则、完整阶段提示/计时/分区/扣血/撤离/结算仍未完成。现有282本地/224公开基线结论不变，不应宣称完整单机目标已完成。
+
+区域补证：原13186A0在模拟时钟123.5下，将total120/elapsed30写成remaining90及clock anchor123.5。10项区域/投掷装备/弹药收集公开专项通过；没有改正在运行的客户端或启用新的区域玩法。

@@ -61,8 +61,21 @@ for fraction in (0.,.25,.5,1.):
     if received[-1]!=circles[0]+expected_blend+circles[2]:
         raise ValueError(f'Original shrinking interpolation differs: {fraction}, {received[-1]}')
     blends.append(dict(fraction=fraction,circles=received[-1]))
+# Execute original countdown initialization against a synthetic clock source.
+# The clock shim only returns an x87 float; 13186A0 performs the state writes.
+clock_shim,clock_value=0x10902000,0x10902100
+c.uc.mem_write(clock_value,struct.pack('<f',123.5))
+c.uc.mem_write(clock_shim,b'\xd9\x05'+struct.pack('<I',clock_value)+b'\xc3')
+c.external_hooks.update((clock_shim,clock_shim+6))
+def clock(uc,a,s,u):uc.reg_write(UC_X86_REG_EIP,clock_shim)
+c.uc.hook_add(UC_HOOK_CODE,clock,begin=0x13185c0,end=0x13185c0)
+c.invoke(0x13186a0,manager,[120,struct.unpack('<I',struct.pack('<f',30.))[0]])
+remaining=c.read32(manager+0x48)
+clock_anchor=struct.unpack('<f',c.uc.mem_read(manager+0x50,4))[0]
+if remaining!=90 or clock_anchor!=123.5:raise ValueError('Original countdown initialization differs')
 report=dict(passed=True,message='0x047b',body_bytes=len(wire),codec_reader='0xdd32e0',codec_writer='0xdd3210',
     original_phase_zero_circles=phase_zero,original_shrink_interpolation=blends,
+    countdown_initialization=dict(total=120,elapsed=30.,remaining=remaining,synthetic_clock_anchor=clock_anchor),
     limitation='Original codec/writer and phase-zero/phase-two arithmetic to setter boundary; no live map rendering, wall-clock timing, damage, helicopter or match outcome')
 (ROOT/'private/typed-gameplay/zone-state-validation.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf8')
 print(json.dumps(report))
