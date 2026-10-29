@@ -6,7 +6,7 @@ This is an experimental, community-maintained reconstruction for the original Ga
 
 ## 当前进度与边界
 
-当前交互延迟排查见[SERVICE_PERFORMANCE.md](SERVICE_PERFORMANCE.md)：用户已确认第一轮跳伞无延迟、第二轮拾取和开门及时；后续摩托车车轮资源报错已通过暂时隔离108车型处理，资源根因及重启结果仍待核对。
+当前交互延迟排查见[SERVICE_PERFORMANCE.md](SERVICE_PERFORMANCE.md)：用户已确认第一轮跳伞无延迟、第二轮拾取和开门及时；后续暂时隔离108摩托车后，用户已确认不再报错、交互仍正常；摩托车车轮资源根因仍待修复。
 
 只读脚点、丢弃再拾取和沿途高密度物资已获用户实机确认，见[实时位置与流式生成](POSITION_STREAMING.md)。主入口需先构建自有只读观测库；原DLL按哈希备份、转发和恢复。背包增量仍为128行；地面实体为自动384/总512，远处自动对象会回收。
 
