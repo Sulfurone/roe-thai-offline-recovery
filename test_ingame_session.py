@@ -74,7 +74,10 @@ class IngameSessionTests(unittest.TestCase):
     def test_collision_assets_prepared_before_encrypted_throw_session(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,throws=True,blast=True,collision=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False):
+    def test_reload_wait_and_switch_cancel_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay',timed_reload=True)
+
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -91,6 +94,7 @@ class IngameSessionTests(unittest.TestCase):
                     '--gameplay-prototype', '--gameplay-inventory', '--gameplay-ground-loot']
             if posture:
                 argv.append('--gameplay-posture-speeds')
+            if timed_reload:argv.extend(['--gameplay-reload-seconds','.3'])
             if vitals:
                 argv.append('--gameplay-vitals')
             if throws:
@@ -185,7 +189,7 @@ class IngameSessionTests(unittest.TestCase):
 
             with patch.object(local_server, '__file__', str(root / 'recovery/local_server.py')), \
                     patch('sys.argv', argv), \
-                    (patch.object(local_server,'OfflineGameplay',side_effect=construct_game) if throws or medicine or hit_reports or combat else contextlib.nullcontext()), \
+                    (patch.object(local_server,'OfflineGameplay',side_effect=construct_game) if throws or medicine or hit_reports or combat or timed_reload else contextlib.nullcontext()), \
                     (patch.object(local_server,'BotCombat',side_effect=construct_combat) if combat else contextlib.nullcontext()), \
                     (patch.object(local_server,'BotAI',side_effect=construct_ai) if ai else contextlib.nullcontext()), \
                     (patch.object(local_server,'StaticVisibility',SimpleNamespace(from_scene=construct_visibility)) if collision else contextlib.nullcontext()), \
@@ -367,6 +371,26 @@ class IngameSessionTests(unittest.TestCase):
                         name_length = struct.unpack_from('>I', jeep, 8)[0]
                         self.assertEqual(struct.unpack_from('>3i', jeep, 24 + name_length),
                                          (334400, 280000, 9100))
+                    if timed_reload:
+                        shot=struct.pack('>6fIB',325800,271700,6600,327000,271700,6600,0,0)
+                        send(0x11d3,shot)
+                        send(0x49c,struct.pack('>I',1))
+                        self.assertEqual(receive(),(0x49d,struct.pack('>II',1,0)))
+                        self.assertEqual(games[0].magazine,29)
+                        client.settimeout(.1)
+                        with self.assertRaises(socket.timeout):read_frame(client)
+                        client.settimeout(4)
+                        self.assertEqual(receive_raw()[0],0x4a0)
+                        self.assertEqual(receive_raw()[0],0x3e82)
+                        self.assertEqual((games[0].magazine,games[0].inventory.reserve_for(30001)),(30,119))
+                        send(0x11d3,shot);send(0x49c,struct.pack('>I',1))
+                        self.assertEqual(receive(),(0x49d,struct.pack('>II',1,0)))
+                        send(0x49e,bytes(4))
+                        client.settimeout(.6)
+                        with self.assertRaises(socket.timeout):read_frame(client)
+                        client.settimeout(4)
+                        self.assertEqual(games[0].inventory.weapon_magazines[0x100101],29)
+                        self.assertEqual(games[0].inventory.reserve_for(30001),119)
                     if throws:
                         begin,end=throw_start(),throw_finish()
                         endpoint=(326000,271700,6500)

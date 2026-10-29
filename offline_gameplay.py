@@ -100,8 +100,12 @@ class OfflineGameplay:
     throws: Throws = field(default_factory=Throws,init=False)
     medicine: MedicineUse = field(default_factory=MedicineUse,init=False)
     last_medicine_cancel: bool = field(default=False,init=False)
+    reload_seconds: float = 0
+    pending_reload: dict | None = field(default=None,init=False)
 
     def __post_init__(self):
+        if not math.isfinite(self.reload_seconds) or not 0<=self.reload_seconds<=60:
+            raise ValueError('Local reload duration must be between zero and 60 seconds')
         if not math.isfinite(self.auto_board_delay) or not 0<=self.auto_board_delay<=30:
             raise ValueError('Auto-board delay must be between zero and 30 seconds')
         if self.arsenal_enabled and not self.ground_loot_enabled:
@@ -403,11 +407,37 @@ class OfflineGameplay:
         self.player_position = position
         return [(0x6544,reply),self.owner_sync(0)]
 
+    def finish_reload(self,now):
+        pending=self.pending_reload
+        if pending is None:return []
+        key=(1,pending['slot'])
+        item=self.inventory.items.get(key) if self.inventory is not None else None
+        if (not self.actor_ready or self.seated or not self.vitals.current
+                or self.opening_glider is not None and self.opening_glider.seated
+                or self.selected_slot!=pending['slot'] or item is None
+                or (item.uid,item.template)!=(pending['uid'],pending['template'])
+                or self.weapon_magazine(key)!=pending['magazine']):
+            self.pending_reload=None
+            return []
+        if now<pending['deadline']:return []
+        self.pending_reload=None
+        spec=WEAPONS[item.template]
+        amount=min(max(0,spec.capacity-pending['magazine']),self.inventory.reserve_for(spec.ammunition))
+        if not amount:return []
+        self.set_weapon_magazine(key,pending['magazine']+amount)
+        reserve=self.inventory.consume(amount,spec.ammunition)
+        self.reserve=self.inventory.reserve
+        return [self.ammo_sync(pending['slot']),reserve]
+
     def tick(self,now=None):
         now=time.monotonic() if now is None else now
         if self.vitals_enabled and self.actor_ready and not self.vitals_sent:
             self.vitals_sent=True
             return [self.vitals.packet(self.actor_uid)]
+        reloaded=self.finish_reload(now)
+        if reloaded:
+            self.save_state()
+            return reloaded
         healing=self.medicine.tick(self.inventory,self.vitals,self.actor_uid,
             self.actor_ready and not self.seated,now)
         if healing:
@@ -544,6 +574,8 @@ class OfflineGameplay:
     def _handle(self, message, body):
         self.last_drop_event=None
         self.last_medicine_cancel=False
+        if message==0x3e80 and body[:1]==b'\3':
+            self.pending_reload=None
         if self.vitals_enabled and not self.vitals.current:
             if message==0x49c and self.valid_length(body,4):
                 return [(0x49d,struct.pack('>II',struct.unpack_from('>I',body)[0],1))]
@@ -648,6 +680,7 @@ class OfflineGameplay:
             slot = struct.unpack_from('>I',body)[0]
             if message == 0x049e:
                 if slot in (0,1,2,3,4,5,6):
+                    if slot!=self.selected_slot:self.pending_reload=None
                     self.selected_slot = slot
                     self.refresh_magazine()
                 # This reports the active slot, not a reload request. 4A0's
@@ -666,6 +699,14 @@ class OfflineGameplay:
             amount = min(max(0,spec.capacity-current),available)
             if amount==0:
                 return [(0x049d,struct.pack('>II',slot,0))]
+            if self.reload_seconds:
+                if (not self.actor_ready or self.seated or not self.vitals.current or item is None
+                        or self.opening_glider is not None and self.opening_glider.seated):
+                    return [(0x049d,struct.pack('>II',slot,1))]
+                if self.pending_reload is None:
+                    self.pending_reload=dict(slot=slot,uid=item.uid,template=item.template,
+                        magazine=current,deadline=time.monotonic()+self.reload_seconds)
+                return [(0x049d,struct.pack('>II',slot,0))]
             if self.inventory is None:
                 self.magazine += amount
             else:
@@ -683,6 +724,7 @@ class OfflineGameplay:
             if (body[28] != 0 or not all(math.isfinite(x) for x in coords)
                     or sum((a-b)**2 for a,b in zip(coords[:3],coords[3:]))<1e-12):
                 return []
+            if self.magazine>0:self.pending_reload=None
             self.set_weapon_magazine((1,self.selected_slot),
                                      max(0,self.weapon_magazine((1,self.selected_slot))-1))
             if self.inventory is None:
