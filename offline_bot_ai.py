@@ -107,8 +107,11 @@ class BotAI:
         retry=self.last_retries!=self.bots.retries
         self.last_retries=self.bots.retries
         fresh=(g.actor_ready and not g.seated and g.vitals.current>0 and g.has_fresh_self_position(now))
-        floor=self.population.terrain.height_at(*g.player_position[:2]) if fresh else None
-        active=fresh and floor is not None and math.isfinite(floor) and -30<=g.player_position[2]-floor<=250
+        # Terrain is not the player's current floor. Upper stories, rooftops
+        # and jumping can be several metres above it and remain valid targets.
+        # Airborne distance and occlusion are handled by the actual aim ray;
+        # seated aircraft/vehicles, dead/unready and stale targets stay paused.
+        active=fresh
         for index,(uid,actor) in enumerate(self.bots.actors.items()):
             brain=self.brains.setdefault(uid,Brain(uid,now,0x2000000000100+index))
             if not self.bots.vitals[uid].current:

@@ -12,9 +12,20 @@ typedef struct {
     float xyz[3];
     unsigned char code[64];
 } Sample;
+typedef struct {
+    uint32_t low,high,status,actor,vtable,flags,removed,body,interest;
+    float xyz[3];
+} PeerRow;
+typedef struct {
+    char magic[8],token[32];
+    uint32_t pid,sequence,count;
+    uint32_t hp_status,current,maximum,death_tag;
+    PeerRow rows[4];
+} PeerSample;
 #pragma pack(pop)
 _Static_assert(sizeof(void*)==4,"Build for x86");
 _Static_assert(sizeof(Sample)==136,"Position sample layout changed");
+_Static_assert(sizeof(PeerSample)==260,"Peer diagnostic layout changed");
 
 static int self_read(uintptr_t address,void *out,SIZE_T size) {
     SIZE_T read=0;
@@ -203,10 +214,101 @@ static uintptr_t position_pointer(uintptr_t fn,uintptr_t component,uintptr_t bas
     return resolve_pointer(fn,component,base,sample,0);
 }
 
+/* Read-only copies of the own build's F074E0 scene and 1365120 interest
+ * hash lookups. No game function is called, no scan outside four local bot
+ * IDs is made. Return -1 on unavailable/malformed/changing data, 0 absent,
+ * 1 present. Bounds also stop cycles and never divide by a zero count. */
+static int hash_node(uintptr_t table,unsigned buckets_offset,unsigned count_offset,
+                     unsigned next_offset,uint32_t low,uint32_t high,uint32_t *found) {
+    uint32_t buckets=0,count=0,node=0,sentinel=0;
+    *found=0;
+    if(!self_read(table+buckets_offset,&buckets,4) ||
+       !self_read(table+count_offset,&count,4) || !count || count>1048576u ||
+       !self_read(buckets+count*4,&sentinel,4) ||
+       !self_read(buckets+(low%count)*4,&node,4))return -1;
+    for(unsigned step=0;node && node!=sentinel && step<128;step++) {
+        uint32_t key[2],next=0;
+        if(!self_read(node,key,8))return -1;
+        if(key[0]==low && key[1]==high) {*found=node;return 1;}
+        if(!self_read(node+next_offset,&next,4) || next==node)return -1;
+        node=next;
+    }
+    return !node || node==sentinel?0:-1;
+}
+
+static int valid_xyz(float values[3]) {
+    for(int i=0;i<3;i++)if((u32((unsigned char*)&values[i])&0x7f800000u)==0x7f800000u ||
+        values[i]<=-2000000.f || values[i]>=2000000.f)return 0;
+    return values[0]!=0.f || values[1]!=0.f;
+}
+
+static void peer_rows(uintptr_t manager,uintptr_t base,PeerSample *out) {
+    uint32_t scene=0;
+    self_read(manager+0x1c,&scene,4);
+    for(unsigned i=0;i<4;i++) {
+        PeerRow *row=out->rows+i;
+        clear_bytes(row,sizeof(*row));
+        row->low=0x1100+i;row->high=0x10000;row->status=1;
+        uint32_t node=0,vt=0,getter=0;
+        int present=hash_node(base+0x2aedc90,4,8,0x30,row->low,row->high,&node);
+        row->interest=present<0?2:(uint32_t)present;
+        if(!scene)continue;
+        present=hash_node(scene,0x50,0x54,0x10,row->low,row->high,&node);
+        row->status=present<0?4:2;
+        if(present!=1 || !self_read(node+8,&row->actor,4) || !row->actor)continue;
+        row->status=3;
+        unsigned char removed=0;
+        if(!self_read(row->actor,&row->vtable,4) ||
+           !self_read(row->actor+0x2f8,&row->flags,4) ||
+           !self_read(row->actor+0x40f,&removed,1)) {row->status=4;continue;}
+        row->removed=removed;
+        if(removed) {row->status=5;continue;}
+        Sample diagnostic;clear_bytes(&diagnostic,sizeof(diagnostic));
+        if(self_read(row->vtable+0xa4,&getter,4))
+            row->body=(uint32_t)resolve_pointer(getter,row->actor,base,&diagnostic,0);
+        if(self_read(row->actor+0x10,&vt,4) && self_read(vt+0x6c,&getter,4)) {
+            uintptr_t pos=position_pointer(getter,row->actor+0x10,base,&diagnostic);
+            float xyz[3];
+            if(pos && self_read(pos,xyz,sizeof(xyz)) && valid_xyz(xyz)) {
+                copy_bytes(row->xyz,xyz,sizeof(xyz));row->status=0;
+            }
+        }
+    }
+}
+
+/* Original 108D720 -> 113E2C0 -> 113C6A0 property lookup and 139FA40
+ * HP decoding, read only. A successful server send alone does not prove
+ * the own actor consumed it. No object construction/initialization here. */
+static void player_health(uintptr_t base,PeerSample *out) {
+    uint32_t root=0,table=0,node=0,props=0,current=0,maximum=0;
+    unsigned char guard=0,death=0;
+    out->hp_status=1;out->current=out->maximum=out->death_tag=0;
+    if(!self_read(base+0x2aedc7c,&root,4) || !self_read(root+4,&table,4))return;
+    int found=hash_node(table,8,0xc,0x10,0x100,0x10000,&node);
+    if(found!=1) {out->hp_status=found<0?1:2;return;}
+    if(!self_read(node+8,&props,4) || !self_read(props+0x7ec,&guard,1) ||
+       !self_read(props+0x17c,&current,4) || !self_read(props+0x184,&maximum,4) ||
+       !self_read(props+0x178,&death,1))return;
+    if(guard!=0xdb) {out->hp_status=3;return;}
+    current^=0xa59cf5b6u;maximum^=0xa59cf5b6u;
+    if(!maximum || maximum>1000000u || current>maximum) {out->hp_status=4;return;}
+    out->hp_status=0;out->current=current;out->maximum=maximum;out->death_tag=death;
+}
+
+static void write_atomic(const wchar_t *output,const wchar_t *temporary,const void *data,DWORD size) {
+    HANDLE file=CreateFileW(temporary,GENERIC_WRITE,0,NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);
+    if(file!=INVALID_HANDLE_VALUE) {
+        DWORD written=0;BOOL ok=WriteFile(file,data,size,&written,NULL);
+        CloseHandle(file);
+        if(ok && written==size)MoveFileExW(temporary,output,MOVEFILE_REPLACE_EXISTING);
+    }
+}
+
 typedef struct {char magic[8],token[32];wchar_t expected[1024],output[1024];} Configuration;
 
 static DWORD WINAPI observe(void *module) {
     static wchar_t expected[1024],actual[1024],output[1024],temporary[1040];
+    static wchar_t peer_output[1040],peer_temporary[1040];
     static wchar_t config_path[1024],original_path[1024];
     DWORD module_len=GetModuleFileNameW((HMODULE)module,config_path,1024);
     if(!module_len || module_len>=980)return 0;
@@ -228,6 +330,8 @@ static DWORD WINAPI observe(void *module) {
     if(!expected[0] || !output[0] || !actual_len || actual_len>=1024 || lstrcmpiW(expected,actual))return 0;
     if(!LoadLibraryW(original_path))return 0;
     lstrcpyW(temporary,output);lstrcatW(temporary,L".tmp");
+    lstrcpyW(peer_output,output);lstrcatW(peer_output,L".peers");
+    lstrcpyW(peer_temporary,peer_output);lstrcatW(peer_temporary,L".tmp");
     uintptr_t base=(uintptr_t)GetModuleHandleW(NULL);
     unsigned char dos[2];
     if(base!=0x400000 || !self_read(base,dos,2) || dos[0]!='M' || dos[1]!='Z')return 0;
@@ -235,6 +339,9 @@ static DWORD WINAPI observe(void *module) {
     Sample sample;clear_bytes(&sample,sizeof(sample));
     copy_bytes(sample.magic,"ROEPOS1",7);copy_bytes(sample.token,config.token,32);
     sample.pid=GetCurrentProcessId();
+    PeerSample peers;clear_bytes(&peers,sizeof(peers));
+    copy_bytes(peers.magic,"ROEPEER2",8);copy_bytes(peers.token,config.token,32);
+    peers.pid=sample.pid;peers.count=4;
     for(;;) {
         uint32_t manager=0,actor=0,vt=0,getter=0;
         sample.sequence++;sample.status=1;sample.actor=sample.getter=0;
@@ -253,11 +360,10 @@ static DWORD WINAPI observe(void *module) {
                 }
             }
         }
-        HANDLE file=CreateFileW(temporary,GENERIC_WRITE,0,NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);
-        if(file!=INVALID_HANDLE_VALUE) {
-            DWORD written=0;BOOL ok=WriteFile(file,&sample,sizeof(sample),&written,NULL);
-            CloseHandle(file);
-            if(ok && written==sizeof(sample))MoveFileExW(temporary,output,MOVEFILE_REPLACE_EXISTING);
+        write_atomic(output,temporary,&sample,sizeof(sample));
+        if(sample.sequence%10==1) {
+            peers.sequence=sample.sequence;peer_rows(manager,base,&peers);player_health(base,&peers);
+            write_atomic(peer_output,peer_temporary,&peers,sizeof(peers));
         }
         Sleep(100);
     }

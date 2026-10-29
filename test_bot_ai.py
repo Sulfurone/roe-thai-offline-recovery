@@ -138,7 +138,17 @@ class BotAITests(unittest.TestCase):
             self.assertEqual([m for m,b in packets][:2],[0x11d4,0x11d4])
             self.assertEqual(game.vitals.current,1000 if lateral else 980)
 
-    def test_stale_air_seated_dead_targets_and_obstruction_prevent_attacks(self):
+    def test_rooftop_target_is_not_immune_because_terrain_is_below_the_floor(self):
+        game,bots,ai,uid=setup()
+        point=(325800,271700,7305)
+        game.accept_self_position(point,100)
+        self.assertEqual([m for m,b in ai.tick(100)],[0x547])
+        game.accept_self_position(point,100.8)
+        packets=ai.tick(100.8)
+        self.assertEqual([m for m,b in packets],[0x11d4,0x11d4,0x1069,0x11eb])
+        self.assertEqual(game.vitals.current,980)
+
+    def test_stale_distant_air_seated_dead_targets_and_obstruction_prevent_attacks(self):
         for reason in ('stale','air','seated','dead','wall'):
             game,bots,ai,uid=setup()
             ai.tick(100)
