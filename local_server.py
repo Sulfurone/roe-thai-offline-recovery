@@ -27,6 +27,7 @@ from offline_bots import BotRoster
 from offline_hit_reports import character_hit
 from offline_combat import BotCombat
 from offline_bot_ai import BotAI
+from offline_blast import BlastCombat
 from offline_visibility import StaticVisibility
 from offline_posture import posture_speed_delta,CROUCH_CM_PER_SECOND,PRONE_CM_PER_SECOND
 from self_position import PositionInstallation,recover_previous
@@ -117,6 +118,8 @@ def main():
                         help='Experimental consumed-shot/collision damage against local peers; no combat AI')
     parser.add_argument('--world-bot-ai',action='store_true',
                         help='Experimental local perception/chase/fire; requires explicit combat and static bounds')
+    parser.add_argument('--world-throwable-combat',action='store_true',
+                        help='Experimental native-range frag blast damage with terrain/static screening')
     parser.add_argument('--world-bot-occlusion',type=Path,
                         help='Thai static scene XML; defaults to the selected client map scene')
     parser.add_argument('--gameplay-throwables',action='store_true',help='Acknowledge native throws, consume one item and complete original effects')
@@ -296,18 +299,20 @@ def main():
     elif args.world_terrain is not None or args.world_client_ground or args.world_client_map:
         parser.error('World terrain requires --world-populate')
     bot_visibility=None
-    if args.world_bot_ai:
-        if not args.world_bot_combat:
+    if args.world_bot_ai or args.world_throwable_combat:
+        if args.world_bot_ai and not args.world_bot_combat:
             parser.error('--world-bot-ai requires --world-bot-combat')
+        if args.world_throwable_combat and not (args.gameplay_throwables and args.gameplay_vitals):
+            parser.error('--world-throwable-combat requires --gameplay-throwables and --gameplay-vitals')
         occlusion=args.world_bot_occlusion or (args.world_client_map/'RIGIDSTATICINPXSCENE.XML' if args.world_client_map else None)
         if occlusion is None or population_surface is None:
-            parser.error('Bot AI needs a Thai static scene and population terrain')
+            parser.error('Local combat needs a Thai static scene and population terrain')
         try:
             bot_visibility=StaticVisibility.from_scene(population_surface,occlusion)
         except (OSError,ValueError,TypeError) as error:
-            parser.error(f'Cannot prepare bot visibility: {error}')
+            parser.error(f'Cannot prepare local combat visibility: {error}')
     elif args.world_bot_occlusion is not None:
-        parser.error('--world-bot-occlusion requires --world-bot-ai')
+        parser.error('--world-bot-occlusion requires --world-bot-ai or --world-throwable-combat')
     landing_height=None
     if args.gameplay_opening_glider_file is not None:
         if not args.gameplay_opening_airdrop or args.gameplay_landing_terrain is None:
@@ -551,6 +556,7 @@ def main():
                     clusters=args.world_loot_clusters,vehicle_clusters=args.world_vehicle_clusters,
                     extra_items=args.world_extra_items) if args.world_populate else None
                 ai=BotAI(gameplay,bots,population,bot_visibility) if args.world_bot_ai else None
+                blast=BlastCombat(gameplay,bots,bot_visibility) if args.world_throwable_combat else None
                 if population is not None:
                     emit('world_population_ready',seed=args.world_seed,door_replies=args.gameplay_doors,
                          experimental_peers=args.world_bots,scope='Synthetic finite scenario, not original AI/collision')
@@ -791,6 +797,9 @@ def main():
                                         emit('vehicle_board_request',**control_session.last_board_event)
                                 gameplay_replies=(gameplay.handle(message_id,application[26:])
                                                   if control_replies is None else control_replies)
+                                if blast is not None and message_id==0x1007:
+                                    gameplay_replies.extend(blast.complete(gameplay.throws.take_completion()))
+                                    for event in blast.events:emit('throwable_combat',**event)
                                 if message_id==0x2a and gameplay.last_medicine_cancel:
                                     emit('medicine_cancelled',source='native_movement_action',action=20)
                                 if combat is not None and message_id==0x11d3:

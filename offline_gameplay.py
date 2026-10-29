@@ -557,9 +557,12 @@ class OfflineGameplay:
                 self.actor_ready and not self.seated
                 and not (self.opening_glider is not None and self.opening_glider.seated))
         if self.throwables_enabled and message in (0x1004,0x1007):
+            reference=(self.player_position if not self.require_self_position_for_drop
+                       or self.has_fresh_self_position() else None)
             return self.throws.handle(message,body,self.inventory,self.actor_uid,
                 self.actor_ready and not self.seated and self.vitals.current>0
-                and not (self.opening_glider is not None and self.opening_glider.seated))
+                and not (self.opening_glider is not None and self.opening_glider.seated),
+                reference_position=reference)
         if message == 0x6f57 and self.door_interactions:
             return self.doors.handle(body)
         glider=self.opening_glider

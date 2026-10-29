@@ -64,7 +64,10 @@ class IngameSessionTests(unittest.TestCase):
     def test_bot_ai_arms_fires_and_damages_local_player_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,ai=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False):
+    def test_native_throw_completion_applies_self_blast_once_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay',population=True,vitals=True,throws=True,blast=True)
+
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -98,12 +101,14 @@ class IngameSessionTests(unittest.TestCase):
                 profile.write_bytes(struct.pack('>IIQI', 3, 1, 1, 12) + b'OfflineBot1\0' + POSITION_MARKER)
                 argv.extend(['--gameplay-doors', '--world-populate','--world-extra-items', '--world-terrain', str(terrain),
                              '--world-bots', '1', '--world-bot-profile', str(profile)])
-            if ai:
+            if ai or blast:
                 occlusion=root/'static.xml'
                 occlusion.write_text('<r ObjName="x.eu_killzone_2048.ClientTable.RigidStaticInPxScene">'
                     '<mItems mID="1" mBoundingX="10000" mBoundingY="10000" mBoundingZ="6600" mBoundingRadius="500"/>'
                     '</r>',encoding='utf8')
-                argv.extend(['--world-bot-ai','--world-bot-occlusion',str(occlusion)])
+                argv.extend(['--world-bot-occlusion',str(occlusion)])
+                if ai:argv.append('--world-bot-ai')
+                if blast:argv.append('--world-throwable-combat')
             if interface == '--ingame-overlay':
                 world = root / 'world.bin'
                 original_world = struct.pack('>III', 0, 1, 0) + bytes(18)
@@ -322,15 +327,27 @@ class IngameSessionTests(unittest.TestCase):
                         self.assertEqual(struct.unpack_from('>3i', jeep, 24 + name_length),
                                          (334400, 280000, 9100))
                     if throws:
-                        send(0x1004,throw_start()+b'\x18'*8)
+                        begin,end=throw_start(),throw_finish()
+                        endpoint=(326000,271700,6500)
+                        if blast:
+                            endpoint=tuple(games[0].player_position)
+                            begin,end=bytearray(begin),bytearray(end)
+                            struct.pack_into('>3i',begin,4,*endpoint[:2],endpoint[2]+145)
+                            struct.pack_into('>3i',end,8,*endpoint)
+                            begin,end=bytes(begin),bytes(end)
+                        send(0x1004,begin+b'\x18'*8)
                         self.assertEqual(receive(),(0x1005,struct.pack('>3I',50001,37,0)))
                         self.assertEqual(receive()[0],0x3e82)
-                        send(0x1004,throw_start()+b'\x29'*8)
+                        send(0x1004,begin+b'\x29'*8)
                         self.assertEqual(receive(),(0x1005,struct.pack('>3I',50001,37,0)))
-                        send(0x1007,throw_finish()+b'\x37'*8)
+                        send(0x1007,end+b'\x37'*8)
                         self.assertEqual(receive(),(0x1008,struct.pack('>3I',50001,37,0)))
-                        self.assertEqual(receive(),(0x1009,struct.pack('>II3iBQI',50001,37,326000,271700,6500,0,256,0)))
-                        send(0x1007,throw_finish())
+                        self.assertEqual(receive(),(0x1009,struct.pack('>II3iBQI',50001,37,*endpoint,0,256,0)))
+                        if blast:
+                            self.assertEqual(receive_raw(),(0x1069,struct.pack('>QBBBII',256,0,1,0,0,1000)))
+                            self.assertEqual(receive_raw(),(0x533,struct.pack('>IQ',0,256)))
+                            self.assertEqual(games[0].vitals.current,0)
+                        send(0x1007,end)
                         self.assertEqual(receive(),(0x1008,struct.pack('>3I',50001,37,0)))
                         client.settimeout(.2)
                         with self.assertRaises(socket.timeout):read_frame(client)
@@ -419,6 +436,10 @@ class IngameSessionTests(unittest.TestCase):
                 self.assertEqual(reports[0]['impact'],[326000.,271700.,6600.])
                 self.assertIs(reports[0]['damage_applied'],False)
                 self.assertEqual(len(rejected),1)
+            if blast:
+                rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
+                hits=[r for r in rows if r.get('event')=='throwable_combat' and r.get('action')=='blast_hit']
+                self.assertEqual([(r['target_uid'],r['current']) for r in hits],[(256,0)])
             if combat and not ai:
                 rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
                 changes=[r for r in rows if r.get('event')=='bot_combat']

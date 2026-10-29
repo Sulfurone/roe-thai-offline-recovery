@@ -16,9 +16,15 @@ def throwable(template):
 @dataclass
 class Throws:
     active: dict = field(default_factory=dict)
+    last_completion: dict | None = field(default=None,init=False)
 
-    def handle(self,message,body,inventory,actor_uid,allowed,now=None):
+    def take_completion(self):
+        event,self.last_completion=self.last_completion,None
+        return event
+
+    def handle(self,message,body,inventory,actor_uid,allowed,now=None,reference_position=None):
         now=time.monotonic() if now is None else now
+        self.last_completion=None
         # Keep completed receipts for retransmissions; cap all live receipts.
         self.active={k:v for k,v in self.active.items() if now-v['at']<120}
         if message==0x1004:
@@ -45,7 +51,8 @@ class Throws:
             item=inventory.items[source]
             if item.count==1:del inventory.items[source]
             else:inventory.items[source]=replace(item,count=item.count-1)
-            self.active[key]=dict(at=now,body=body,finished=False)
+            self.active[key]=dict(at=now,body=body,finished=False,
+                                  reference=tuple(reference_position) if reference_position is not None else None)
             return [ack(0),inventory.delta([source])]
         if message==0x1007:
             if len(body)<25:return []
@@ -60,6 +67,9 @@ class Throws:
                     or any(abs(x)>=2000000 for x in position)):return [ack(1)]
             if previous['finished']:return [ack(0)]
             previous['finished']=True
+            self.last_completion=dict(template=template,serial=serial,position=position,
+                origin=struct.unpack_from('>3i',previous['body'],4),
+                reference=previous['reference'],released_at=previous['at'])
             # 1287DB0 selects owner UID, then E3AE10 selects local throw serial.
             # The last DWORD's detailed effect meaning is unknown: retain zero.
             effect=(0x1009,struct.pack('>II3iBQI',template,serial,*position,0,actor_uid,0))
