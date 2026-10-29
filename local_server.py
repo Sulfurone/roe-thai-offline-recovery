@@ -30,6 +30,7 @@ from offline_bot_ai import BotAI
 from offline_blast import BlastCombat
 from offline_visibility import StaticVisibility
 from offline_zone_schedule import ZonePlan,ZoneSchedule
+from offline_match_status import SurvivorStatus
 from offline_posture import posture_speed_delta,CROUCH_CM_PER_SECOND,PRONE_CM_PER_SECOND
 from self_position import PositionInstallation,recover_previous
 
@@ -121,6 +122,8 @@ def main():
                         help='Use recovered per-gun base reload time and ReloadType duration formula')
     parser.add_argument('--world-bot-combat',action='store_true',
                         help='Experimental consumed-shot/collision damage against local peers; no combat AI')
+    parser.add_argument('--world-survivor-status',action='store_true',
+                        help='Experimental original HUD event for the active local roster; no victory or round result')
     parser.add_argument('--world-bot-ai',action='store_true',
                         help='Experimental local perception/chase/fire; requires explicit combat and static bounds')
     parser.add_argument('--world-throwable-combat',action='store_true',
@@ -275,6 +278,8 @@ def main():
         except (OSError,ValueError,TypeError) as error:parser.error(f'Cannot prepare local circle plan: {error}')
     population_surface=None
     bot_profile=None
+    if args.world_survivor_status and not (args.gameplay_prototype and args.gameplay_vitals and args.world_bots):
+        parser.error('--world-survivor-status requires prototype, vitals and an explicit local bot roster')
     if args.world_bots:
         if not args.world_populate or args.world_bot_profile is None:
             parser.error('Experimental peers require population and a local basic profile')
@@ -585,6 +590,7 @@ def main():
                 ai=BotAI(gameplay,bots,population,bot_visibility) if args.world_bot_ai else None
                 blast=BlastCombat(gameplay,bots,bot_visibility) if args.world_throwable_combat else None
                 zones=ZoneSchedule(gameplay,population_surface,zone_plan) if zone_plan is not None else None
+                survivors=SurvivorStatus(gameplay,bots) if args.world_survivor_status else None
                 if bot_visibility is not None and bot_visibility.doors is not None:
                     bot_visibility.doors.states=gameplay.doors.states
                     emit('world_door_collision_ready',doors=len(bot_visibility.doors.items),
@@ -717,6 +723,12 @@ def main():
                                     emit('bot_ai_response_sent',message_id=response_id,body_bytes=len(response_body))
                                 for event in ai.events:
                                     emit('bot_ai',**event)
+                        if survivors is not None and state=='transport_ready' and loaded_pushes_sent:
+                            for response_id,response_body in survivors.tick():
+                                response=struct.pack('>IHI',1,response_id,response_id)+response_body
+                                send(connection,0,body=encrypt(response,key))
+                                emit('local_survivor_status_sent',count=survivors.last_count,
+                                     scope='Active local roster only; no match outcome')
                         # Advance timers when the client is quiet. Socket reads
                         # still use the original framed reader; a partial frame
                         # remains subject to its existing connection timeout.

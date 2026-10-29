@@ -60,4 +60,6 @@ python probes/validate_zone_state.py
 
 `--world-zone-plan`要求prototype及population地形；文件在启动前解析。运行循环使用当前会话的TPDU/AES连接，没有新网页或动态代码执行入口。默认ROE快捷方式不带这个参数。
 
-`test_zone_schedule`覆盖登机/高空/水域/死亡/过期位置、不间断地面就绪、阶段边界、跳时和最终只发一次；`test_ingame_session`新增真实加密等待→缩圈→最终圆检查。原生探针额外复写调度器生成的5条消息。当前288项本地、230项公开检查通过，但尚无区域地图绘制或原模式玩法的实机验收。
+`test_zone_schedule`覆盖登机/高空/水域/死亡/过期位置、不间断地面就绪、阶段边界、跳时和最终只发一次；`test_ingame_session`新增真实加密等待→缩圈→最终圆检查。原生探针额外复写调度器生成的5条消息。当前292项本地、234项公开检查通过，但尚无区域地图绘制或原模式玩法的实机验收。
+
+原MapZone/BaseArea蒙版的空白反例、原生剩余人数事件与本地名册边界见[MATCH_STATUS.md](MATCH_STATUS.md)。

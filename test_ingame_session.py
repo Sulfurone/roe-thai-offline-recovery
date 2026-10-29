@@ -32,6 +32,8 @@ from tpdu import decrypt, encrypt, frame, read_frame
 
 
 class IngameSessionTests(unittest.TestCase):
+    def test_local_survivor_status_tracks_bot_death_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,survivors=True)
     def test_opt_in_local_circle_wait_shrink_and_final_state_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',population=True,zones=True)
     def test_partial_throwable_equipment_swap_then_throw_over_encrypted_connection(self):
@@ -93,7 +95,7 @@ class IngameSessionTests(unittest.TestCase):
     def test_armour_wear_and_hp_over_encrypted_bot_battle(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,ai=True,armour=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False,armour=False,throwable_equip=False,zones=False):
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False,armour=False,throwable_equip=False,zones=False,survivors=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -124,6 +126,7 @@ class IngameSessionTests(unittest.TestCase):
                 argv.append('--gameplay-throwables')
             if combat:
                 argv.append('--world-bot-combat')
+            if survivors:argv.append('--world-survivor-status')
             if population:
                 terrain = root / 'surface.repx'
                 terrain.write_text('<root><PxHeightField><NbRows>2</NbRows><NbColumns>2</NbColumns>'
@@ -258,11 +261,19 @@ class IngameSessionTests(unittest.TestCase):
                     startup, flight_packets = True, []
                     life_packets=[]
                     zone_packets=[]
+                    survivor_counts=[]
 
                     def receive_raw():
-                        _, _, cipher, *_ = read_frame(client)
-                        packet = decrypt(cipher, bytes(16))
-                        return struct.unpack_from('>H', packet, 4)[0], packet[10:]
+                        while True:
+                            _, _, cipher, *_ = read_frame(client)
+                            packet = decrypt(cipher, bytes(16))
+                            message,body=struct.unpack_from('>H', packet, 4)[0],packet[10:]
+                            if survivors and message==0x47d:
+                                count,opaque=struct.unpack('>II',body)
+                                self.assertEqual(opaque,0)
+                                survivor_counts.append(count)
+                                continue
+                            return message,body
 
                     def receive():
                         while True:
@@ -535,6 +546,12 @@ class IngameSessionTests(unittest.TestCase):
                             if not current:self.assertEqual(receive_raw(),(0x533,struct.pack('>IQ',0,bot_uid)))
                         self.assertEqual(games[0].magazine,28)
                         self.assertEqual(roster.vitals[bot_uid].current,0)
+                        if survivors:
+                            # The next request drains the asynchronous HUD update
+                            # after the death broadcast, on the same AES stream.
+                            send(0x6f57,struct.pack('>II',17415,0))
+                            self.assertEqual(receive(),(0x6f55,struct.pack('>5I',17415,0,1,0,0)))
+                            self.assertEqual(survivor_counts,[2,1])
                     if ai:
                         roster=combats[0].bots
                         roster.actors[bot_uid]['position']=(326000,271700,6500)

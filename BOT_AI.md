@@ -76,3 +76,6 @@ python probes/validate_peer_display_mask.py
 ```
 
 后续实机v21（修正后同一固定种子）连续10个新鲜ROEVIS2样本：机器人显示掩码FFFFFFFF，外观+C/D/E为[1,1,1]，与本角色一致；场景/身体及1000/1000生命状态就绪。与v20旧资料FFFFFFFD对照，确认修正被真实客户端消费。新窗口截图仍window capture timeout，模型像素/枪火/动作仍未验收。
+
+
+独立反击入口现额外启用`--world-survivor-status`，按当前已出生、仍活着的本地角色发送原生剩余人数事件；死亡后2→1已通过加密会话。HUD像素与原固定参赛池/结算尚未验证，详见[MATCH_STATUS.md](MATCH_STATUS.md)。主白天跳伞入口保持原配置。

@@ -306,3 +306,12 @@ python probes/validate_posture_speeds.py
 新增offline_zone_schedule.py与--world-zone-plan，将已验证的047B接入当前游戏线程加密发送循环；默认入口不启用。独立start_zone_pacing_probe.cmd与examples/local-circle-plan.json已准备，2段/420秒，本地坐标与节奏，非原版区域规则。地面就绪连续3秒才开始，每秒快照，迟到直接进入当前阶段，最后只发一次最终圆，不伪造胜利。计划启动前严格校验。无区域扣血、目标模式分区/撤离/结算，未获区域实机绘制确认。
 
 最终288项本地/230项公开检查通过，包含完整加密等待→缩圈→最终圆；原生reader/writer额外核对调度消息。13:50会话使用投掷修复版本，没有热装新调度；随后核对日志已于14:10:53 finished，原游戏/服务PID均不存在，自读收据为original_restored。投掷物所测拿出/抛出/效果已由用户确认；日志的2烟雾/1手雷及本地手雷484伤害只按各自证据记录，不宣称烟雾完整遮蔽/原伤害平衡通过。
+
+
+## 原生剩余人数与空白分区反例（2026-10-29 14:38）
+
+新增offline_match_status.py：明确--world-survivor-status才按活的本地名册发送047D，独立start_ground_combat_probe.cmd已启用，主白天跳伞入口未改。原DD1610解两个DWORD/8字节，128DF00将第一字段传给EVENT_SET_SURVIVE_NUMBER，第二字段暂未恢复而写0；原解码/回调核对100/5/2/1/0及截断拒绝，UI和上下文依赖合成，非HUD像素/完整结算验收。加密会话已覆盖机器人死亡后2→1，单元覆盖就绪、出生、双方死亡、重复抑制与启动前校验。不虚构未出生人数，不在1或0时宣称胜利。
+
+自有地图SFC中MapZone/BaseArea两份精确命名DDS均为512×512且全透明、内容相同，不能从中还原危险分区。新inspect_match_regions.py只读提取/严格解析这些资源，输出留private/match-regions，不公开资源。空白也不证明原模式无分区。原模式区域、撤离及结算仍未完成，详见MATCH_STATUS.md及MATCH_ZONES.md。
+
+最终292项本地、234项无私有素材公开检查通过；原生survivor-status探针及原地图空白蒙版检查通过。本轮没有重新启动真实游戏，因此剩余人数HUD画面、机器人像素/枪火仍未验收。13:50会话已终止并恢复原DLL，最新SHA256复核8162e1d985cb3190903ca5645f40e5223d7c4fa9c7e8432eea233de14da02b37；没有运行中的Europa_Client。目标保持完整单机吃鸡，不将这些局部候选当作目标完成。
