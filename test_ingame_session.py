@@ -83,7 +83,10 @@ class IngameSessionTests(unittest.TestCase):
     def test_native_slot_attachment_replace_and_detach_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',attachments=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False):
+    def test_extended_magazine_reload_and_detach_return_ammo_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay',attachments=True,extensions=True)
+
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -101,6 +104,7 @@ class IngameSessionTests(unittest.TestCase):
             if posture:
                 argv.append('--gameplay-posture-speeds')
             if timed_reload:argv.extend(['--gameplay-original-reload'] if original_reload else ['--gameplay-reload-seconds','.3'])
+            if extensions:argv.append('--gameplay-original-reload')
             if vitals:
                 argv.append('--gameplay-vitals')
             if throws:
@@ -191,6 +195,8 @@ class IngameSessionTests(unittest.TestCase):
                 if attachments:
                     game.inventory.items[2,1]=Item(4,40305,0x100110,1)
                     game.inventory.items[2,2]=Item(4,40303,0x100111,1)
+                    game.inventory.next_uid=max(game.inventory.next_uid,0x100113)
+                    if extensions:game.inventory.items[2,3]=Item(4,40403,0x100112,1)
                 if medicine:
                     game.inventory.items[2,3]=Item(7,70001,0x100110,2)
                     game.vitals.damage(600)
@@ -393,6 +399,19 @@ class IngameSessionTests(unittest.TestCase):
                         self.assertEqual(g.inventory.items[1,1].parts,())
                         self.assertEqual(g.inventory.items[2,1].template,40303)
                         self.assertEqual(g.inventory.items[2,2].template,40305)
+                        if extensions:
+                            send(0x3e80,struct.pack('>BQBHQBHHB',6,0,2,3,gun.uid,3,3,1,1))
+                            self.assertEqual(receive_raw()[0],0x3e82)
+                            self.assertEqual(receive_raw(),(0x3e81,struct.pack('>BIIB',6,0,40403,1)))
+                            send(0x49c,struct.pack('>I',1))
+                            self.assertEqual(receive_raw(),(0x49d,struct.pack('>II',1,0)))
+                            self.assertEqual(receive_raw(),(0x4a0,struct.pack('>QII',256,1,40)))
+                            self.assertEqual(receive_raw()[0],0x3e82)
+                            self.assertEqual((g.magazine,g.inventory.reserve_for(30001)),(40,110))
+                            send(0x3e80,struct.pack('>BQBHQBHHB',6,gun.uid,3,3,0,2,3,1,1))
+                            self.assertEqual(receive_raw()[0],0x3e82)
+                            self.assertEqual(receive_raw(),(0x3e81,struct.pack('>BIIB',6,0,40403,1)))
+                            self.assertEqual((g.magazine,g.inventory.reserve_for(30001)),(30,120))
                         client.settimeout(.2)
                         with self.assertRaises(socket.timeout):read_frame(client)
                         client.settimeout(4)

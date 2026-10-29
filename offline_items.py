@@ -44,6 +44,8 @@ EXTRA_ITEMS={
     40304:ExtraSpec(4,'2倍瞄准镜',part_type=13,part_index=2),
     40305:ExtraSpec(4,'红点瞄准镜',part_type=12,part_index=2),
     40401:ExtraSpec(4,'狙击枪扩容弹匣',part_type=20,part_index=3),
+    40403:ExtraSpec(4,'步枪扩容弹匣',part_type=18,part_index=3),
+    40405:ExtraSpec(4,'冲锋枪扩容弹匣',part_type=19,part_index=3),
 }
 
 

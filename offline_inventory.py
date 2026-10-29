@@ -6,7 +6,7 @@ Ground drop is implemented by offline_ground_loot.
 """
 from dataclasses import dataclass,replace
 import struct
-from offline_weapons import WEAPONS,AMMUNITION,AMMO_STACK_MAX,is_weapon
+from offline_weapons import WEAPONS,AMMUNITION,AMMO_STACK_MAX,is_weapon,magazine_capacity,MAX_LOADED_AMMO
 from offline_items import EXTRA_ITEMS,is_extra
 from offline_attachments import compatible
 
@@ -50,14 +50,14 @@ class Item:
             # and loaded rounds. Omitting it resets the native gun to zero.
             rows=[(index,part.template,0) for index,part in sorted(self.parts)]
             if weapon:
-                if type(magazine) is not int or not 0<=magazine<=WEAPONS[self.template].capacity:
+                if type(magazine) is not int or not 0<=magazine<=magazine_capacity(self):
                     raise ValueError('Loaded rounds exceed the weapon capacity')
                 rows.append((7,WEAPONS[self.template].ammunition,magazine))
             # F61EC0 calls native 1118C80 for these seven weapon attributes.
             # Confirmed fields are range [0], damage [4], capacity [5]. Keep
             # the remaining, still unidentified attributes at the old zero.
             attributes=((30000 if 10401<=self.template<=10403 else 100000,0,0,0,20,
-                         WEAPONS[self.template].capacity,0) if weapon else (0,)*7)
+                         magazine_capacity(self),0) if weapon else (0,)*7)
             extra=struct.pack('>9I',spec.durability if self.kind==20 and spec else 0,
                               *attributes,len(rows))
             extra+=b''.join(struct.pack('>3I',*row) for row in rows)+bytes(4)
@@ -266,8 +266,39 @@ class OfflineInventory:
             updated[target_key]=replace(target,parts=tuple(sorted(parts.items())))
         else:
             updated[target_key]=part
+        # Removing an extension must never erase loaded rounds. Stage the
+        # overflow as ordinary ammunition; reject atomically if the bag is full.
+        magazines=dict(self.weapon_magazines)
+        next_uid=self.next_uid
+        changed={source_key,target_key}
+        for key,weapon in list(updated.items()):
+            if not is_weapon(weapon):continue
+            loaded=magazines.get(weapon.uid,0)
+            capacity=magazine_capacity(weapon)
+            remaining=max(0,loaded-capacity)
+            if not remaining:continue
+            magazines[weapon.uid]=capacity
+            ammo=WEAPONS[weapon.template].ammunition
+            for bag_key,stack in sorted(updated.items()):
+                if bag_key[0]!=2 or stack.kind!=3 or stack.template!=ammo:continue
+                amount=min(remaining,MAX_AMMO-stack.count)
+                if amount:
+                    updated[bag_key]=replace(stack,count=stack.count+amount)
+                    changed.add(bag_key);remaining-=amount
+                if not remaining:break
+            for slot in range(128):
+                if not remaining:break
+                bag_key=(2,slot)
+                if bag_key in updated:continue
+                if next_uid>=2**64-1:return failure
+                amount=min(remaining,MAX_AMMO)
+                updated[bag_key]=Item(3,ammo,next_uid,amount)
+                next_uid+=1;remaining-=amount;changed.add(bag_key)
+            if remaining:return failure
         self.items=updated
-        return [self.delta((source_key,target_key)),self.reply(6,template=part.template)]
+        self.weapon_magazines=magazines
+        self.next_uid=next_uid
+        return [self.delta(changed),self.reply(6,template=part.template)]
 
     def consume(self,quantity,template=AMMO_TEMPLATE):
         if template not in AMMUNITION or not 0<=quantity<=self.reserve_for(template):
@@ -303,7 +334,7 @@ class OfflineInventory:
         version=1 if set(data)==fields else 2
         if data['version']!=version:
             raise ValueError('Unknown offline inventory profile schema')
-        for field,minimum,maximum in [('version',1,2),('magazine',0,max(s.capacity for s in WEAPONS.values())),
+        for field,minimum,maximum in [('version',1,2),('magazine',0,MAX_LOADED_AMMO),
                                       ('selected_slot',0,6),('next_uid',1,2**64-1)]:
             if type(data[field]) is not int or not minimum<=data[field]<=maximum:
                 raise ValueError(f'Invalid offline profile {field}')
@@ -340,7 +371,7 @@ class OfflineInventory:
             # v1 profiles carried a single gun whose magazine was global.
             weapon=next(iter(weapons),None)
             if weapon is not None:
-                if data['magazine']>WEAPONS[weapon.template].capacity:
+                if data['magazine']>magazine_capacity(weapon):
                     raise ValueError('Magazine exceeds this firearm capacity')
                 inventory.weapon_magazines[weapon.uid]=data['magazine']
         else:
@@ -350,7 +381,7 @@ class OfflineInventory:
                         or any(type(value) is not int for value in row.values())):
                     raise ValueError('Invalid offline weapon magazine entry')
                 weapon=weapon_by_uid.get(row['uid'])
-                if (weapon is None or not 0<=row['magazine']<=WEAPONS[weapon.template].capacity
+                if (weapon is None or not 0<=row['magazine']<=magazine_capacity(weapon)
                         or row['uid'] in inventory.weapon_magazines):
                     raise ValueError('Invalid or duplicate offline weapon magazine entry')
                 inventory.weapon_magazines[row['uid']]=row['magazine']

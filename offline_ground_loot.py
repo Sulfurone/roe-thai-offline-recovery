@@ -7,7 +7,7 @@ from dataclasses import dataclass,replace
 import math
 import struct
 from offline_inventory import Item,MAX_AMMO,supported,stack_limit,item_fields,read_item,item_uids
-from offline_weapons import WEAPONS,AMMUNITION,is_weapon
+from offline_weapons import magazine_capacity,WEAPONS,AMMUNITION,is_weapon
 from offline_items import EXTRA_ITEMS,is_extra
 
 # Server working-set bound for independent 0x821 entities. This is unrelated
@@ -72,7 +72,7 @@ class OfflineGroundLoot:
             identities=item_uids(item)
             magazine=row.get('magazine',0)
             if (not cls.supported(item) or type(magazine) is not int or magazine<0
-                    or is_weapon(item) and (magazine>WEAPONS[item.template].capacity or 'magazine' not in row)
+                    or is_weapon(item) and (magazine>magazine_capacity(item) or 'magazine' not in row)
                     or not is_weapon(item) and magazine!=0
                     or any(not 0<uid<inventory.next_uid or uid in uids for uid in identities)
                     or len(set(identities))!=len(identities)):
@@ -92,7 +92,7 @@ class OfflineGroundLoot:
 
     def add(self,item,position,magazine=0):
         if (not self.supported(item) or type(magazine) is not int or magazine<0
-                or is_weapon(item) and magazine>WEAPONS[item.template].capacity
+                or is_weapon(item) and magazine>magazine_capacity(item)
                 or not is_weapon(item) and magazine!=0
                 or len(self.stacks)>=MAX_GROUND_STACKS or self.next_entity>=2**32
                 or len(position)!=3 or any(type(x) is not int or abs(x)>=2000000 for x in position)):

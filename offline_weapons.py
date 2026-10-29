@@ -54,10 +54,27 @@ RELOAD_TIMINGS={
 }
 
 
-def reload_duration(template,amount):
+def reload_duration(template,amount,capacity=None):
     spec=WEAPONS[template]
-    if type(amount) is not int or not 1<=amount<=spec.capacity:
+    capacity=spec.capacity if capacity is None else capacity
+    if type(amount) is not int or not 1<=amount<=capacity:
         raise ValueError("Reload transfer must fit the firearm capacity")
     base,extra,mode=RELOAD_TIMINGS[template]
     # Original 12D6466..12D64A1: type 1 adds time for each further shell.
     return base+(amount-1)*extra if mode==1 else base
+
+
+# Explicit LOCAL balance, not recovered original-server extension counts.
+# The original component table supplies the extended flag, not these counts.
+LOCAL_EXTENDED_CAPACITIES={
+    40401:{10101:7,10102:7,10103:7,10104:20},
+    40403:{10201:40,10202:40,10203:40,10204:40,10205:40,10207:40,10403:10},
+    40405:{10301:40,10302:35,10303:25},
+}
+MAX_LOADED_AMMO=max(max(values.values()) for values in LOCAL_EXTENDED_CAPACITIES.values())
+
+
+def magazine_capacity(item):
+    base=WEAPONS[item.template].capacity
+    part=dict(item.parts).get(3)
+    return LOCAL_EXTENDED_CAPACITIES.get(part.template,{}).get(item.template,base) if part else base

@@ -15,7 +15,7 @@ from unicorn.x86_const import (UC_X86_REG_EAX,UC_X86_REG_EBX,UC_X86_REG_ECX,
 
 sys.path.insert(0,str(ROOT))
 from offline_inventory import OfflineInventory,Item
-from offline_weapons import WEAPONS
+from offline_weapons import WEAPONS,LOCAL_EXTENDED_CAPACITIES
 
 c=NativeCodec()
 c.uc.mem_map(0,4096)  # bounded SEH head for original functions using fs:[0]
@@ -193,6 +193,19 @@ for scope in (40305,40303,None):
     if c.read32(gun+0x60)!=19:raise ValueError('Original attachment binding changed loaded ammo')
     bound_part_checks.append(dict(scope=scope,loaded=19,dirty=True))
 
+extended_checks=[]
+for part_template,capacities in LOCAL_EXTENDED_CAPACITIES.items():
+    for template,capacity in capacities.items():
+        item=Item(WEAPONS[template].kind,template,0x100101,1,
+                  ((3,Item(4,part_template,0x100121,1)),))
+        decode_item(item,capacity)
+        c.invoke(0xf61ec0,inv,[1,c.OBJECT])
+        actual=c.read32(slot_array+12)
+        if (not actual or c.read32(actual+0x20)!=part_template
+                or c.read32(gun+0x60)!=capacity or c.read32(gun+0x39c)!=capacity):
+            raise ValueError('Native consumer did not retain local extended capacity/rounds')
+        extended_checks.append(dict(template=template,part=part_template,local_capacity=capacity))
+
 # Use a fresh emulator to execute the actual generic factory and count getter.
 q=NativeCodec()
 qobj,qtable,qmanager=0x10900000,0x10901000,0x10902000
@@ -263,6 +276,7 @@ for old,new in ((20,19),(19,19),(19,30)):
 
 report=dict(passed=True,gun_templates=gun_checks,quantities=quantity_checks,events=event_checks,
     bound_parts=bound_part_checks,
+    extended_magazines=extended_checks,
     limitation='Native slot getter/binding/removal and dirty flag additionally executed; synthetic map/allocation/RTTI, no owner/model/default-part table or rendered proof')
 (ROOT/'private/typed-gameplay/ammunition-runtime-validation.json').write_text(json.dumps(report,indent=2),encoding='utf8')
 print(json.dumps(report))

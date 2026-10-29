@@ -15,7 +15,7 @@ from offline_motion import actor_motion,actor_actions
 from offline_doors import DoorState
 from offline_inventory import Item,OfflineInventory
 from offline_ground_loot import OfflineGroundLoot,MAX_GROUND_STACKS
-from offline_weapons import WEAPONS,AMMUNITION,is_weapon,reload_duration
+from offline_weapons import WEAPONS,AMMUNITION,is_weapon,reload_duration,magazine_capacity
 from offline_vehicles import LAND_VEHICLES
 from offline_vitals import Vitals
 from offline_throwables import Throws
@@ -423,7 +423,7 @@ class OfflineGameplay:
         if now<pending['deadline']:return []
         self.pending_reload=None
         spec=WEAPONS[item.template]
-        amount=min(max(0,spec.capacity-pending['magazine']),pending['amount'],
+        amount=min(max(0,magazine_capacity(item)-pending['magazine']),pending['amount'],
                    self.inventory.reserve_for(spec.ammunition))
         if not amount:return []
         self.set_weapon_magazine(key,pending['magazine']+amount)
@@ -698,7 +698,7 @@ class OfflineGameplay:
             spec=WEAPONS[item.template] if item is not None else WEAPONS[10201]
             available=self.inventory.reserve_for(spec.ammunition) if self.inventory is not None else self.reserve
             current=self.weapon_magazine(key)
-            amount = min(max(0,spec.capacity-current),available)
+            amount = min(max(0,(magazine_capacity(item) if item is not None else spec.capacity)-current),available)
             if amount==0:
                 return [(0x049d,struct.pack('>II',slot,0))]
             if self.reload_seconds or self.reload_original:
@@ -706,7 +706,7 @@ class OfflineGameplay:
                         or self.opening_glider is not None and self.opening_glider.seated):
                     return [(0x049d,struct.pack('>II',slot,1))]
                 if self.pending_reload is None:
-                    delay=reload_duration(item.template,amount) if self.reload_original else self.reload_seconds
+                    delay=reload_duration(item.template,amount,magazine_capacity(item)) if self.reload_original else self.reload_seconds
                     self.pending_reload=dict(slot=slot,uid=item.uid,template=item.template,
                         magazine=current,amount=amount,deadline=time.monotonic()+delay)
                 return [(0x049d,struct.pack('>II',slot,0))]
