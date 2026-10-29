@@ -11,7 +11,7 @@ from unicorn import UC_HOOK_CODE
 from unicorn.x86_const import UC_X86_REG_ESP,UC_X86_REG_EIP
 
 sys.path.insert(0,str(ROOT))
-from offline_items import EXTRA_ITEMS
+from offline_items import EXTRA_ITEMS,SPAWNABLE_EXTRA_ITEMS
 from offline_vehicles import LAND_VEHICLES
 from control_actions import ControlSession
 from test_control_panel import ready_game
@@ -51,6 +51,7 @@ for template,spec in EXTRA_ITEMS.items():
             or row['nExtWeight']!=spec.extra_weight or row['nDurableValue']!=spec.durability
             or not entities[template]['collectable']):
         raise ValueError(f'Extra catalogue differs from original table: {template}')
+    if template not in SPAWNABLE_EXTRA_ITEMS:continue
     packets,_=control.execute(dict(action='item',template=template))
     check(packets)
     stack=list(game.ground_loot.stacks.values())[-1]

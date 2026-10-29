@@ -51,6 +51,14 @@ EXTRA_ITEMS={
 }
 
 
+# ItemTable contains a leftover flash template, but this Thai weapon table
+# has no ThrowableParams record for it. The original E76040 returns NULL.
+# Preserve profile compatibility without spawning it as a usable object.
+THROWABLE_CONFIG_IDS=frozenset((50001,50002))
+SPAWNABLE_EXTRA_ITEMS={i:s for i,s in EXTRA_ITEMS.items()
+                       if s.kind!=5 or i in THROWABLE_CONFIG_IDS}
+
+
 def is_extra(item):
     spec=EXTRA_ITEMS.get(item.template)
     return spec is not None and item.kind==spec.kind and 0<item.count<=spec.max_stack

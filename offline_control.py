@@ -11,7 +11,7 @@ import time
 
 from offline_environment import NATIVE_WEATHER_IDS
 from offline_weapons import WEAPONS
-from offline_items import EXTRA_ITEMS
+from offline_items import EXTRA_ITEMS,SPAWNABLE_EXTRA_ITEMS
 from offline_vehicles import LAND_VEHICLES
 
 WEATHER_NAMES = dict(zip(sorted(NATIVE_WEATHER_IDS), (
@@ -67,6 +67,8 @@ def validate_command(data):
         template=integer(data,'template',1,999999)
         if template not in EXTRA_ITEMS:
             raise ValueError('不支持的物品')
+        if template not in SPAWNABLE_EXTRA_ITEMS:
+            raise ValueError('当前泰服缺少此投掷物的原生配置，暂不能使用；请选择手雷或烟雾弹')
         return dict(action=action,template=template,
                     count=integer(data,'count',1,min(5,EXTRA_ITEMS[template].max_stack),1),
                     distance=integer(data,'distance',2,20,3))

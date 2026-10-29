@@ -120,6 +120,7 @@ class OfflineInventory:
         # Loaded rounds per carried weapon uid; the original keeps one
         # magazine per gun, not per character.
         self.weapon_magazines={}
+        self.last_transfer_event=None
 
     @staticmethod
     def valid_slot(key):
@@ -181,6 +182,7 @@ class OfflineInventory:
         if source==destination:
             return [self.reply(1)]
         updated=dict(self.items)
+        changed={source,destination}
         if target is None:
             if quantity==item.count:
                 updated.pop(source)
@@ -201,13 +203,27 @@ class OfflineInventory:
                 updated[source]=replace(item,count=item.count-quantity)
         elif quantity==item.count and self.fits(source,target):
             updated[source],updated[destination]=target,item
+        elif (source[0]==2 and destination[0]==1 and quantity<item.count
+                and self.fits(source,target)):
+            # The native equipment drag can request one item from a stack.
+            # Keep its remainder and return the previous equipped item to a
+            # separate bag slot. Reject atomically when that slot is absent.
+            spare=next(((2,i) for i in range(128) if (2,i) not in updated),None)
+            if spare is None or self.next_uid>=2**64:
+                return [self.reply(1,1)]
+            updated[source]=replace(item,count=item.count-quantity)
+            updated[destination]=replace(item,count=quantity,uid=self.next_uid)
+            updated[spare]=target
+            self.next_uid+=1
+            changed.add(spare)
         else:
             return [self.reply(1,1)]
         self.items=updated
         # Apply the actual slot updates before acknowledging the operation.
-        return [self.delta((source,destination)),self.reply(1,template=item.template)]
+        return [self.delta(changed),self.reply(1,template=item.template)]
 
     def handle(self,body):
+        self.last_transfer_event=None
         if not body:
             return []
         command=body[0]
@@ -220,7 +236,15 @@ class OfflineInventory:
         command,src,src_slot,dst,dst_slot,quantity,current=struct.unpack('>BBHBHHB',body[:10])
         if current!=1:
             return [self.reply(1,1)]
-        return self.transfer((src,src_slot),(dst,dst_slot),quantity)
+        source=self.items.get((src,src_slot))
+        target=self.items.get((dst,dst_slot))
+        replies=self.transfer((src,src_slot),(dst,dst_slot),quantity)
+        self.last_transfer_event=dict(source=[src,src_slot],destination=[dst,dst_slot],quantity=quantity,
+            source_template=source.template if source else None,source_count=source.count if source else 0,
+            target_template=target.template if target else None,target_count=target.count if target else 0,
+            accepted=any(mid==0x3e81 and struct.unpack_from('>I',payload,1)[0]==0
+                         for mid,payload in replies))
+        return replies
 
     def transfer_part(self,body):
         if len(body) not in (26,34):

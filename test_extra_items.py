@@ -6,7 +6,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from offline_items import EXTRA_ITEMS
+from offline_items import SPAWNABLE_EXTRA_ITEMS as EXTRA_ITEMS
 from offline_vehicles import LAND_VEHICLES
 from offline_control import ControlHub,validate_command
 from control_actions import ControlSession

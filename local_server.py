@@ -822,6 +822,9 @@ def main():
                                         emit('vehicle_board_request',**control_session.last_board_event)
                                 gameplay_replies=(gameplay.handle(message_id,application[26:])
                                                   if control_replies is None else control_replies)
+                                if (message_id==0x3e80 and application[26:27]==b'\1'
+                                        and gameplay.inventory is not None and gameplay.inventory.last_transfer_event):
+                                    emit('inventory_transfer',**gameplay.inventory.last_transfer_event)
                                 if blast is not None and message_id==0x1007:
                                     gameplay_replies.extend(blast.complete(gameplay.throws.take_completion()))
                                     for event in blast.events:emit('throwable_combat',**event)

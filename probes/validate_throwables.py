@@ -106,7 +106,20 @@ for mid,body in g.handle(0x1007,end_wire):
     if check['code'] or check['consumed']!=check['bytes']:raise ValueError(check)
     if mid==0x1009:c.invoke(0x1287db0,0,[c.ROOT_OBJECT+6])
 if effects!=[(grenade,(326000.,271700.,6500.))]:raise ValueError(f'Original finisher did not select serial/owner/position: {effects}')
+equip=OfflineGameplay(inventory_enabled=True,throwables_enabled=True)
+equip.actor_ready=True
+equip.inventory.items[1,5]=Item(5,50002,0x100110,3)
+equip.inventory.items[2,7]=Item(5,50001,0x100111,5)
+equip.inventory.next_uid=0x100112
+equip_replies=equip.handle(0x3e80,bytes.fromhex('01020007010005000101'))
+if [mid for mid,_ in equip_replies]!=[0x3e82,0x3e81]:raise ValueError('Partial equipped throw swap failed')
+for mid,body in equip_replies:
+    result=c.decode_server(mid,body)
+    if result['code'] or result['consumed']!=result['bytes']:raise ValueError(result)
+if equip_replies[0][1][0]!=3:raise ValueError('Equipment swap omitted the returned old throwable')
+
 report=dict(passed=True,serial=serial,start_state=2,acknowledged_state=c.read32(grenade+0x7ac),
+    partial_equipment_swap_native_decode=True,
     finisher_position=effects[0][1],remaining=g.inventory.items[1,5].count,
     limitation='Synthetic actor/list/RTTI dependencies and renderer stubs; real effects, blast occlusion, damage and blindness remain unverified')
 (ROOT/'private/typed-gameplay/throwables-validation.json').write_text(json.dumps(report,indent=2),encoding='utf8')

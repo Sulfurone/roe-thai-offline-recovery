@@ -32,6 +32,8 @@ from tpdu import decrypt, encrypt, frame, read_frame
 
 
 class IngameSessionTests(unittest.TestCase):
+    def test_partial_throwable_equipment_swap_then_throw_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay',vitals=True,throws=True,throwable_equip=True)
     def test_native_mailbox_replies_and_owned_file_cleanup(self):
         self.run_session('--ingame-control')
 
@@ -89,7 +91,7 @@ class IngameSessionTests(unittest.TestCase):
     def test_armour_wear_and_hp_over_encrypted_bot_battle(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,ai=True,armour=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False,armour=False):
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False,armour=False,throwable_equip=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -195,6 +197,10 @@ class IngameSessionTests(unittest.TestCase):
                 game=OfflineGameplay(**kwargs)
                 games.append(game)
                 if throws:game.inventory.items[1,5]=Item(5,50001,0x100110,3)
+                if throwable_equip:
+                    game.inventory.items[1,5]=Item(5,50002,0x100110,3)
+                    game.inventory.items[2,7]=Item(5,50001,0x100111,5)
+                    game.inventory.next_uid=0x100112
                 if attachments:
                     game.inventory.items[2,1]=Item(4,40305,0x100110,1)
                     game.inventory.items[2,2]=Item(4,40303,0x100111,1)
@@ -442,6 +448,14 @@ class IngameSessionTests(unittest.TestCase):
                         self.assertEqual(games[0].inventory.weapon_magazines[0x100101],29)
                         self.assertEqual(games[0].inventory.reserve_for(30001),119)
                     if throws:
+                        if throwable_equip:
+                            send(0x3e80,bytes.fromhex('01020007010005000101'))
+                            delta=receive()
+                            self.assertEqual(delta[0],0x3e82)
+                            self.assertEqual(delta[1][0],3)
+                            self.assertEqual(receive(),(0x3e81,struct.pack('>BIIB',1,0,50001,1)))
+                            self.assertEqual(games[0].inventory.items[1,5].template,50001)
+                            self.assertEqual(games[0].inventory.items[2,7].count,4)
                         begin,end=throw_start(),throw_finish()
                         endpoint=(326000,271700,6500)
                         if blast:
