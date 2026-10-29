@@ -1,5 +1,8 @@
 # 原泰服离线功能测试
 
+当前有效入口与验收状态以[HANDOFF_CURRENT.md](HANDOFF_CURRENT.md)为准。新增地面显示/受击诊断与独立本地AI反击候选见[BOT_AI.md](BOT_AI.md)；原版AI、完整战斗和结算仍未完成。下文保留各历史测试入口，不代表所有旧限制仍适用于主入口。
+
+
 适用于 Garena 泰服 `0.2.15.5`，更新于2026-10-29。日常主入口为 `start_ingame_control.cmd`（白天、原生跳伞、F6 菜单及住宅/路边生成）；`start_native_lobby.cmd` 保留旧地面基线。桌面入口可用 `tools/set_thai_desktop_shortcut.ps1` 配置。门、沿途密度、实时位置后的丢弃再拾取及所测试车辆交互已实机确认。弹药/装配、机器人显示、生命值初始化和投掷应答有新候选，见[当前交接](HANDOFF_CURRENT.md)、[弹药](AMMUNITION.md)、[生命值](VITALS.md)及[投掷](THROWABLES.md)。机头朝向及新候选画面尚待确认，完整AI、伤害、治疗和死亡未恢复。下文各旧入口的历史测试不替代主入口当前结论。
 
 ## 门与住宅、路边生成

@@ -83,7 +83,8 @@ def flag_stop():
 
 
 put(ivt+0x148,stub(flag_stop))
-hook(0x1130210,lambda:finish(actor))
+actor_present=True
+hook(0x1130210,lambda:finish(actor if actor_present else 0))
 hook(0x127bd70,lambda:finish())
 hook(0x113e3a0,lambda:finish())
 hook(0x1130650,lambda:finish())
@@ -101,7 +102,33 @@ for state in (0,1):
     expected=[(2,int(state<=0))]
     if flags!=expected:raise ValueError(f'Original display-state branch differs: {flags}')
     checks.append(dict(state=state,interface_flags=list(flags)))
+# Also cover the initial missing-actor path. Earlier checks supplied an actor
+# that already existed and therefore did not reach the engine factory branch.
+# The factory/scene container are explicit synthetic boundaries; no actor
+# constructor, asset loader, protected scene registration or renderer runs.
+context=0x10907000
+created=[]
+registered=[]
+actor_present=False
+hook(0x65b7c0,lambda:finish(c.uc.reg_read(UC_X86_REG_ECX),4))
+hook(0x6825f0,lambda:finish(actor,8))
+put(vt+0x208,stub(lambda:(created.append(True),finish())))
+put(0x2eedb58,context)
+put(context+0x1c,0)
+put(0x2984364,c.read32(0x2984364)|1)
+def register():
+    registered.append(args(3))
+    finish(1,12)
+hook(0x344ab74,register)
+hook(0x13257f0,lambda:finish())
+basic[0x106a]=1
+c.uc.mem_write(c.OBJECT,bytes(basic))
+flags.clear()
+c.invoke(0x1281f30,0,[uid&0xffffffff,uid>>32,c.OBJECT])
+if created!=[True] or registered!=[(uid&0xffffffff,uid>>32,actor)] or flags!=[(2,0)]:
+    raise ValueError(f'Original missing-actor branch differs: {created}, {registered}, {flags}')
 report=dict(passed=True,interest_uid=hex(uid),checks=checks,
-    limitation='Original callback stops at engine flag setter; no rendered visibility, movement or combat proof')
+    missing_actor_factory=True,scene_registration_arguments=[list(r) for r in registered],
+    limitation='Factory and scene registration synthetic; callback stops at flag setter; no renderer/assets/live visibility proof')
 (ROOT/'private/typed-gameplay/peer-visibility-validation.json').write_text(json.dumps(report,indent=2),encoding='utf8')
 print(json.dumps(report))

@@ -23,6 +23,7 @@ from test_offline_motion import move_body, plane_body
 from test_control_panel import jeep_template
 from offline_bots import POSITION_MARKER,BotRoster
 from offline_combat import BotCombat
+from offline_bot_ai import BotAI
 from tpdu import decrypt, encrypt, frame, read_frame
 
 
@@ -57,7 +58,10 @@ class IngameSessionTests(unittest.TestCase):
     def test_consumed_shots_damage_peer_and_send_native_death_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,combat=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False):
+    def test_bot_ai_arms_fires_and_damages_local_player_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,ai=True)
+
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -91,6 +95,12 @@ class IngameSessionTests(unittest.TestCase):
                 profile.write_bytes(struct.pack('>IIQI', 3, 1, 1, 12) + b'OfflineBot1\0' + POSITION_MARKER)
                 argv.extend(['--gameplay-doors', '--world-populate','--world-extra-items', '--world-terrain', str(terrain),
                              '--world-bots', '1', '--world-bot-profile', str(profile)])
+            if ai:
+                occlusion=root/'static.xml'
+                occlusion.write_text('<r ObjName="x.eu_killzone_2048.ClientTable.RigidStaticInPxScene">'
+                    '<mItems mID="1" mBoundingX="10000" mBoundingY="10000" mBoundingZ="6600" mBoundingRadius="500"/>'
+                    '</r>',encoding='utf8')
+                argv.extend(['--world-bot-ai','--world-bot-occlusion',str(occlusion)])
             if interface == '--ingame-overlay':
                 world = root / 'world.bin'
                 original_world = struct.pack('>III', 0, 1, 0) + bytes(18)
@@ -116,6 +126,13 @@ class IngameSessionTests(unittest.TestCase):
 
             games=[]
             combats=[]
+            ais=[]
+            def construct_ai(*args):
+                result=BotAI(*args)
+                result.WARMUP=result.EQUIP_DELAY=0
+                result.AIM_SECONDS=result.FIRE_INTERVAL=.1
+                ais.append(result)
+                return result
             def construct_combat(game,bots):
                 result=BotCombat(game,bots)
                 combats.append(result)
@@ -133,6 +150,7 @@ class IngameSessionTests(unittest.TestCase):
                     patch('sys.argv', argv), \
                     (patch.object(local_server,'OfflineGameplay',side_effect=construct_game) if throws or medicine or hit_reports or combat else contextlib.nullcontext()), \
                     (patch.object(local_server,'BotCombat',side_effect=construct_combat) if combat else contextlib.nullcontext()), \
+                    (patch.object(local_server,'BotAI',side_effect=construct_ai) if ai else contextlib.nullcontext()), \
                     (patch.object(BotRoster,'tick',return_value=[]) if combat else contextlib.nullcontext()), \
                     patch.object(local_server, 'ControlServer', side_effect=AssertionError('Native mode must not start HTTP')), \
                     patch.object(local_server, 'OverlayProcess', return_value=contextlib.nullcontext()) as overlay, \
@@ -174,6 +192,9 @@ class IngameSessionTests(unittest.TestCase):
                     def receive():
                         while True:
                             message, body = receive_raw()
+                            if ai and message==0x547:
+                                self.assertEqual(struct.unpack_from('>Q',body)[0],next(iter(combats[0].bots.actors)))
+                                continue
                             if vitals and message==0x1069:
                                 life_packets.append(body)
                                 continue
@@ -327,7 +348,7 @@ class IngameSessionTests(unittest.TestCase):
                         with self.assertRaises(socket.timeout):read_frame(client)
                         client.settimeout(4)
                         self.assertEqual((games[0].vitals.current,games[0].magazine),before)
-                    if combat:
+                    if combat and not ai:
                         roster=combats[0].bots
                         roster.actors[bot_uid]['position']=(326000,271700,6500)
                         roster.vitals[bot_uid].damage(960)
@@ -339,6 +360,34 @@ class IngameSessionTests(unittest.TestCase):
                             if not current:self.assertEqual(receive_raw(),(0x533,struct.pack('>IQ',0,bot_uid)))
                         self.assertEqual(games[0].magazine,28)
                         self.assertEqual(roster.vitals[bot_uid].current,0)
+                    if ai:
+                        roster=combats[0].bots
+                        roster.actors[bot_uid]['position']=(326000,271700,6500)
+                        games[0].vitals.current=40
+                        hp=[];firing=[];feedback=[];dead=None
+                        deadline=time.monotonic()+5
+                        client.settimeout(.5)
+                        while time.monotonic()<deadline and dead is None:
+                            games[0].accept_self_position((325850,271700,6501))
+                            try:mid,body=receive_raw()
+                            except socket.timeout:continue
+                            if mid==0x11d4:
+                                firing.append(body[-1])
+                                self.assertEqual(struct.unpack_from('>Q',body)[0],bot_uid)
+                            elif mid==0x1069:
+                                self.assertEqual(struct.unpack_from('>Q',body)[0],256)
+                                hp.append(struct.unpack_from('>I',body,11)[0])
+                            elif mid==0x11eb:
+                                self.assertEqual(struct.unpack_from('>QQ',body),(bot_uid,256))
+                                feedback.append(body)
+                            elif mid==0x533:dead=body
+                            else:self.assertEqual(mid,0x547)
+                        client.settimeout(4)
+                        self.assertEqual(hp,[20,0])
+                        self.assertEqual(firing,[0,1,0,1])
+                        self.assertEqual(len(feedback),2)
+                        self.assertEqual(dead,struct.pack('>IQ',0,256))
+                        self.assertEqual(ais[0].brains[bot_uid].magazine,28)
                     client.sendall(frame(13))
                 thread.join(5)
                 self.assertFalse(thread.is_alive())
@@ -354,11 +403,15 @@ class IngameSessionTests(unittest.TestCase):
                 self.assertEqual(reports[0]['impact'],[326000.,271700.,6600.])
                 self.assertIs(reports[0]['damage_applied'],False)
                 self.assertEqual(len(rejected),1)
-            if combat:
+            if combat and not ai:
                 rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
                 changes=[r for r in rows if r.get('event')=='bot_combat']
                 self.assertEqual([r['current'] for r in changes],[20,0])
                 self.assertTrue(all(r['accepted'] and r['damage_applied'] for r in changes))
+            if ai:
+                rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
+                changes=[r for r in rows if r.get('event')=='bot_ai' and r.get('action')=='player_hit']
+                self.assertEqual([r['current'] for r in changes],[20,0])
             if posture:
                 self.assertEqual(output.getvalue().count('"event": "posture_speed_delta_sent"'),1)
             if interface == '--ingame-overlay':

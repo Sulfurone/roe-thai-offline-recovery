@@ -36,6 +36,7 @@ class BotRoster:
         self.next_tick = 0
         self.started = None
         self.retries = 0
+        self.external_motion=False
 
     def profile_for(self, uid):
         profile = bytearray(self.profile)
@@ -58,21 +59,23 @@ class BotRoster:
         return self.life_packets(uid)
 
     def spawn(self, population, position, rng):
-        if self.actors:
+        if len(self.actors)>=self.count:
             return []
         replies = []
+        created=time.monotonic()
         for index in range(self.count):
+            uid = TYPED_ACTOR_UID + 0x1000 + index
+            if uid in self.actors:continue
             spot = population.choose_spot(position, rng, peer=True)
             if spot is None:
                 continue
             if not hasattr(population.terrain, 'spawn_spot'):
                 spot = (spot[0], spot[1], spot[2] - 25)
-            uid = TYPED_ACTOR_UID + 0x1000 + index
-            self.actors[uid] = dict(origin=spot, position=spot, sequence=1)
+            self.actors[uid] = dict(origin=spot, position=spot, sequence=1,created=created,retry=0)
             self.vitals[uid] = Vitals()
             replies.extend(((0x565, struct.pack('>B3iBQ', 1, *spot, 0, uid)),
                             (0xbe7, self.profile_for(uid)),self.vitals[uid].packet(uid),peer_motion(uid, spot, 1)))
-        self.started = time.monotonic()
+        if replies and self.started is None:self.started=created
         return replies
 
     def tick(self, population, now=None):
@@ -80,17 +83,21 @@ class BotRoster:
         if not self.actors or now < self.next_tick:
             return []
         self.next_tick = now + .5
-        elapsed = max(0, now - self.started)
         replies = []
-        retry = self.retries < 3 and elapsed >= (1,3,6)[self.retries]
-        if retry:
-            self.retries += 1
+        retried=False
         for uid, actor in self.actors.items():
+            elapsed=max(0,now-actor.get('created',self.started))
+            attempt=actor.get('retry',0)
+            retry=attempt<3 and elapsed>=(1,3,6)[attempt]
             if retry:
+                actor['retry']=attempt+1
+                retried=True
                 replies.extend(((0x565,struct.pack('>B3iBQ',1,*actor['position'],0,uid)),
                                 (0xbe7,self.profile_for(uid))))
                 replies.extend(self.life_packets(uid))
             if not self.vitals[uid].current:
+                continue
+            if self.external_motion:
                 continue
             x, y, _ = actor['origin']
             # A small terrain-screened patrol, not original navigation/AI.
@@ -104,6 +111,7 @@ class BotRoster:
             actor['position'] = (px, py, height + 5)
             actor['sequence'] = (actor['sequence'] + 1) & 0xffffffff
             replies.append(peer_motion(uid, actor['position'], actor['sequence']))
+        if retried:self.retries+=1
         return replies
 
     def handle(self, message, body):

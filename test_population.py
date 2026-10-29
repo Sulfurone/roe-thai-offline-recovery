@@ -8,6 +8,7 @@ from offline_gameplay import OfflineGameplay
 from offline_population import WorldPopulation
 from offline_bots import BotRoster, POSITION_MARKER
 from offline_ground_survey import GroundSurvey
+from offline_items import EXTRA_ITEMS
 from test_control_panel import ready_game, jeep_template
 
 
@@ -17,6 +18,27 @@ class Surface:
 
 
 class PopulationTests(unittest.TestCase):
+    def test_sparse_house_floor_keeps_medicine_armor_optics_and_other_categories(self):
+        class Sparse(Surface):
+            used=False
+            def spawn_spot(self,position,rng,kind,occupied):
+                if self.used:return None
+                self.used=True
+                return 100100,200100,7010
+        game=ready_game()
+        game.player_position=(100000,200000,7250)
+        population=WorldPopulation(ControlSession(game),Sparse(),extra_items=True,vehicles=False)
+        population.tick()
+        generated=[s for entity,s in game.ground_loot.stacks.items() if entity in population.auto_item_ids]
+        self.assertEqual(len(generated),26)
+        extras=[s for s in generated if s.item.template in EXTRA_ITEMS]
+        self.assertEqual(len(extras),24)
+        for predicate in (lambda v:v.slot==11,lambda v:v.kind==5,lambda v:v.kind==4,
+                          lambda v:v.kind==7,lambda v:v.slot==10,lambda v:v.slot==12):
+            self.assertEqual(sum(predicate(EXTRA_ITEMS[s.item.template]) for s in extras),4)
+        self.assertIn(40305,[s.item.template for s in extras])
+        self.assertTrue(all(s.position[2]==7010 and ((s.position[0]-100100)**2+(s.position[1]-200100)**2)**.5<=46 for s in extras))
+
     def test_client_ground_survey_rejects_air_and_distant_height_claims(self):
         surface = GroundSurvey()
         surface.observe((100000, 200000, 75000))

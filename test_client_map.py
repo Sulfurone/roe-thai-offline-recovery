@@ -14,6 +14,16 @@ def tile(values):
 
 
 class ClientMapTests(unittest.TestCase):
+    def test_peer_search_widens_when_nearby_coast_has_no_dry_ground(self):
+        class Coast(ThaiClientMap):
+            def __init__(self):pass
+            def peer_walkable(self,x,y):
+                return 7000 if ((x-100000)**2+(y-200000)**2)**.5>=6000 else None
+        spot=Coast().spawn_spot((100000,200000,6501),random.Random(7),'peer',[])
+        self.assertIsNotNone(spot)
+        self.assertTrue(6000<=((spot[0]-100000)**2+(spot[1]-200000)**2)**.5<=12000)
+        self.assertEqual(spot[2],7005)
+
     def test_height_axes_bilinear_interpolation_and_outer_edge(self):
         field=ClientHeightfield({(0,0):tile(lambda x,y:1000+2*x+3*y)},side=1)
         self.assertAlmostEqual(field.height_at(100,100),1002.5*HEIGHT_SCALE)

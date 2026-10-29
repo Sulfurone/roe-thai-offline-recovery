@@ -57,7 +57,7 @@ class ControlSession:
         game = self.gameplay
         position_ready=bool(game and (not game.require_self_position_for_drop or game.has_fresh_self_position()
                             or game.seated and self.active_vehicle is not None))
-        return dict(connected=True, ready=bool(game and game.actor_ready),
+        return dict(connected=True, ready=bool(game and game.actor_ready and (not game.vitals_enabled or game.vitals.current>0)),
                     seated=bool(game and game.seated),
                     position=list(game.player_position) if game and game.actor_ready and position_ready else None,
                     weather_id=self.weather_id,
@@ -74,6 +74,8 @@ class ControlSession:
         game = self.gameplay
         if game is None or not game.actor_ready:
             raise ValueError('等待角色进入地图')
+        if game.vitals_enabled and not game.vitals.current:
+            raise ValueError('角色已死亡，当前回合不能继续操作')
         if command['action'] == 'weather':
             self.weather_id = command['weather_id']
             return [environment_weather(self.weather_id, command['transition'])], f"已发送{WEATHER_NAMES[self.weather_id]}，过渡 {command['transition']} 秒"
@@ -166,6 +168,8 @@ class ControlSession:
         self.last_board_event=None
         if not game:
             return None
+        if message==0x6541 and game.vitals_enabled and not game.vitals.current:
+            return []
         car = None
         if message in (0x6541, 0x6549) and len(body) >= 8:
             car = self.vehicles.get(struct.unpack_from('>Q', body)[0])

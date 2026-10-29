@@ -169,12 +169,16 @@ class ThaiClientMap:
                     return spot
             return None
         if kind == 'peer':
-            for _ in range(64):
-                angle,distance = rng.uniform(0,math.tau),rng.uniform(800,2500)
-                px,py = round(x+distance*math.cos(angle)),round(y+distance*math.sin(angle))
-                height = self.peer_walkable(px,py)
-                if height is not None and all(math.hypot(px-a,py-b) >= 300 for a,b in occupied):
-                    return px,py,round(height)+5
+            # The verified ground-entry point sits beside low coastal terrain:
+            # its original 8..25 m search has no dry candidates. Widen only
+            # after nearer searches fail, retaining the same ground checks.
+            for low,high in ((800,2500),(2500,6000),(6000,9000),(9000,12000)):
+                for _ in range(64):
+                    angle,distance = rng.uniform(0,math.tau),rng.uniform(low,high)
+                    px,py = round(x+distance*math.cos(angle)),round(y+distance*math.sin(angle))
+                    height = self.peer_walkable(px,py)
+                    if height is not None and all(math.hypot(px-a,py-b) >= 300 for a,b in occupied):
+                        return px,py,round(height)+5
             return None
         candidates = [p for p in self.roadside(position) if
                       (600 if kind == 'peer' else 2000) <= math.hypot(p[0]-x,p[1]-y) <= 35000

@@ -5,6 +5,7 @@ Heightfield checks cannot detect buildings, trees or other map props.
 """
 import math
 import random
+import time
 
 from offline_ground_loot import MAX_GROUND_STACKS
 from offline_inventory import Item
@@ -35,6 +36,9 @@ class WorldPopulation:
         self.auto_item_ids=set()
         self.auto_vehicle_ids=set()
         self.bots = bots
+        self.peer_visibility=None
+        self.peer_retry_at=0
+        self.peer_attempts=0
         self.clusters=clusters
         self.vehicle_clusters=vehicle_clusters
         self.extra_items=extra_items
@@ -58,11 +62,14 @@ class WorldPopulation:
 
     def choose_spot(self, position, rng, vehicle=False, peer=False):
         if hasattr(self.terrain, 'spawn_spot'):
-            spot = self.terrain.spawn_spot(position,rng,
-                'vehicle' if vehicle else 'peer' if peer else 'loot',self.spots)
-            if spot is not None:
+            for _ in range(12 if peer and self.peer_visibility else 1):
+                spot = self.terrain.spawn_spot(position,rng,
+                    'vehicle' if vehicle else 'peer' if peer else 'loot',self.spots)
+                if spot is None:return None
+                if peer and self.peer_visibility and self.peer_visibility.walk(spot,spot) is None:continue
                 self.spots.append(spot[:2])
-            return spot
+                return spot
+            return None
         x, y, _ = position
         for _ in range(48):
             angle = rng.uniform(0, math.tau)
@@ -74,9 +81,22 @@ class WorldPopulation:
             separation = (260 if vehicle else 150) if nearby else 500
             if height is None or any(math.hypot(px - a, py - b) < separation for a, b in self.spots):
                 continue
+            if peer and self.peer_visibility and self.peer_visibility.walk((px,py,height+5),(px,py,height+5)) is None:
+                continue
             self.spots.append((px, py))
             return px, py, height + (100 if vehicle else 30)
         return None
+
+    def try_peers(self,position,rng=None):
+        if self.bots is None or len(self.bots.actors)>=self.bots.count:return []
+        now=time.monotonic()
+        if now<self.peer_retry_at:return []
+        self.peer_retry_at=now+3
+        if rng is None:
+            rng=random.Random((self.seed^int(position[0])*73856093^int(position[1])*19349663
+                               ^self.peer_attempts*83492791)&(2**64-1))
+        self.peer_attempts+=1
+        return self.bots.spawn(self,position,rng)
 
     def observe(self, message, body):
         if message != 0x2a or not hasattr(self.terrain, 'observe') or self.control.gameplay.seated:
@@ -103,11 +123,13 @@ class WorldPopulation:
         replies=self.unload_far(position)
         cell = position[0] // self.CELL, position[1] // self.CELL
         if cell in self.visited or len(self.visited) >= 1024:
-            return replies+(self.bots.tick(self) if self.bots else [])
+            spawned=self.try_peers(position)
+            return replies+spawned+(self.bots.tick(self) if self.bots and not spawned else [])
         self.visited.add(cell)
         rng = random.Random((self.seed ^ cell[0] * 73856093 ^ cell[1] * 19349663) & (2**64 - 1))
         world = game.ground_loot
         if self.loot and world and world.announced:
+            loot_spots=[]
             for _ in range(self.clusters):
                 # Keep room for manual F6 spawning; picked items release slots.
                 if len(world.stacks) > min(self.AUTO_GROUND_CAP-2, MAX_GROUND_STACKS - 2):
@@ -115,6 +137,7 @@ class WorldPopulation:
                 spot = self.choose_spot(position, rng)
                 if spot is None:
                     continue
+                loot_spots.append(spot)
                 template = rng.choice(sorted(WEAPONS))
                 spec = WEAPONS[template]
                 gun = world.add(Item(spec.kind, template, game.inventory.next_uid, 1), spot, spec.capacity)
@@ -125,6 +148,7 @@ class WorldPopulation:
                 self.auto_item_ids.update((gun.entity,ammo.entity))
                 replies.extend((gun.spawn(), ammo.spawn()))
             if self.extra_items:
+                extra_number=0
                 groups=([i for i,v in EXTRA_ITEMS.items() if v.slot==11],
                         [i for i,v in EXTRA_ITEMS.items() if v.kind==5],
                         [i for i,v in EXTRA_ITEMS.items() if v.kind==4],
@@ -135,9 +159,19 @@ class WorldPopulation:
                     for number in range(self.EXTRA_PER_GROUP):
                         if len(world.stacks)>=self.AUTO_GROUND_CAP:
                             break
-                        spot=self.choose_spot(position,rng)
-                        if spot is None:
-                            continue
+                        if not loot_spots:
+                            spot=self.choose_spot(position,rng)
+                            if spot is None:continue
+                            loot_spots.append(spot)
+                        # Reuse verified indoor floors. A sparse residential
+                        # region can exhaust all entrance candidates on guns,
+                        # otherwise silently starving medicine/armor/optics.
+                        anchor=loot_spots[extra_number%len(loot_spots)]
+                        angle=extra_number*2.399963229728653
+                        radius=35+5*((extra_number//len(loot_spots))%3)
+                        spot=(anchor[0]+round(radius*math.cos(angle)),
+                              anchor[1]+round(radius*math.sin(angle)),anchor[2])
+                        extra_number+=1
                         # Each region attempts a common M4-compatible optic;
                         # two unconstrained draws could both be non-optics.
                         template=(40305 if number==0 and 40305 in choices else
@@ -158,7 +192,7 @@ class WorldPopulation:
                     self.auto_vehicle_ids.add(self.control.next_vehicle_uid-1)
                     self.auto_vehicles += 1
         if self.bots is not None:
-            replies.extend(self.bots.spawn(self, position, rng))
+            replies.extend(self.try_peers(position,rng))
         return replies
 
     def unload_far(self,position):

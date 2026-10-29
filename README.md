@@ -8,12 +8,12 @@ This is an experimental, community-maintained reconstruction for the original Ga
 
 只读脚点、丢弃再拾取和沿途高密度物资已获用户实机确认，见[实时位置与流式生成](POSITION_STREAMING.md)。主入口需先构建自有只读观测库；原DLL按哈希备份、转发和恢复。背包增量仍为128行；地面实体为自动384/总512，远处自动对象会回收。
 
-蹲趴速度、站立/跳跃仍维持已验收配置。新弹药/换弹与配件候选修正了联合类型、弹匣和装配记录，原版20枪消费函数与换弹事件分支复核通过，实机待验收，见[弹药说明](AMMUNITION.md)。本地192项完整回归通过。机器人显示、1000点满血与计时治疗候选见[VITALS.md](VITALS.md)及[MEDICINE.md](MEDICINE.md)，投掷应答候选见[THROWABLES.md](THROWABLES.md)；命中及受击/死亡候选见[HIT_REPORTS.md](HIT_REPORTS.md)。伤害平衡、AI、原buff节奏和效果画面仍未完成。
+蹲趴速度、站立/跳跃仍维持已验收配置。新弹药/换弹与配件候选修正了联合类型、弹匣和装配记录，原版20枪消费函数与换弹事件分支复核通过，实机待验收，见[弹药说明](AMMUNITION.md)。本地206项完整回归通过。机器人显示、1000点满血与计时治疗候选见[VITALS.md](VITALS.md)及[MEDICINE.md](MEDICINE.md)，投掷应答候选见[THROWABLES.md](THROWABLES.md)；命中及受击/死亡候选见[HIT_REPORTS.md](HIT_REPORTS.md)。新增可选本地反击原型见[BOT_AI.md](BOT_AI.md)。原版伤害平衡、AI、原buff节奏和效果画面仍未完成。
 
 物品目录24项，药品/护甲拾取装备及实时脚点后的丢弃再拾取已获确认，F6有装备和8种原车型选择。配件安装仍异常，弹药数量和切枪换弹正在修复。治疗、护甲伤害、投掷及完整战斗未恢复，见[装备操作说明](EQUIPMENT_ACTIONS.md)。
 
-- 门开关及高密度屋内物资拾取已获用户实机确认。物资提高到每区16组枪弹，车辆每区尝试3辆，F6载具页显示最近位置。本轮所测试车辆已确认上车/驾驶/下车正常；全部车型/座位和停车精度仍需逐项验收，见 [世界生成说明](WORLD_POPULATION.md)。
-- 机器人前三轮均未被用户看到；已补外观、实际出生坐标和运行资料，并新增解除原隐藏分支的候选，尚未获得可见确认。没有战斗AI、攻击、伤害或击杀。
+- 门开关及高密度屋内物资拾取已获用户实机确认。稀疏住宅落点不再被枪弹耗尽后饿死药品/护甲/瞄具，扩展物资复用已确认楼面附近位置；原地图预检七类物资均生成，实机拾取仍待复核。物资提高到每区16组枪弹，车辆每区尝试3辆，F6载具页显示最近位置。本轮所测试车辆已确认上车/驾驶/下车正常；全部车型/座位和停车精度仍需逐项验收，见 [世界生成说明](WORLD_POPULATION.md)。
+- 机器人前三轮均未被用户看到；已补外观、实际出生坐标和运行资料，并新增解除原隐藏分支的候选，尚未获得可见确认。新增独立反击入口有实验感知、追近、点射、玩家受击及死亡候选，见[BOT_AI.md](BOT_AI.md)；没有新的实机显示/战斗验收，也未恢复原版AI。
 - 飞机横飞已有按航线调整生成旋转的候选，原生参数验证通过，朝向画面仍待确认。步行后刷新坐标滞留现已通过只读实时脚点修复，用户已确认沿途生成及丢弃再拾取；不要继续把旧关键帧问题当作当前结论。
 - `start_ingame_control.cmd` 组合原生跳伞、正午与游戏窗口悬浮菜单；用户已实机确认白天飞行、跳伞和落地移动正常。已确认的正午地面菜单保留为 `start_ingame_ground.cmd`。菜单可选天气、武器/弹药和吉普车，显示、F6 和下拉选择也已确认。它是独立 Windows 窗口，原生 Lua 面板两轮加载均失败，见 [游戏菜单说明](ingame/README.md)。
 - `start_ground_recovery_probe.cmd`为新地面隔离入口，组合实时脚点、F6、物资、一个机器人及治疗/投掷候选。新自动空中测试因无人操控漂出边界，不能据此确认机器人显示；该地面入口尚待实机。
@@ -42,11 +42,11 @@ git clone https://github.com/Sulfurone/roe-thai-offline-recovery.git recovery
 cd recovery
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m unittest test_offline_gameplay test_opening_airdrop test_scatter_loot test_aircraft_launcher_phases test_environment_schedule test_environment_session test_control_panel test_control_panel_session test_ingame_bridge test_ingame_session test_offline_motion test_population test_client_map test_extra_items test_equipment_actions test_self_position test_ammunition test_vitals test_throwables test_medicine test_hit_reports test_combat -q
+.\.venv\Scripts\python.exe -m unittest test_offline_gameplay test_opening_airdrop test_scatter_loot test_aircraft_launcher_phases test_environment_schedule test_environment_session test_control_panel test_control_panel_session test_ingame_bridge test_ingame_session test_offline_motion test_population test_client_map test_extra_items test_equipment_actions test_self_position test_ammunition test_vitals test_throwables test_medicine test_hit_reports test_combat test_bot_ai -q
 $env:ROE_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
 ```
 
-上述134项检查使用合成状态，无须客户端和私人抓包。仓库还保留其他测试；本地材料齐全时全套192项通过，一部分需要本地生成的协议样本、角色数据、原客户端内存镜像或资源，干净克隆后不能直接全部运行。
+上述148项检查使用合成状态，无须客户端和私人抓包。仓库还保留其他测试；本地材料齐全时全套206项通过，一部分需要本地生成的协议样本、角色数据、原客户端内存镜像或资源，干净克隆后不能直接全部运行。
 
 主入口的只读脚点模块还需自行构建（Windows/x86），见[构建说明](POSITION_STREAMING.md)：
 
@@ -77,4 +77,4 @@ python self_position.py build
 
 新的 `start_offline_weather_clear.cmd` 使用已确认的纯地面出生链，等待首个有效玩家位置后延迟 2 秒发送一次 `0x4817`：ID 2 晴天、30 秒过渡、mode 0。它不含时钟、飞机或登机。`start_offline_day_weather.cmd` 则在稳定跳伞链上组合时段 12 的 `0x4816` 与晴天 `0x4817`。两者的协议与加密回环已验证；晴天包也被真实客户端连接接受并继续传输超过两分钟，但视觉与地面移动尚待验收。
 
-本地全套 **192 项**检查通过，另有开局跳伞、航线控制器、载具、昼夜时间、轨迹确认、生命值、药品使用、投掷及地图生成消息的原生验证。完整回归中的私有素材依赖用例无法在纯公开克隆直接运行；请使用上方公开测试列表。控制台支持手动切换原生天气；随机天气循环、温度和区域天气尚未恢复。详细范围见 [功能清单](GAMEPLAY.md)、[当前交接](HANDOFF_CURRENT.md) 和 [世界生成说明](WORLD_POPULATION.md)。
+本地全套 **206 项**检查通过，另有开局跳伞、航线控制器、载具、昼夜时间、轨迹确认、生命值、药品使用、投掷及地图生成消息的原生验证。完整回归中的私有素材依赖用例无法在纯公开克隆直接运行；请使用上方公开测试列表。控制台支持手动切换原生天气；随机天气循环、温度和区域天气尚未恢复。详细范围见 [功能清单](GAMEPLAY.md)、[当前交接](HANDOFF_CURRENT.md) 和 [世界生成说明](WORLD_POPULATION.md)。

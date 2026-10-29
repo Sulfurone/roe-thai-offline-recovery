@@ -26,6 +26,8 @@ from offline_population import WorldPopulation
 from offline_bots import BotRoster
 from offline_hit_reports import character_hit
 from offline_combat import BotCombat
+from offline_bot_ai import BotAI
+from offline_visibility import StaticVisibility
 from offline_posture import posture_speed_delta,CROUCH_CM_PER_SECOND,PRONE_CM_PER_SECOND
 from self_position import PositionInstallation,recover_previous
 
@@ -95,7 +97,7 @@ def main():
     parser.add_argument('--control-client-boarding',action='store_true',
                         help='Single-player: trust local selection of loaded generated vehicles for boarding')
     parser.add_argument('--world-bots', type=int, default=0,
-                        help='Experimental default peer patrol count, 0..4; no combat AI')
+                        help='Experimental local peer count, 0..4; passive unless --world-bot-ai')
     parser.add_argument('--world-bot-profile', type=Path,
                         help='Locally prepared original-codec-validated basic peer profile')
     parser.add_argument('--gameplay-arsenal',action='store_true',
@@ -113,6 +115,10 @@ def main():
     parser.add_argument('--gameplay-vitals',action='store_true',help='Initialize original HP once and handle timed medicine-use candidates')
     parser.add_argument('--world-bot-combat',action='store_true',
                         help='Experimental consumed-shot/collision damage against local peers; no combat AI')
+    parser.add_argument('--world-bot-ai',action='store_true',
+                        help='Experimental local perception/chase/fire; requires explicit combat and static bounds')
+    parser.add_argument('--world-bot-occlusion',type=Path,
+                        help='Thai static scene XML; defaults to the selected client map scene')
     parser.add_argument('--gameplay-throwables',action='store_true',help='Acknowledge native throws, consume one item and complete original effects')
     parser.add_argument('--gameplay-posture-speeds',action='store_true',
                         help='Sparse local crouch/prone tuning after player readiness; standing stays unchanged')
@@ -289,6 +295,19 @@ def main():
                 parser.error(f'Cannot read population terrain: {error}')
     elif args.world_terrain is not None or args.world_client_ground or args.world_client_map:
         parser.error('World terrain requires --world-populate')
+    bot_visibility=None
+    if args.world_bot_ai:
+        if not args.world_bot_combat:
+            parser.error('--world-bot-ai requires --world-bot-combat')
+        occlusion=args.world_bot_occlusion or (args.world_client_map/'RIGIDSTATICINPXSCENE.XML' if args.world_client_map else None)
+        if occlusion is None or population_surface is None:
+            parser.error('Bot AI needs a Thai static scene and population terrain')
+        try:
+            bot_visibility=StaticVisibility.from_scene(population_surface,occlusion)
+        except (OSError,ValueError,TypeError) as error:
+            parser.error(f'Cannot prepare bot visibility: {error}')
+    elif args.world_bot_occlusion is not None:
+        parser.error('--world-bot-occlusion requires --world-bot-ai')
     landing_height=None
     if args.gameplay_opening_glider_file is not None:
         if not args.gameplay_opening_airdrop or args.gameplay_landing_terrain is None:
@@ -531,6 +550,7 @@ def main():
                 population = WorldPopulation(control_session,population_surface,args.world_seed,bots=bots,
                     clusters=args.world_loot_clusters,vehicle_clusters=args.world_vehicle_clusters,
                     extra_items=args.world_extra_items) if args.world_populate else None
+                ai=BotAI(gameplay,bots,population,bot_visibility) if args.world_bot_ai else None
                 if population is not None:
                     emit('world_population_ready',seed=args.world_seed,door_replies=args.gameplay_doors,
                          experimental_peers=args.world_bots,scope='Synthetic finite scenario, not original AI/collision')
@@ -642,7 +662,15 @@ def main():
                             if population_replies:
                                 emit('world_population_sent',messages=len(population_replies),
                                      actor_position=gameplay.player_position,cells=len(population.visited),
-                                     ground_items=len(gameplay.ground_loot.stacks),vehicles=population.auto_vehicles)
+                                     ground_items=len(gameplay.ground_loot.stacks),vehicles=population.auto_vehicles,
+                                     peers=len(bots.actors) if bots is not None else 0)
+                            if ai is not None:
+                                for response_id,response_body in ai.tick():
+                                    response=struct.pack('>IHI',1,response_id,response_id)+response_body
+                                    send(connection,0,body=encrypt(response,key))
+                                    emit('bot_ai_response_sent',message_id=response_id,body_bytes=len(response_body))
+                                for event in ai.events:
+                                    emit('bot_ai',**event)
                         # Advance timers when the client is quiet. Socket reads
                         # still use the original framed reader; a partial frame
                         # remains subject to its existing connection timeout.
@@ -749,6 +777,13 @@ def main():
                                 previous_saves=gameplay.state_save_count
                                 previous_magazine=gameplay.magazine
                                 bot_replies=bots.handle(message_id,application[26:]) if bots is not None else None
+                                if ai is not None and bot_replies is not None:
+                                    for reply_id,reply_body in list(bot_replies):
+                                        if reply_id==0xbe7:
+                                            uid=struct.unpack_from('>Q',reply_body,8)[0]
+                                            equipped=ai.equipment(uid)
+                                            if equipped is not None and bots.vitals[uid].current:
+                                                bot_replies.append(equipped)
                                 control_replies=bot_replies
                                 if control_replies is None and control_session is not None:
                                     control_replies=control_session.handle(message_id,application[26:])
