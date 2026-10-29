@@ -10,7 +10,8 @@ import struct
 import sys
 from native_codec_probe import NativeCodec,ROOT
 from unicorn import UC_HOOK_CODE
-from unicorn.x86_const import UC_X86_REG_EAX,UC_X86_REG_ECX,UC_X86_REG_ESP,UC_X86_REG_EIP
+from unicorn.x86_const import (UC_X86_REG_EAX,UC_X86_REG_EBX,UC_X86_REG_ECX,
+    UC_X86_REG_ESI,UC_X86_REG_EBP,UC_X86_REG_ESP,UC_X86_REG_EIP)
 
 sys.path.insert(0,str(ROOT))
 from offline_inventory import OfflineInventory,Item
@@ -25,6 +26,8 @@ heap=0x10b00000
 parts={}
 events=[]
 factories=[]
+hooks={}
+native_slots=False
 
 
 def put(address,*values):c.uc.mem_write(address,struct.pack('<'+'I'*len(values),*values))
@@ -39,7 +42,7 @@ def finish(value=0,cleanup=0):
 
 
 def hook(address,fn):
-    c.uc.hook_add(UC_HOOK_CODE,lambda uc,a,s,u:fn(),begin=address,end=address)
+    hooks[address]=c.uc.hook_add(UC_HOOK_CODE,lambda uc,a,s,u:fn(),begin=address,end=address)
 
 
 def args(n):
@@ -90,11 +93,14 @@ def attach():
 
 
 def part_factory():
+    global heap
     template,quantity=args(2)
     factories.append((template,quantity))
-    put(part,0x25c40f0)
-    put(part+0x20,template)
-    finish(part)
+    address=heap if native_slots else part
+    if native_slots:heap+=0x100
+    put(address,0x25cebc8 if native_slots else 0x25c40f0)
+    put(address+0x20,template)
+    finish(address)
 
 
 hook(0x1119a50,attach)
@@ -159,6 +165,33 @@ for template,spec in WEAPONS.items():
         raise ValueError('Original row loop did not create/install the scope')
     if template!=10201 and parts:raise ValueError('Native detach did not clear parts')
     gun_checks.append(template)
+
+# Now remove simulated attach/get/detach methods and inspect the actual native
+# seven-slot array. Owner/model are absent; no rendered effect is claimed.
+for address in (0x1119180,0x1119a50,0x111ac40):c.uc.hook_del(hooks.pop(address))
+native_slots=True
+c.uc.mem_write(gun+0x6b4,bytes(12))
+c.uc.reg_write(UC_X86_REG_ESI,gun);c.uc.reg_write(UC_X86_REG_EBX,0)
+c.uc.reg_write(UC_X86_REG_EBP,c.STACK-0x1000);c.uc.reg_write(UC_X86_REG_ESP,c.STACK-0x1100)
+c.uc.emu_start(0x111fc9a,0x111fcec,timeout=1000000,count=100000)
+slot_array=c.read32(gun+0x6b4)
+if (c.uc.reg_read(UC_X86_REG_EIP)!=0x111fcec or c.read32(gun+0x6b8)-slot_array!=28
+        or bytes(c.uc.mem_read(slot_array,28))!=bytes(28)):
+    raise ValueError('Original constructor slice did not create seven empty part slots')
+hook(0x108ccf0,lambda:finish(0))  # No default-part table in this isolated control.
+bound_part_checks=[]
+for scope in (40305,40303,None):
+    installed=() if scope is None else ((2,Item(4,scope,0x100120,1)),)
+    item=Item(1,10201,0x100101,1,installed)
+    decode_item(item,19)
+    c.uc.mem_write(gun+0x6c4,b'\0')
+    c.invoke(0xf61ec0,inv,[1,c.OBJECT])
+    actual=c.read32(slot_array+8)
+    actual_template=c.read32(actual+0x20) if actual else None
+    if actual_template!=scope or bytes(c.uc.mem_read(gun+0x6c4,1))!=b'\1':
+        raise ValueError(('Original attachment binding/dirty flag differs',scope,actual_template))
+    if c.read32(gun+0x60)!=19:raise ValueError('Original attachment binding changed loaded ammo')
+    bound_part_checks.append(dict(scope=scope,loaded=19,dirty=True))
 
 # Use a fresh emulator to execute the actual generic factory and count getter.
 q=NativeCodec()
@@ -229,6 +262,7 @@ for old,new in ((20,19),(19,19),(19,30)):
     event_checks.append(dict(old=old,new=new,events=list(events)))
 
 report=dict(passed=True,gun_templates=gun_checks,quantities=quantity_checks,events=event_checks,
-    limitation='Original field consumers with synthetic map/allocation/RTTI/rendering dependencies; live UI acceptance still required')
+    bound_parts=bound_part_checks,
+    limitation='Native slot getter/binding/removal and dirty flag additionally executed; synthetic map/allocation/RTTI, no owner/model/default-part table or rendered proof')
 (ROOT/'private/typed-gameplay/ammunition-runtime-validation.json').write_text(json.dumps(report,indent=2),encoding='utf8')
 print(json.dumps(report))

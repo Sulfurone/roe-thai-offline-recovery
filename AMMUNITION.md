@@ -49,3 +49,5 @@ python probes/extract_weapon_stat_prefixes.py
 python probes/extract_reload_timing.py
 python probes/validate_reload_timing.py
 ```
+
+后续装配验证已进一步执行原7槽构造片段及原getter/绑定/移除方法，增加槽数组、更新标志和弹匣不变的核对；仍不包含实际模型/开镜。原零UID入口的兼容修复和真实拖拽抓包差异见EQUIPMENT_ACTIONS.md末节。

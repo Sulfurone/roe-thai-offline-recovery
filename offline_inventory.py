@@ -227,7 +227,10 @@ class OfflineInventory:
                     if src==3 else (src,src_slot))
         source=self.items.get(source_key)
         part=(dict(source.parts).get(src_slot) if source is not None and src==3 else source)
-        if (source is None or source.uid!=source_uid or part is None or part.kind!=4
+        # Original F625B0 identifies ordinary bag sources by slot with UID 0.
+        # The explicit-identity path also exists in real client captures.
+        if (source is None or source_uid not in (0,source.uid) or src==3 and source_uid==0
+                or part is None or part.kind!=4
                 or not is_extra(part) or part.count!=1):
             return failure
         target_key=(next((k for k,v in self.items.items() if v.uid==target_uid and is_weapon(v)),None)

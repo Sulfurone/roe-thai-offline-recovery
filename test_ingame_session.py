@@ -80,7 +80,10 @@ class IngameSessionTests(unittest.TestCase):
     def test_recovered_reload_duration_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',timed_reload=True,original_reload=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False):
+    def test_native_slot_attachment_replace_and_detach_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay',attachments=True)
+
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -185,6 +188,9 @@ class IngameSessionTests(unittest.TestCase):
                 game=OfflineGameplay(**kwargs)
                 games.append(game)
                 if throws:game.inventory.items[1,5]=Item(5,50001,0x100110,3)
+                if attachments:
+                    game.inventory.items[2,1]=Item(4,40305,0x100110,1)
+                    game.inventory.items[2,2]=Item(4,40303,0x100111,1)
                 if medicine:
                     game.inventory.items[2,3]=Item(7,70001,0x100110,2)
                     game.vitals.damage(600)
@@ -192,7 +198,7 @@ class IngameSessionTests(unittest.TestCase):
 
             with patch.object(local_server, '__file__', str(root / 'recovery/local_server.py')), \
                     patch('sys.argv', argv), \
-                    (patch.object(local_server,'OfflineGameplay',side_effect=construct_game) if throws or medicine or hit_reports or combat or timed_reload else contextlib.nullcontext()), \
+                    (patch.object(local_server,'OfflineGameplay',side_effect=construct_game) if throws or medicine or hit_reports or combat or timed_reload or attachments else contextlib.nullcontext()), \
                     (patch.object(local_server,'BotCombat',side_effect=construct_combat) if combat else contextlib.nullcontext()), \
                     (patch.object(local_server,'BotAI',side_effect=construct_ai) if ai else contextlib.nullcontext()), \
                     (patch.object(local_server,'StaticVisibility',SimpleNamespace(from_scene=construct_visibility)) if collision else contextlib.nullcontext()), \
@@ -374,6 +380,22 @@ class IngameSessionTests(unittest.TestCase):
                         name_length = struct.unpack_from('>I', jeep, 8)[0]
                         self.assertEqual(struct.unpack_from('>3i', jeep, 24 + name_length),
                                          (334400, 280000, 9100))
+                    if attachments:
+                        g=games[0];gun=g.inventory.items[1,1]
+                        for source,src,src_slot,target,dst,dst_slot in (
+                                (0,2,1,gun.uid,3,2),
+                                (0x100111,2,2,gun.uid,3,2),
+                                (gun.uid,3,2,0,2,1)):
+                            send(0x3e80,struct.pack('>BQBHQBHHB',6,source,src,src_slot,target,dst,dst_slot,1,1))
+                            self.assertEqual(receive_raw()[0],0x3e82)
+                            self.assertEqual(receive_raw(),(0x3e81,struct.pack('>BIIB',6,0,40303 if source else 40305,1)))
+                            self.assertEqual(g.magazine,30)
+                        self.assertEqual(g.inventory.items[1,1].parts,())
+                        self.assertEqual(g.inventory.items[2,1].template,40303)
+                        self.assertEqual(g.inventory.items[2,2].template,40305)
+                        client.settimeout(.2)
+                        with self.assertRaises(socket.timeout):read_frame(client)
+                        client.settimeout(4)
                     if timed_reload:
                         shot=struct.pack('>6fIB',325800,271700,6600,327000,271700,6600,0,0)
                         send(0x11d3,shot)

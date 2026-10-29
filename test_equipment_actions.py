@@ -63,6 +63,21 @@ class EquipmentActionsTests(unittest.TestCase):
         iv.handle(part_request(gun.uid,3,2,0,2,2))
         self.assertEqual(iv.items,before)
 
+    def test_original_slot_based_attach_allows_zero_bag_uid_but_requires_weapon_identity(self):
+        iv=self.inventory();gun=iv.items[1,1];part=iv.items[2,1]
+        replies=iv.handle(part_request(0,2,1,gun.uid,3,2))
+        self.assertEqual([m for m,b in replies],[0x3e82,0x3e81])
+        self.assertEqual(dict(iv.items[1,1].parts)[2],part)
+        self.assertEqual(iv.weapon_magazines[gun.uid],30)
+        before=copy.deepcopy(iv.items)
+        for request in (part_request(0,3,2,0,2,1),
+                        part_request(iv.items[2,2].uid+999,2,2,gun.uid,3,2)):
+            self.assertEqual(iv.handle(request),[iv.reply(6,1)])
+            self.assertEqual(iv.items,before)
+        iv.handle(part_request(gun.uid,3,2,0,2,1))
+        self.assertEqual(iv.items[2,1],part)
+        self.assertEqual(iv.items[1,1].parts,())
+
     def test_installed_part_survives_world_save_gun_drop_pickup_and_detach(self):
         game=ready_game()
         game.inventory=self.inventory()
