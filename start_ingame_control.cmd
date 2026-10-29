@@ -15,12 +15,12 @@ if not errorlevel 1 (
   pause
   exit /b 1
 )
-echo Thai daytime parachute and in-game overlay: F6 opens or collapses weather, weapon and Jeep controls.
+echo Thai daytime parachute and in-game overlay: click the small Offline Control entry for weather, equipment and vehicles.
 echo This is a native Windows overlay attached to the game window.
 echo Daytime: synchronize lobby time, then set noon after player readiness.
 echo Motion recovery: self-read position observer, walking receipts and loaded-client vehicle boarding.
 echo Aircraft opening uses the verified west-to-east route. Use the native jump key.
-echo The menu starts fully hidden; press F6 to open it, and F6 or Esc to close it.
+echo The main menu starts hidden; use its small mouse entry. F6 input remains under diagnosis.
 echo Keep this console open while playing.
 echo Loading map collision data BEFORE the game window opens.
 echo This can take about 1 minute. Please keep this window open and wait.

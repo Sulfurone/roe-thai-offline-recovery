@@ -2,6 +2,7 @@
 #include "position_observer.c"
 static unsigned char fixture[4096];
 static unsigned char health_fixture[4096];
+static unsigned char equipment_fixture[8192];
 static void expect(int ok) {if(!ok)ExitProcess(1);}
 void WINAPI TestEntry(void) {
     Sample sample;clear_bytes(&sample,sizeof(sample));
@@ -112,6 +113,43 @@ void WINAPI TestEntry(void) {
            visual.visual==(uint32_t)fixture && visual.visual_vtable==value && visual.secondary_gate==1 &&
            visual.gates==0x010101 && visual.nested==(uint32_t)health_fixture);
     visual_row(1,fn,&visual);expect(visual.status==2);
+    /* Slot lookup never inserts an empty native map entry. Exercise hash
+     * collisions, missing/invalid nodes, telescope type and model presence. */
+    uint32_t *inventory=(uint32_t*)equipment_fixture;
+    uint32_t *eqb=(uint32_t*)(equipment_fixture+512),*eqnode=(uint32_t*)(equipment_fixture+544);
+    uint32_t *gun=(uint32_t*)(equipment_fixture+1024),*slots=(uint32_t*)(equipment_fixture+3072);
+    uint32_t *scope=(uint32_t*)(equipment_fixture+3200),*scopevt=(uint32_t*)(equipment_fixture+3328);
+    uint32_t *normal=(uint32_t*)(equipment_fixture+4096),*zoom=(uint32_t*)(equipment_fixture+4608);
+    value=(uint32_t)inventory;copy_bytes(health_fixture+0x7c0,&value,4);
+    inventory[0x84/4]=(uint32_t)eqb;inventory[0x88/4]=1;eqb[0]=(uint32_t)eqnode;
+    eqnode[0]=1;eqnode[1]=(uint32_t)gun;
+    gun[0]=(uint32_t)scopevt;gun[0x18/4]=0x100101;gun[0x20/4]=10201;gun[0x24/4]=1;
+    gun[0x60/4]=19;gun[0x39c/4]=30;
+    gun[0x66c/4]=(uint32_t)health_fixture;gun[0x674/4]=(uint32_t)normal;
+    gun[0x6b4/4]=(uint32_t)slots;gun[0x6b8/4]=(uint32_t)(slots+7);
+    slots[2]=(uint32_t)scope;scope[0]=(uint32_t)scopevt;scopevt[1]=fn+0xc62840u;
+    scope[0x20/4]=40303;scope[0x4c/4]=(uint32_t)health_fixture;
+    scope[0x48/4]=(uint32_t)normal;scope[0x58/4]=(uint32_t)zoom;
+    scope[0x5c/4]=1;normal[0xf4/4]=0;zoom[0xf4/4]=1;
+    EquipmentSample equipment;clear_bytes(&equipment,sizeof(equipment));
+    equipment_rows((uint32_t)health_fixture,fn,&equipment);
+    expect(equipment.inventory==(uint32_t)inventory && equipment.rows[0].status==0 &&
+           equipment.rows[1].status==2 && equipment.rows[0].loaded==19 &&
+           equipment.rows[0].scope_template==40303 && equipment.rows[0].ads_mode==1 &&
+           equipment.rows[0].normal_flag==0 && equipment.rows[0].ads_flag==1);
+    expect(equipment_object((uint32_t)inventory,2,&value)==0 && value==0 && !eqnode[2]);
+    scopevt[1]=fn+0xc62730u;equipment_rows((uint32_t)health_fixture,fn,&equipment);
+    expect(equipment.rows[0].status==4);scopevt[1]=fn+0xc62840u;
+    gun[0x6b8/4]=(uint32_t)(slots+8);equipment_rows((uint32_t)health_fixture,fn,&equipment);
+    expect(equipment.rows[0].status==4);gun[0x6b8/4]=(uint32_t)(slots+7);
+    slots[2]=0;equipment_rows((uint32_t)health_fixture,fn,&equipment);
+    expect(equipment.rows[0].status==0 && !equipment.rows[0].scope &&
+           !equipment.rows[0].ads_model && equipment.rows[0].ads_flag==0xffffffffu);
+    eqnode[2]=(uint32_t)eqnode;
+    expect(equipment_object((uint32_t)inventory,2,&value)==-1);
+    eqnode[2]=0;inventory[0x88/4]=0;
+    expect(equipment_object((uint32_t)inventory,1,&value)==-1);
+    equipment_rows(0,fn,&equipment);expect(equipment.rows[0].status==1);
     DWORD written;
     const char text[]="SELF_POSITION_ACCESSOR_TESTS_PASS\n";
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,sizeof(text)-1,&written,NULL);

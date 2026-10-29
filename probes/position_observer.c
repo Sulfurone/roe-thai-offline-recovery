@@ -30,11 +30,22 @@ typedef struct {
     uint32_t pid,sequence,count;
     VisualRow rows[5];
 } VisualSample;
+typedef struct {
+    uint32_t slot,status,item,vtable,low,high,template_id,owner,model,loaded,capacity,dirty;
+    uint32_t scope,scope_vtable,scope_template,scope_owner,normal_model,ads_model,ads_mode;
+    uint32_t normal_flag,ads_flag;
+} EquipmentRow;
+typedef struct {
+    char magic[8],token[32];
+    uint32_t pid,sequence,count,inventory;
+    EquipmentRow rows[2];
+} EquipmentSample;
 #pragma pack(pop)
 _Static_assert(sizeof(void*)==4,"Build for x86");
 _Static_assert(sizeof(Sample)==136,"Position sample layout changed");
 _Static_assert(sizeof(PeerSample)==260,"Peer diagnostic layout changed");
 _Static_assert(sizeof(VisualSample)==252,"Visual diagnostic layout changed");
+_Static_assert(sizeof(EquipmentSample)==224,"Equipment diagnostic layout changed");
 
 static int self_read(uintptr_t address,void *out,SIZE_T size) {
     SIZE_T read=0;
@@ -326,6 +337,69 @@ static void visual_row(uint32_t actor,uintptr_t base,VisualRow *row) {
     row->status=0;
 }
 
+/* F60AE0/793E90's primary-slot map, without its insertion-on-miss behavior.
+ * Examine only slots 1 and 2, cap chain traversal and reject malformed data. */
+static int equipment_object(uint32_t inventory,uint32_t slot,uint32_t *object) {
+    uint32_t buckets=0,count=0,node=0,sentinel=0;
+    *object=0;
+    if(!inventory || !self_read(inventory+0x84,&buckets,4) ||
+       !self_read(inventory+0x88,&count,4) || !count || count>1048576u ||
+       !self_read(buckets+count*4,&sentinel,4) ||
+       !self_read(buckets+(slot%count)*4,&node,4))return -1;
+    for(unsigned i=0;node && node!=sentinel && i<128;i++) {
+        uint32_t key=0,next=0;
+        if(!self_read(node,&key,4))return -1;
+        if(key==slot)return self_read(node+4,object,4)?(*object?1:0):-1;
+        if(!self_read(node+8,&next,4) || next==node)return -1;
+        node=next;
+    }
+    return !node || node==sentinel?0:-1;
+}
+
+/* Native inventory/weapon fields established by the offline attachment probe.
+ * No function/RTTI calls, renderer calls, writes or equipment changes occur. */
+static void equipment_rows(uint32_t actor,uintptr_t base,EquipmentSample *out) {
+    out->inventory=0;
+    self_read(actor+0x7c0,&out->inventory,4);
+    for(unsigned i=0;i<2;i++) {
+        EquipmentRow *row=out->rows+i;clear_bytes(row,sizeof(*row));row->slot=i+1;row->status=1;
+        row->normal_flag=row->ads_flag=0xffffffffu;
+        if(!out->inventory)continue;
+        int found=equipment_object(out->inventory,row->slot,&row->item);
+        row->status=found<0?3:2;
+        if(found!=1)continue;
+        row->status=3;
+        uint32_t category=0,begin=0,end=0;unsigned char dirty=0;
+        if(!self_read(row->item,&row->vtable,4) ||
+           !self_read(row->item+0x18,&row->low,4) || !self_read(row->item+0x1c,&row->high,4) ||
+           !self_read(row->item+0x20,&row->template_id,4) || !self_read(row->item+0x24,&category,4))continue;
+        if(category!=1 && category!=2) {row->status=4;continue;}
+        if(!self_read(row->item+0x66c,&row->owner,4) || !self_read(row->item+0x674,&row->model,4) ||
+           !self_read(row->item+0x60,&row->loaded,4) || !self_read(row->item+0x39c,&row->capacity,4) ||
+           !self_read(row->item+0x6c4,&dirty,1) ||
+           !self_read(row->item+0x6b4,&begin,4) || !self_read(row->item+0x6b8,&end,4))continue;
+        row->dirty=dirty;
+        if(!begin || end<begin || end-begin!=28) {row->status=4;continue;}
+        if(!self_read(begin+8,&row->scope,4))continue;
+        if(row->scope) {
+            uint32_t getter=0;unsigned char mode=0,visible=0;
+            if(!self_read(row->scope,&row->scope_vtable,4) ||
+               !self_read(row->scope_vtable+4,&getter,4) ||
+               !self_read(row->scope+0x20,&row->scope_template,4))continue;
+            if(getter!=base+0xc62840u) {row->status=4;continue;}
+            if(!self_read(row->scope+0x4c,&row->scope_owner,4) ||
+               !self_read(row->scope+0x48,&row->normal_model,4) ||
+               !self_read(row->scope+0x58,&row->ads_model,4) ||
+               !self_read(row->scope+0x5c,&mode,1))continue;
+            row->ads_mode=mode;
+            if(row->normal_model && self_read(row->normal_model+0xf4,&visible,1))row->normal_flag=visible;
+            if(row->ads_model && self_read(row->ads_model+0xf4,&visible,1))row->ads_flag=visible;
+        }
+        uint32_t again=0;
+        if(equipment_object(out->inventory,row->slot,&again)==1 && again==row->item)row->status=0;
+    }
+}
+
 static void write_atomic(const wchar_t *output,const wchar_t *temporary,const void *data,DWORD size) {
     HANDLE file=CreateFileW(temporary,GENERIC_WRITE,0,NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);
     if(file!=INVALID_HANDLE_VALUE) {
@@ -341,6 +415,7 @@ static DWORD WINAPI observe(void *module) {
     static wchar_t expected[1024],actual[1024],output[1024],temporary[1040];
     static wchar_t peer_output[1040],peer_temporary[1040];
     static wchar_t visual_output[1040],visual_temporary[1040];
+    static wchar_t equipment_output[1040],equipment_temporary[1040];
     static wchar_t config_path[1024],original_path[1024];
     DWORD module_len=GetModuleFileNameW((HMODULE)module,config_path,1024);
     if(!module_len || module_len>=980)return 0;
@@ -366,6 +441,8 @@ static DWORD WINAPI observe(void *module) {
     lstrcpyW(peer_temporary,peer_output);lstrcatW(peer_temporary,L".tmp");
     lstrcpyW(visual_output,output);lstrcatW(visual_output,L".visuals");
     lstrcpyW(visual_temporary,visual_output);lstrcatW(visual_temporary,L".tmp");
+    lstrcpyW(equipment_output,output);lstrcatW(equipment_output,L".equipment");
+    lstrcpyW(equipment_temporary,equipment_output);lstrcatW(equipment_temporary,L".tmp");
     uintptr_t base=(uintptr_t)GetModuleHandleW(NULL);
     unsigned char dos[2];
     if(base!=0x400000 || !self_read(base,dos,2) || dos[0]!='M' || dos[1]!='Z')return 0;
@@ -379,6 +456,9 @@ static DWORD WINAPI observe(void *module) {
     VisualSample visuals;clear_bytes(&visuals,sizeof(visuals));
     copy_bytes(visuals.magic,"ROEVIS2",7);copy_bytes(visuals.token,config.token,32);
     visuals.pid=sample.pid;visuals.count=5;
+    EquipmentSample equipment;clear_bytes(&equipment,sizeof(equipment));
+    copy_bytes(equipment.magic,"ROEEQP1",7);copy_bytes(equipment.token,config.token,32);
+    equipment.pid=sample.pid;equipment.count=2;
     for(;;) {
         uint32_t manager=0,actor=0,vt=0,getter=0;
         sample.sequence++;sample.status=1;sample.actor=sample.getter=0;
@@ -408,6 +488,8 @@ static DWORD WINAPI observe(void *module) {
                 visual_row(i?peers.rows[i-1].actor:actor,base,row);
             }
             write_atomic(visual_output,visual_temporary,&visuals,sizeof(visuals));
+            equipment.sequence=sample.sequence;equipment_rows(actor,base,&equipment);
+            write_atomic(equipment_output,equipment_temporary,&equipment,sizeof(equipment));
         }
         Sleep(100);
     }

@@ -85,3 +85,15 @@ python peer_diagnostics.py private/self-position/SESSION/position.bin --visuals
 原10F3630/10F3690/D08BB0/CF1300/CF1330对照详见BOT_AI.md最新纠正；先前把106A=1说成解除隐藏的解释已撤销。v20记录旧profile导致的FFFFFFFD基线，新profile0及ROEVIS2的后续v21结果见下段。C自检覆盖掩码/外观/门控读取与无效地址，公开Reader测试覆盖身份、越界及陈旧记录。
 
 实机v21已获得10条ROEVIS2字段就绪样本：机器人FFFFFFFF/[1,1,1]，与本角色一致。原生内层对象+828为0时仍有主外观对象；不把这个0误判为无模型。截图依然超时，未声明画面验收。
+
+## 主武器与瞄具只读诊断
+
+2026-10-29续作增加`position.bin.equipment`：224字节ROEEQP1，会话token、PID、序号和两个固定主武器槽。读取actor+7C0库存，通过原793E90的四字节键散列表规则查槽1/2，但绝不调用其“未找到则插入”操作。只读链最多128步，桶数为1..1048576，非法/循环指针拒绝。
+
+记录枪UID、模板、弹量/容量、模型/拥有者及+6B4七槽数组的瞄具。只有瞄具原类型getter与1062840匹配时，读取+48普通模型、+58开镜模型、+5C模式和+4C拥有者；两个模型+F4保存为原始字节，未读取为unknown，不自动解释成可见。采样末尾再次核对枪槽指针，改变则报告读取不可用。这是跨线程的尽力快照，不是原子引擎状态。
+
+`equipment_diagnostics.py`验证两个文件3秒新鲜度、token、PID、完整大小、槽号和字段范围。C合成自检覆盖有/无瞄具、缺槽、错误类型、错误数组长度、循环/空表和无效actor；3项Python测试覆盖身份/范围/陈旧记录拒绝。原生配件/开镜边界验证见[EQUIPMENT_ACTIONS.md](EQUIPMENT_ACTIONS.md)。模型指针、原始开关或服务日志均不替代实际画面验收。
+
+```powershell
+python equipment_diagnostics.py private/self-position/SESSION/position.bin
+```
