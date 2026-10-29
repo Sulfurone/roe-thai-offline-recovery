@@ -42,11 +42,11 @@ git clone https://github.com/Sulfurone/roe-thai-offline-recovery.git recovery
 cd recovery
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m unittest test_offline_gameplay test_opening_airdrop test_scatter_loot test_aircraft_launcher_phases test_environment_schedule test_environment_session test_control_panel test_control_panel_session test_ingame_bridge test_ingame_session test_offline_motion test_population test_client_map test_extra_items test_equipment_actions test_self_position test_ammunition test_vitals test_throwables test_medicine test_hit_reports test_combat test_bot_ai test_peer_diagnostics test_blast test_collision test_collision_assets test_dynamic_doors test_reload_timing test_extended_magazines -q
+.\.venv\Scripts\python.exe -m unittest test_offline_gameplay test_opening_airdrop test_scatter_loot test_aircraft_launcher_phases test_environment_schedule test_environment_session test_control_panel test_control_panel_session test_ingame_bridge test_ingame_session test_offline_motion test_population test_client_map test_extra_items test_equipment_actions test_self_position test_ammunition test_vitals test_throwables test_medicine test_hit_reports test_combat test_bot_ai test_peer_diagnostics test_blast test_collision test_collision_assets test_dynamic_doors test_reload_timing test_extended_magazines test_armour test_ammo_collection test_indoor_loot -q
 $env:ROE_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
 ```
 
-上述202项检查使用合成状态，无须客户端和私人抓包。仓库还保留其他测试；本地材料齐全时全套260项通过，一部分需要本地生成的协议样本、角色数据、原客户端内存镜像或资源，干净克隆后不能直接全部运行。
+上述219项检查使用合成状态，无须客户端和私人抓包。仓库还保留其他测试；本地材料齐全时全套277项通过，一部分需要本地生成的协议样本、角色数据、原客户端内存镜像或资源，干净克隆后不能直接全部运行。
 
 主入口的只读脚点模块还需自行构建（Windows/x86），见[构建说明](POSITION_STREAMING.md)：
 

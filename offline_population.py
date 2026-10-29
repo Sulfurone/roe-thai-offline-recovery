@@ -35,6 +35,7 @@ class WorldPopulation:
         self.auto_vehicles = 0
         self.auto_item_ids=set()
         self.auto_vehicle_ids=set()
+        self.upstairs_houses=set()
         self.bots = bots
         self.peer_visibility=None
         self.peer_retry_at=0
@@ -108,8 +109,52 @@ class WorldPopulation:
         event = body[4 + 19 * (count - 1) + 12] if len(body) != 16 else 0
         self.terrain.observe(motion[0], event)
 
+    def upstairs(self,position):
+        """Add bounded upper-floor clusters when background geometry is ready.
+
+        Runs on already visited cells too. Delayed collision work must never
+        leave upstairs permanently empty merely because landing spawned first.
+        """
+        finder=getattr(self.terrain,'indoor_floors',None)
+        game=self.control.gameplay
+        world=game.ground_loot
+        if finder is None or not self.loot or world is None or not world.announced:return []
+        replies=[]
+        for house,points in finder.ready_buildings(position,self.terrain.houses):
+            if house in self.upstairs_houses or not points:continue
+            lowest=min(p[2] for p in points)
+            choices=[p for p in points if p[2]>=lowest+200]
+            rng=random.Random(self.seed^round(house[0])^round(house[1])*73856093)
+            rng.shuffle(choices)
+            generated=0
+            for spot in choices:
+                if generated>=4 or len(world.stacks)>self.AUTO_GROUND_CAP-(3 if self.extra_items else 2):break
+                if any(math.dist(spot,s.position)<150 for s in world.stacks.values()):continue
+                template=rng.choice(sorted(WEAPONS));spec=WEAPONS[template]
+                gun=world.add(Item(spec.kind,template,game.inventory.next_uid,1),spot,spec.capacity)
+                game.inventory.next_uid+=1
+                ammo=world.add(Item(3,spec.ammunition,game.inventory.next_uid,rng.randint(60,120)),
+                               (spot[0]+50,spot[1],spot[2]))
+                game.inventory.next_uid+=1
+                stacks=[gun,ammo]
+                if self.extra_items:
+                    template=rng.choice(sorted(EXTRA_ITEMS));spec=EXTRA_ITEMS[template]
+                    extra=world.add(Item(spec.kind,template,game.inventory.next_uid,1),
+                                    (spot[0],spot[1]+45,spot[2]))
+                    game.inventory.next_uid+=1;stacks.append(extra)
+                self.auto_item_ids.update(s.entity for s in stacks)
+                replies.extend(s.spawn() for s in stacks)
+                generated+=1
+            # Do not mark full-capacity worlds: revisit after the working set
+            # unloads or pickups make room. Empty geometry does not get retried.
+            if generated or not choices:self.upstairs_houses.add(house)
+        return replies
+
     def tick(self):
         game = self.control.gameplay
+        finder=getattr(self.terrain,'indoor_floors',None)
+        if game and game.actor_ready and finder is not None:
+            finder.ready_buildings(game.vehicle_position if game.seated else game.player_position,self.terrain.houses)
         if (not game or not game.actor_ready
                 or game.seated and self.control.active_vehicle is None):
             return []
@@ -120,7 +165,7 @@ class WorldPopulation:
         ground = self.terrain.height_at(*position[:2])
         if ground is None or not math.isfinite(ground) or not -100 <= position[2] - ground <= 1500:
             return []  # do not populate during flight/early descent
-        replies=self.unload_far(position)
+        replies=self.unload_far(position)+self.upstairs(position)
         cell = position[0] // self.CELL, position[1] // self.CELL
         if cell in self.visited or len(self.visited) >= 1024:
             spawned=self.try_peers(position)

@@ -274,7 +274,27 @@ for old,new in ((20,19),(19,19),(19,30)):
     if events!=expected:raise ValueError(f'Original reload callback differs: {old},{new},{events}')
     event_checks.append(dict(old=old,new=new,events=list(events)))
 
+from offline_gameplay import OfflineGameplay
+shot_game=OfflineGameplay(inventory_enabled=True,magazine=3,reserve=0)
+native_finite_flag=bytes(c.uc.mem_read(0x2ef1418,1))[0]
+if native_finite_flag!=0:raise ValueError('Captured client has the unlimited-ammunition flag enabled')
+shot_checks=[]
+for remaining in (2,1,0,0):
+    replies=shot_game.handle(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,1,0))
+    if [mid for mid,_ in replies]!=[0x3e82]:raise ValueError('Shot used a reload callback')
+    result=c.decode_server(*replies[0])
+    if result['code'] or result['consumed']!=result['bytes']:raise ValueError(result)
+    c.uc.mem_write(c.OBJECT,bytes(c.uc.mem_read(c.ROOT_OBJECT+14,0x142)))
+    events.clear()
+    c.invoke(0xf61ec0,inv,[1,c.OBJECT])
+    allowed=c.invoke(0x1118e30,gun,[]) & 255
+    if c.read32(gun+0x60)!=remaining or allowed!=int(remaining>0) or events:
+        raise ValueError('Original shot delta/empty-gun gate differs')
+    shot_checks.append(dict(remaining=remaining,can_fire=bool(allowed),events=list(events)))
+
 report=dict(passed=True,gun_templates=gun_checks,quantities=quantity_checks,events=event_checks,
+    shot_updates=shot_checks,
+    captured_unlimited_flag=native_finite_flag,
     bound_parts=bound_part_checks,
     extended_magazines=extended_checks,
     limitation='Native slot getter/binding/removal and dirty flag additionally executed; synthetic map/allocation/RTTI, no owner/model/default-part table or rendered proof')

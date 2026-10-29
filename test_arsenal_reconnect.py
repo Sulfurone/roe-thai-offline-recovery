@@ -98,6 +98,7 @@ class ArsenalReconnectTests(unittest.TestCase):
                             self.assertEqual(expected.inventory.reserve_for(30002),30)
                             self.assertEqual(len(expected.ground_loot.stacks),25)
                             send(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,1,0))
+                            receive(0x3e82)
                             send(0x49c,struct.pack('>I',1))
                             for message in (0x49d,0x4a0,0x3e82):receive(message)
                             data=json.loads(profile.read_text(encoding='utf-8'))

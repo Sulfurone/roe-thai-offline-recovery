@@ -75,6 +75,7 @@ class GameplaySessionTests(unittest.TestCase):
                     self.assertEqual(receive(0x654b),spawn_file.read_bytes())
                     send(0x49e,struct.pack('>I',1))
                     send(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,7,0))
+                    receive(0x3e82)
                     # A nonzero stop packet must leave the next response as
                     # reload success, not an extra erroneous ammo decrement.
                     send(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,7,1))
@@ -94,6 +95,7 @@ class GameplaySessionTests(unittest.TestCase):
                     receive(0x3e81)
                     send(0x49e,struct.pack('>I',2))
                     send(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,8,0))
+                    receive(0x3e82)
                     send(0x49c,struct.pack('>I',2))
                     self.assertEqual(struct.unpack('>II',receive(0x49d)),(2,0))
                     self.assertEqual(struct.unpack('>QII',receive(0x4a0))[1:],(2,30))
@@ -128,7 +130,8 @@ class GameplaySessionTests(unittest.TestCase):
             responses=[row for row in events if row['event']=='gameplay_response_sent']
             # Native firing predicts its own ammo. Silent shot/switch handling
             # is checked by the next strictly ordered reload response above.
-            self.assertFalse(any(row['request_id'] in (0x11d3,0x49e) for row in responses))
+            self.assertFalse(any(row['request_id']==0x49e for row in responses))
+            self.assertTrue(all(row['message_id']==0x3e82 for row in responses if row['request_id']==0x11d3))
             saved=json.loads((recovery/'saved-inventory.json').read_text(encoding='utf-8'))
             self.assertEqual(saved['selected_slot'],2)
             self.assertEqual([x['count'] for x in saved['items'] if x['kind']==3],[99,18])

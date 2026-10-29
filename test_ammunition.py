@@ -70,7 +70,7 @@ class AmmunitionTests(unittest.TestCase):
         game=OfflineGameplay(inventory_enabled=True,magazine=3)
         shot=struct.pack('>6fIB',1,2,3,1,102,3,1,0)
         for expected in (2,1,0,0):
-            self.assertEqual(game.handle(0x11d3,shot),[])
+            self.assertEqual([m for m,_ in game.handle(0x11d3,shot)],[0x3e82])
             self.assertEqual(game.magazine,expected)
         self.assertEqual(game.reserve,120)
 

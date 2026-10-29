@@ -326,6 +326,33 @@ class OfflineInventory:
                 self.items[key]=replace(item,count=item.count-used)
         return self.delta(changed)
 
+    def collect_ammunition(self,item,preferred=None):
+        """Pack one pickup and existing matching bag rounds, atomically.
+
+        Retained stacks keep their identities. A pickup never creates rounds
+        or exceeds the original 999-round stack and 128-slot bag bounds.
+        None means no room; the inventory is unchanged in that case.
+        """
+        if item.kind!=3 or item.template not in AMMUNITION or not supported(item):
+            raise ValueError('Expected a supported ammunition pickup')
+        keys=sorted(k for k,v in self.items.items()
+                    if k[0]==2 and v.kind==3 and v.template==item.template)
+        total=item.count+sum(self.items[k].count for k in keys)
+        slots=list(keys)
+        if (preferred is not None and preferred[0]==2 and self.valid_slot(preferred)
+                and preferred not in self.items):slots.append(preferred)
+        slots.extend((2,i) for i in range(128) if (2,i) not in self.items and (2,i) not in slots)
+        needed=(total+MAX_AMMO-1)//MAX_AMMO
+        if needed>len(slots):return None
+        updated=dict(self.items)
+        for key in keys:del updated[key]
+        for key in slots[:needed]:
+            count=min(MAX_AMMO,total);total-=count
+            updated[key]=replace(self.items.get(key,item),count=count)
+        changed=[key for key in set(keys+slots[:needed]) if self.items.get(key)!=updated.get(key)]
+        self.items=updated
+        return changed
+
     def snapshot(self,magazine,selected_slot):
         return {'version':2,'magazine':magazine,'selected_slot':selected_slot,
                 'next_uid':self.next_uid,'items':[

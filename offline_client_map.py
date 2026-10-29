@@ -1,8 +1,9 @@
 """Own-client Thai QSHM height, road mask and residential entrance placement.
 
 Resources are loaded privately. No terrain, textures or scene tables ship
-with this module. Entrance-side loot is a local first-floor approximation,
-not recovered original loot nodes or full building collision/navigation.
+with this module. Collision sampling supplies covered upper-floor candidates when available.
+Entrance-side fallback remains a first-floor approximation; neither is a
+recovery of original authored loot nodes or complete building navigation.
 """
 import math
 from pathlib import Path
@@ -63,6 +64,7 @@ class ThaiClientMap:
         self.houses, self.doors = houses, doors
         self.width = heightfield.width
         self.road_cache = {}
+        self.indoor_floors = None
         self.house_grid = {}
         for house in houses:
             self.house_grid.setdefault((int(house[0])//10000,int(house[1])//10000),[]).append(house)
@@ -156,6 +158,12 @@ class ThaiClientMap:
     def spawn_spot(self, position, rng, kind, occupied):
         x,y,_ = position
         if kind == 'loot':
+            if self.indoor_floors is not None:
+                floors=self.indoor_floors.nearby(position,self.houses)
+                rng.shuffle(floors)
+                for spot in floors:
+                    if all(math.hypot(spot[0]-a,spot[1]-b)>=150 for a,b in occupied):
+                        return spot
             choices = sorted(self.doors,key=lambda p:math.hypot(p[0]-x,p[1]-y))[:32]
             rng.shuffle(choices)
             for door in choices:

@@ -108,13 +108,12 @@ class GroundLootTests(unittest.TestCase):
         self.assertNotIn((2,0),game.inventory.items)
         self.assertEqual(game.ground_loot.stacks[0x400003].item,ammo)
 
-    def test_capacity_limit_rejects_pickup_without_removing_ground_stack(self):
+    def test_original_stack_limit_spills_to_another_bag_slot(self):
         game=self.ready(reserve=990)
-        self.assertEqual(game.handle(0x3b63,request(container=2,destination=0,automatic=0))[0][0],0x3b66)
-        self.assertEqual(game.reserve,990)
-        self.assertEqual(len(game.ground_loot.stacks),1)
-        self.assertEqual(game.handle(0x3b63,request())[0][0],0x3e82)
-        self.assertEqual((game.inventory.items[2,0].count,game.inventory.items[2,1].count),(990,60))
+        self.assertEqual(game.handle(0x3b63,request(container=2,destination=0,automatic=0))[0][0],0x3e82)
+        self.assertEqual(game.reserve,1050)
+        self.assertEqual(len(game.ground_loot.stacks),0)
+        self.assertEqual((game.inventory.items[2,0].count,game.inventory.items[2,1].count),(999,51))
 
     def test_persistent_or_disabled_inventory_cannot_enable_ephemeral_world(self):
         for kwargs in ({},{'inventory_enabled':True,'state_file':Path('unused.json')}):

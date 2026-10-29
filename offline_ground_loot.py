@@ -137,7 +137,8 @@ class OfflineGroundLoot:
             if key is None and stack_limit(stack.item)>1:
                 key=next((key for key,item in sorted(inventory.items.items())
                           if item.kind==stack.item.kind and item.template==stack.item.template
-                          and item.count+stack.item.count<=stack_limit(stack.item)),None)
+                          and (stack.item.kind!=3 or key[0]==2) and (stack.item.kind==3 or
+                              item.count+stack.item.count<=stack_limit(stack.item))),None)
             if key is None:
                 key=next(((2,i) for i in range(128) if (2,i) not in inventory.items),None)
         else:
@@ -146,11 +147,25 @@ class OfflineGroundLoot:
             self.last_rejection={'reason':'destination_or_capacity','entity':entity}
             return self.error(entity)
         target=inventory.items.get(key)
-        if target is not None and (stack_limit(stack.item)<=1 or target.kind!=stack.item.kind or target.template!=stack.item.template
+        ammo_pickup=stack.item.kind==3 and key[0]==2
+        if ammo_pickup:
+            # Even the native explicit-slot pickup can name a new bag slot.
+            # Consolidate matching rounds instead of leaving one pile per click.
+            if target is not None and (target.kind!=3 or target.template!=stack.item.template):
+                self.last_rejection={'reason':'occupied_or_full','entity':entity}
+                return self.error(entity)
+            changed=inventory.collect_ammunition(stack.item,key)
+            if changed is None:
+                self.last_rejection={'reason':'occupied_or_full','entity':entity}
+                return self.error(entity)
+        else:
+            changed=[key]
+        if not ammo_pickup and target is not None and (stack_limit(stack.item)<=1 or target.kind!=stack.item.kind or target.template!=stack.item.template
                                    or target.count+stack.item.count>stack_limit(stack.item)):
             self.last_rejection={'reason':'occupied_or_full','entity':entity}
             return self.error(entity)
-        inventory.items[key]=(replace(target,count=target.count+stack.item.count) if target else stack.item)
+        if not ammo_pickup:
+            inventory.items[key]=(replace(target,count=target.count+stack.item.count) if target else stack.item)
         if is_weapon(stack.item):
             inventory.weapon_magazines[stack.item.uid]=stack.magazine
         inventory.next_uid=max(inventory.next_uid,stack.item.uid+1)
@@ -160,7 +175,7 @@ class OfflineGroundLoot:
         notice=struct.pack('>IIBII',entity,slot,stack.item.kind if is_weapon(stack.item) else 3,stack.item.template,stack.item.count)
         if is_weapon(stack.item):
             notice+=bytes(4)  # Original kind 1/2 union has three DWORDs.
-        return [inventory.delta([key]),(0x82b,struct.pack('>Q',entity)),(0x3b64,notice)]
+        return [inventory.delta(changed),(0x82b,struct.pack('>Q',entity)),(0x3b64,notice)]
 
     def drop(self,body,inventory,actor_uid,player_position,can_interact,magazine=0):
         if len(body) not in (15,23):

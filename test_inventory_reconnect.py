@@ -85,6 +85,7 @@ class InventoryReconnectTests(unittest.TestCase):
                             receive(0x3e81)
                             send(0x49e,struct.pack('>I',2))
                             send(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,7,0))
+                            receive(0x3e82)
                             send(0x49c,struct.pack('>I',2))
                             receive(0x49d)
                             receive(0x4a0)

@@ -422,6 +422,7 @@ class IngameSessionTests(unittest.TestCase):
                     if timed_reload:
                         shot=struct.pack('>6fIB',325800,271700,6600,327000,271700,6600,0,0)
                         send(0x11d3,shot)
+                        self.assertEqual(receive_raw()[0],0x3e82)
                         send(0x49c,struct.pack('>I',1))
                         self.assertEqual(receive(),(0x49d,struct.pack('>II',1,0)))
                         self.assertEqual(games[0].magazine,29)
@@ -432,6 +433,7 @@ class IngameSessionTests(unittest.TestCase):
                         self.assertEqual(receive_raw()[0],0x3e82)
                         self.assertEqual((games[0].magazine,games[0].inventory.reserve_for(30001)),(30,119))
                         send(0x11d3,shot);send(0x49c,struct.pack('>I',1))
+                        self.assertEqual(receive_raw()[0],0x3e82)
                         self.assertEqual(receive(),(0x49d,struct.pack('>II',1,0)))
                         send(0x49e,bytes(4))
                         client.settimeout(2.1 if original_reload else .6)
@@ -500,6 +502,7 @@ class IngameSessionTests(unittest.TestCase):
                         roster.vitals[bot_uid].damage(960)
                         for sequence,current in ((37,20),(38,0)):
                             send(0x11d3,struct.pack('>6fIB',325800,271700,6600,327000,271700,6600,0,0)+bytes(8))
+                            self.assertEqual(receive_raw()[0],0x3e82)
                             send(0x11e9,struct.pack('>I',sequence)+hit_body()[4:]+bytes(8))
                             self.assertEqual(receive_raw(),(0x1069,struct.pack('>QBBBII',bot_uid,0,1,0,current,1000)))
                             self.assertEqual(receive_raw(),(0x11eb,struct.pack('>QQ3iBBIB',256,bot_uid,0,0,100,0,2,20,int(current==0))))

@@ -320,6 +320,9 @@ def main():
             parser.error('Local combat needs a Thai static scene and population terrain')
         try:
             bot_visibility=StaticVisibility.from_scene(population_surface,occlusion,args.world_collision_archives)
+            if args.world_client_map and bot_visibility.assets is not None:
+                from offline_indoor_loot import IndoorFloors
+                population_surface.indoor_floors=IndoorFloors(bot_visibility,background=True)
         except (OSError,ValueError,TypeError) as error:
             parser.error(f'Cannot prepare local combat visibility: {error}')
     elif args.world_bot_occlusion is not None:
@@ -479,6 +482,8 @@ def main():
 
     deadline = time.monotonic() + args.seconds
     with socket.socket() as listener, ExitStack() as resources:
+        if getattr(population_surface,'indoor_floors',None) is not None:
+            resources.callback(population_surface.indoor_floors.close)
         listener.bind(('127.0.0.1', args.port))
         listener.listen(4)
         listener.settimeout(1)

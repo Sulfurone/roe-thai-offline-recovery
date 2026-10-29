@@ -732,9 +732,12 @@ class OfflineGameplay:
                                      max(0,self.weapon_magazine((1,self.selected_slot))-1))
             if self.inventory is None:
                 self.magazine=max(0,self.magazine-1)
-            # The native firing path consumes its own displayed round. An
-            # equal 4A0 receipt emits WEAPON_RELOADED and can end animations.
-            return []
+            # The server's finite magazine must reach the native gun too.
+            # Do not route shots through 4A0: an equal native count emits a
+            # spurious reload event. The inventory consumer applies row 7
+            # directly, including zero, without that reload callback.
+            return ([self.inventory.delta([(1,self.selected_slot)])]
+                    if self.inventory is not None else [])
         if message == 0x6549 and self.valid_length(body,61):
             uid = struct.unpack_from('>Q',body)[0]
             position = struct.unpack_from('>3i',body,13)
