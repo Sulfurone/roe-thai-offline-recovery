@@ -1,3 +1,11 @@
+## 2026-10-30 角色资源等待诊断（ROEVIS6，尚未实机加载）
+
+已在原客户端离线执行 D07530/D0B270：前者等待 visual+500 所指资源的 +21 就绪字节，后者等待 visual+50C 所指容器的 +18 数据指针。四组 pending/ready 对照通过；下游组件、字符串格式化和资源本身为合成边界，不能据此断定真实资源已缺失或加载成功。方法见 probes/validate_model_resource_waits.py，私有报告 model-resource-waits-validation.json。
+
+ROEVIS6 增加 visual+4E8/+4D8 的两项资源名（最多95个可打印ASCII字符）、两项资源指针及上述等待状态。字符串按原409390/D05280使用的 begin/end/capacity 布局读取；拒绝坏地址、倒序、超长和非打印数据，不截断成似乎有效的路径。只读自身进程、无引擎调用、无状态改写；Python读取器兼容ROEVIS2..5并保持会话/PID/时效验证。15项读取与位置检查、原生合成自检和DLL原导出转发验证通过。
+
+截至本次记录，原客户端16684和服务23908仍运行，会话仍为handshake-20261030-105259-061344，加载的是ROEVIS5。普通退出请求和Alt+F4尚未使进程退出，Stop-Process被Windows拒绝；两次截图分别FrameArrived/window capture超时，辅助功能只能读到标题栏。未覆盖正在使用的模块，收据仍deployed。新ROEVIS6已构建，但没有实际资源名、资源状态或可见像素的结果；机器人仍不可见。待原进程确实退出、原文件恢复后，使用独立45秒自动离机入口重新测试，先对比玩家与机器人资源字段，再决定资料修复；不要直接写状态位。
+
 ## 2026-10-30 机器人模型加载依赖实测
 
 上轮已退出并恢复原始文件；新45秒无人值守会话 logs/handshake-20261030-105259-061344/server.jsonl，服务23908、客户端16684、菜单session-2_zhhd2b。角色自动离机并在地图内坐标约268839,213850,8966附近落地，三名机器人生成。ROEVIS5实测报告 private/typed-gameplay/bot-loader-entries-live-20261030.json：玩家10项全部完成；三名机器人均只有第0项完成（done=1），callbacks=1023、pending=1016、unreadable=0；第1及第2项的依赖已完成但它们本身未完成，下游3..9依赖等待。loader_ready=1、loader_stage=1，模型指针为0。尚无画面验收。

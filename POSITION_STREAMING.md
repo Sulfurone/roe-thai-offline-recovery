@@ -97,3 +97,10 @@ python peer_diagnostics.py private/self-position/SESSION/position.bin --visuals
 ```powershell
 python equipment_diagnostics.py private/self-position/SESSION/position.bin
 ```
+
+
+## 2026-10-30 模型资源观察格式
+
+最新构建为ROEVIS6（1532字节：52字节头+5个296字节行），兼容读取ROEVIS2..5。在V5的19个u32后加入7个u32及两个96字节ASCII缓冲：actor_resource、actor_resource_ready、runtime_resource、runtime_data、resource_unreadable、actor_name_status、runtime_name_status、actor_name、runtime_name。资源读失败位图的1/2分别表示角色资源指针/就绪字节，4/8分别表示动画资源容器/数据指针。名称状态0=完整（允许空名）、1=不可读、2=无效或超过95字节；无效名称不输出部分结果。命名来自D07530/D0B270的读取用途，不证明资产实际存在或可渲染。
+
+旧版本字段继续保留：V3增加模型门、包装与模型指针；V4增加加载阶段和ready；V5增加10个条目的完成/回调存在/依赖等待/不可读位图。真实V5中玩家done=1023，三名机器人done=1、pending=1016。V6当前仅通过合成验证，尚未替换正在运行的V5客户端；实际资源路径与失败原因仍待采样。

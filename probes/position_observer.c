@@ -26,6 +26,9 @@ typedef struct {
     uint32_t low,high,status,actor,display_mask,visual,visual_vtable,secondary_gate,gates,nested;
     uint32_t model_wrapper,render_model,model_gate,loader_ready,loader_stage;
     uint32_t loader_done,loader_callbacks,loader_pending,loader_unreadable;
+    uint32_t actor_resource,actor_resource_ready,runtime_resource,runtime_data,resource_unreadable;
+    uint32_t actor_name_status,runtime_name_status;
+    char actor_name[96],runtime_name[96];
 } VisualRow;
 typedef struct {
     char magic[8],token[32];
@@ -46,7 +49,7 @@ typedef struct {
 _Static_assert(sizeof(void*)==4,"Build for x86");
 _Static_assert(sizeof(Sample)==136,"Position sample layout changed");
 _Static_assert(sizeof(PeerSample)==260,"Peer diagnostic layout changed");
-_Static_assert(sizeof(VisualSample)==432,"Visual diagnostic layout changed");
+_Static_assert(sizeof(VisualSample)==1532,"Visual diagnostic layout changed");
 _Static_assert(sizeof(EquipmentSample)==224,"Equipment diagnostic layout changed");
 
 static int self_read(uintptr_t address,void *out,SIZE_T size) {
@@ -319,6 +322,22 @@ static void player_health(uintptr_t base,PeerSample *out) {
 
 /* 10F3630 writes interface+330 == actor+340; 10F3690 consumes that
  * mask, actor+11A and the actor+104 appearance object. No virtual calls. */
+/* 409390/D05280 use begin/end/capacity strings. Never follow unbounded
+ * strings or truncate them into a plausible resource name. Status 0 means
+ * complete, 1 unreadable, 2 invalid/too long. No engine functions called. */
+static uint32_t resource_name(uintptr_t string,char out[96]) {
+    uint32_t words[3];clear_bytes(out,96);
+    if(!self_read(string,words,sizeof(words)))return 1;
+    if(!words[0] && !words[1] && !words[2])return 0;
+    if(words[0]<0x10000 || words[1]<words[0] || words[2]<words[1] ||
+       words[1]-words[0]>=96)return 2;
+    unsigned length=words[1]-words[0];
+    if(length && !self_read(words[0],out,length)) {clear_bytes(out,96);return 1;}
+    for(unsigned i=0;i<length;i++)if((unsigned char)out[i]<32 || (unsigned char)out[i]>126) {
+        clear_bytes(out,96);return 2;
+    }
+    return 0;
+}
 static void visual_row(uint32_t actor,uintptr_t base,VisualRow *row) {
     row->actor=actor;row->status=1;
     if(!actor)return;
@@ -362,6 +381,16 @@ static void visual_row(uint32_t actor,uintptr_t base,VisualRow *row) {
                 else if(!complete)row->loader_pending|=1u<<i;
             }
         }
+        row->actor_name_status=resource_name(row->visual+0x4e8,row->actor_name);
+        row->runtime_name_status=resource_name(row->visual+0x4d8,row->runtime_name);
+        unsigned char resource_ready=0;
+        if(!self_read(row->visual+0x500,&row->actor_resource,4))row->resource_unreadable|=1;
+        else if(row->actor_resource && !self_read(row->actor_resource+0x21,&resource_ready,1))
+            row->resource_unreadable|=2;
+        row->actor_resource_ready=resource_ready;
+        if(!self_read(row->visual+0x50c,&row->runtime_resource,4))row->resource_unreadable|=4;
+        else if(row->runtime_resource && !self_read(row->runtime_resource+0x18,&row->runtime_data,4))
+            row->resource_unreadable|=8;
     }
     row->status=0;
 }
@@ -483,7 +512,7 @@ static DWORD WINAPI observe(void *module) {
     copy_bytes(peers.magic,"ROEPEER2",8);copy_bytes(peers.token,config.token,32);
     peers.pid=sample.pid;peers.count=4;
     VisualSample visuals;clear_bytes(&visuals,sizeof(visuals));
-    copy_bytes(visuals.magic,"ROEVIS5",7);copy_bytes(visuals.token,config.token,32);
+    copy_bytes(visuals.magic,"ROEVIS6",7);copy_bytes(visuals.token,config.token,32);
     visuals.pid=sample.pid;visuals.count=5;
     EquipmentSample equipment;clear_bytes(&equipment,sizeof(equipment));
     copy_bytes(equipment.magic,"ROEEQP1",7);copy_bytes(equipment.token,config.token,32);

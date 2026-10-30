@@ -100,5 +100,34 @@ class PeerDiagnosticsTests(unittest.TestCase):
         with self.assertRaises(ValueError):decode_visuals(bad,b'a'*32,123)
 
 
+    def test_resource_snapshot_names_flags_and_bounds(self):
+        from peer_diagnostics import VISUAL_RESOURCES_ROW
+        fields=[0x100,0x10000,0,0x10800000,0xffffffff,0x10801000,0x2597960,0,0x010101,0,
+                0x10802000,0,0,1,1,1,1023,1016,0,
+                0x10900000,0,0x10901000,0,0,0,0,b'TestActor',b'TestRuntime']
+        def snapshot():
+            return VISUAL_HEADER.pack(b'ROEVIS6\0',b'a'*32,123,91,5)+b''.join(
+                VISUAL_RESOURCES_ROW.pack(0x10ff+i if i else 0x100,*fields[1:]) for i in range(5))
+        raw=snapshot()
+        parsed=decode_visuals(raw,b'a'*32,123)['actors'][1]
+        self.assertEqual((parsed['actor_name'],parsed['runtime_name']),('TestActor','TestRuntime'))
+        self.assertEqual((parsed['actor_resource_ready'],parsed['runtime_data']),(0,'0x0'))
+        for index,bad in ((20,256),(23,16),(24,3),(26,b'x'*96),(26,b'bad\n'),(26,b'a\0b')):
+            original=fields[index];fields[index]=bad
+            with self.assertRaises(ValueError):decode_visuals(snapshot(),b'a'*32,123)
+            fields[index]=original
+        fields[24]=1;fields[26]=b''
+        self.assertIsNone(decode_visuals(snapshot(),b'a'*32,123)['actors'][1]['actor_name'])
+        fields[26]=b'incomplete'
+        with self.assertRaises(ValueError):decode_visuals(snapshot(),b'a'*32,123)
+        with self.assertRaises(ValueError):decode_visuals(raw,b'b'*32,123)
+        with self.assertRaises(ValueError):decode_visuals(raw[:-1],b'a'*32,123)
+        with tempfile.TemporaryDirectory() as folder:
+            position=Path(folder)/'position.bin'
+            position.write_bytes(SAMPLE.pack(b'ROEPOS1\0',b'a'*32,123,101,0,1,2,1.,2.,3.,bytes(64)))
+            position.with_name('position.bin.visuals').write_bytes(raw)
+            self.assertEqual(read_visuals(position)['actors'][0]['actor_name'],'TestActor')
+
+
 if __name__ == '__main__':
     unittest.main()

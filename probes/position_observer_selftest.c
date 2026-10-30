@@ -118,6 +118,13 @@ void WINAPI TestEntry(void) {
     target=0x12345678;copy_bytes(health_fixture+0xf0,&target,4);
     fixture[0xc]=1;fixture[0xd]=1;fixture[0xe]=1;
     target=(uint32_t)health_fixture;copy_bytes(fixture+0x828,&target,4);
+    uint32_t name_fields[3]={(uint32_t)(equipment_fixture+6000),(uint32_t)(equipment_fixture+6009),(uint32_t)(equipment_fixture+6096)};
+    copy_bytes(equipment_fixture+6000,"TestActor",9);
+    copy_bytes(fixture+0x4d8,name_fields,12);copy_bytes(fixture+0x4e8,name_fields,12);
+    target=(uint32_t)(equipment_fixture+6200);copy_bytes(fixture+0x500,&target,4);
+    equipment_fixture[6200+0x21]=1;
+    target=(uint32_t)(equipment_fixture+6300);copy_bytes(fixture+0x50c,&target,4);
+    target=0x12345678;copy_bytes(equipment_fixture+6300+0x18,&target,4);
     visual_row((uint32_t)health_fixture,fn,&visual);
     expect(visual.status==0 && visual.display_mask==0xfffffffd &&
            visual.visual==(uint32_t)fixture && visual.visual_vtable==value && visual.secondary_gate==1 &&
@@ -125,6 +132,18 @@ void WINAPI TestEntry(void) {
            visual.model_gate==1 && visual.loader_ready==1 && visual.loader_stage==1 &&
            (visual.loader_done&1) && (visual.loader_callbacks&1) && (visual.loader_pending&2) &&
            visual.model_wrapper==(uint32_t)health_fixture && visual.render_model==0x12345678);
+    expect(!visual.actor_name_status && !visual.runtime_name_status &&
+           equal_bytes(visual.actor_name,"TestActor",10) && equal_bytes(visual.runtime_name,"TestActor",10) &&
+           visual.actor_resource_ready==1 && visual.runtime_data==0x12345678 && !visual.resource_unreadable);
+    char name[96];expect(resource_name(1,name)==1);
+    name_fields[1]=name_fields[0]+96;copy_bytes(fixture+0x4d8,name_fields,12);
+    expect(resource_name((uint32_t)fixture+0x4d8,name)==2 && !name[0]);
+    name_fields[1]=name_fields[0]-1;copy_bytes(fixture+0x4d8,name_fields,12);
+    expect(resource_name((uint32_t)fixture+0x4d8,name)==2);
+    name_fields[0]=0x10000;name_fields[1]=0x10009;name_fields[2]=0x10060;
+    copy_bytes(fixture+0x4d8,name_fields,12);
+    expect(resource_name((uint32_t)fixture+0x4d8,name)==1 && !name[0]);
+    clear_bytes(fixture+0x4d8,12);expect(resource_name((uint32_t)fixture+0x4d8,name)==0 && !name[0]);
     target=0;copy_bytes(fixture+0xa8,&target,4);fixture[0x480]=0;
     clear_bytes(&visual,sizeof(visual));visual_row((uint32_t)health_fixture,fn,&visual);
     expect(visual.status==0 && !visual.model_wrapper && !visual.render_model && !visual.model_gate);
