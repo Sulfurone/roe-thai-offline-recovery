@@ -138,6 +138,8 @@ def main():
     parser.add_argument('--gameplay-throwables',action='store_true',help='Acknowledge native throws, consume one item and complete original effects')
     parser.add_argument('--world-zone-plan',type=Path,
                         help='Experimental local circle-stage JSON; requires prototype and population terrain, not original match rules')
+    parser.add_argument('--world-zone-damage',action='store_true',
+                        help='Experimental local circle damage; requires a zone plan and vitals')
     parser.add_argument('--gameplay-posture-speeds',action='store_true',
                         help='Sparse local crouch/prone tuning after player readiness; standing stays unchanged')
     parser.add_argument('--gameplay-initialize-vehicle',action='store_true',
@@ -274,6 +276,8 @@ def main():
         parser.error('--environment-once is only valid with --environment-trigger load')
     opening_glider_body=None
     zone_plan=None
+    if args.world_zone_damage and (args.world_zone_plan is None or not args.gameplay_vitals):
+        parser.error('--world-zone-damage requires --world-zone-plan and --gameplay-vitals')
     if args.world_zone_plan is not None:
         if not (args.gameplay_prototype and args.world_populate):
             parser.error('--world-zone-plan requires --gameplay-prototype and --world-populate')
@@ -614,6 +618,10 @@ def main():
                 if control_session is not None:control_session.bot_ai=ai
                 blast=BlastCombat(gameplay,bots,bot_visibility) if args.world_throwable_combat else None
                 zones=ZoneSchedule(gameplay,population_surface,zone_plan) if zone_plan is not None else None
+                if args.world_zone_damage:
+                    from offline_zone_damage import ZoneDamage
+                    zone_damage=ZoneDamage(zones,bots)
+                else:zone_damage=None
                 survivors=SurvivorStatus(gameplay,bots) if args.world_survivor_status else None
                 if bot_visibility is not None and bot_visibility.doors is not None:
                     bot_visibility.doors.states=gameplay.doors.states
@@ -750,6 +758,12 @@ def main():
                                 response=struct.pack('>IHI',1,response_id,response_id)+response_body
                                 send(connection,0,body=encrypt(response,key))
                                 emit('local_zone_state_sent',message_id=response_id,**zones.last_event)
+                            if zone_damage is not None:
+                                for response_id,response_body in zone_damage.tick():
+                                    response=struct.pack('>IHI',1,response_id,response_id)+response_body
+                                    send(connection,0,body=encrypt(response,key))
+                                for event in zone_damage.events:
+                                    emit('local_zone_damage',**event)
                         if (population is not None and state == 'transport_ready' and loaded_pushes_sent
                                 and cadence.due('population')):
                             work_counts['population']+=1

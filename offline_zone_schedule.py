@@ -8,7 +8,7 @@ import json
 import math
 from pathlib import Path
 import time
-from offline_zones import Circle,zone_state
+from offline_zones import Circle,zone_state,interpolated_circle
 
 
 @dataclass(frozen=True)
@@ -79,6 +79,17 @@ class ZoneSchedule:
         x,y,z=game.player_position
         ground=self.terrain.height_at(x,y)
         return ground is not None and math.isfinite(ground) and ground>=6500 and -100<=z-ground<=250
+
+    def circle_at(self,now):
+        """Current local boundary, including after the final snapshot."""
+        if self.started is None:return None
+        elapsed=max(0,now-self.started);current=self.plan.initial
+        for stage in self.plan.stages:
+            if elapsed<stage.wait:return (current.x,current.y,current.radius)
+            if elapsed<stage.wait+stage.shrink:
+                return interpolated_circle(elapsed-stage.wait,stage.shrink,current,stage.target)
+            elapsed-=stage.wait+stage.shrink;current=stage.target
+        return (current.x,current.y,current.radius)
 
     def tick(self,now=None):
         now=time.monotonic() if now is None else now
