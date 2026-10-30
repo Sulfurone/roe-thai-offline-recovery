@@ -1,3 +1,9 @@
+无人值守本轮未能得到机器人加载器对照：自动离机12秒太早，实测角色 X=-28115、Y=204800、Z=43486，超出地图边界，服务没有生成机器人，不能解释为模型修复失败或成功。测试客户端8444、服务18196仍运行；CloseMainWindow已发送但游戏未退出，Stop-Process被Windows拒绝，computer-use窗口读取超时。未绕过权限或强改游戏。下一轮独立诊断脚本已把自动离机改为45秒；该时间仍待实测，正常入口未变。
+
+离线运行原客户端0xD018F0（合成对象）验证loader_stage从0变1，1/2/3保持原值；加载完成与请求来源仍未确认。探针probes/validate_model_loader_stage.py，结果private/typed-gameplay/model-loader-stage-validation.json。当前可用代码和交接已同步，完整单机及机器人可见性仍未完成。
+
+无人值守本轮实际会话为 logs/handshake-20261030-102629-064552/server.jsonl，服务18196，启动器16424。10:26已完成地图预处理并启动客户端，观察收据 private/self-position/session-20261030-102629-064552/position-installation.json；自动离机和落地、机器人加载器结果还需等待，不能作为已修复的证据。
+
 ## 2026-10-30 模型加载器排查（无人值守）
 
 D00F80 在加载器阶段 visual+0x48c 为1且 visual+0x8ff 非零时才继续检查异步加载项；这是原客户端反汇编得到的前置条件，并非已确认的根因。只读观察格式升级为ROEVIS4，增加 loader_stage 与 loader_ready，并保留ROEVIS2/3兼容。原生合成观察自检、转发验证及6项诊断读取测试通过。观察结果仅供定位，不会修改游戏状态。
