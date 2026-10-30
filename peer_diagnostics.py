@@ -14,6 +14,7 @@ VISUAL_HEADER=struct.Struct('<8s32s3I')
 VISUAL_ROW=struct.Struct('<10I')
 VISUAL_MODEL_ROW=struct.Struct('<13I')
 VISUAL_LOADER_ROW=struct.Struct('<15I')
+VISUAL_ENTRIES_ROW=struct.Struct('<19I')
 STATUS = {0: 'position_ready', 1: 'scene_unavailable', 2: 'actor_absent',
           3: 'actor_without_position', 4: 'lookup_unavailable', 5: 'actor_removed'}
 
@@ -65,7 +66,7 @@ def read_peers(position_path, *, now=None):
 def decode_visuals(raw,token,pid):
     if len(raw)<VISUAL_HEADER.size:raise ValueError('Visual snapshot size differs')
     magic,actual_token,actual_pid,sequence,count=VISUAL_HEADER.unpack_from(raw)
-    row_type={b'ROEVIS2\0':VISUAL_ROW,b'ROEVIS3\0':VISUAL_MODEL_ROW,b'ROEVIS4\0':VISUAL_LOADER_ROW}.get(magic)
+    row_type={b'ROEVIS2\0':VISUAL_ROW,b'ROEVIS3\0':VISUAL_MODEL_ROW,b'ROEVIS4\0':VISUAL_LOADER_ROW,b'ROEVIS5\0':VISUAL_ENTRIES_ROW}.get(magic)
     if (row_type is None or actual_token!=token or actual_pid!=pid or count!=5):
         raise ValueError('Visual snapshot identity differs')
     if len(raw)!=VISUAL_HEADER.size+5*row_type.size:raise ValueError('Visual snapshot size differs')
@@ -92,6 +93,11 @@ def decode_visuals(raw,token,pid):
             if status==0 and fields[13]>255:raise ValueError('Visual snapshot loader fields differ')
             rows[-1].update(loader_ready=fields[13] if status==0 and visual else None,
                             loader_stage=fields[14] if status==0 and visual else None)
+        if len(fields)>15:
+            if status==0 and any(value>0x3ff for value in fields[15:19]):
+                raise ValueError('Visual snapshot loader masks differ')
+            rows[-1].update(loader_done=fields[15],loader_callbacks=fields[16],
+                            loader_pending=fields[17],loader_unreadable=fields[18])
     return dict(pid=pid,sequence=sequence,actors=rows,
                 limitation='Appearance object and raw display mask do not prove rendered model, pixels or visibility')
 
@@ -99,7 +105,7 @@ def decode_visuals(raw,token,pid):
 def read_visuals(position_path,*,now=None):
     position_path=Path(position_path);path=position_path.with_name(position_path.name+'.visuals')
     now=time.time() if now is None else now
-    for current,sizes in ((position_path,(SAMPLE.size,)),(path,tuple(VISUAL_HEADER.size+5*r.size for r in (VISUAL_ROW,VISUAL_MODEL_ROW,VISUAL_LOADER_ROW)))):
+    for current,sizes in ((position_path,(SAMPLE.size,)),(path,tuple(VISUAL_HEADER.size+5*r.size for r in (VISUAL_ROW,VISUAL_MODEL_ROW,VISUAL_LOADER_ROW,VISUAL_ENTRIES_ROW)))):
         info=current.stat()
         if info.st_size not in sizes or not -1<=now-info.st_mtime<=3:raise ValueError('Visual/position sample stale or wrong size')
     position=SAMPLE.unpack(position_path.read_bytes())

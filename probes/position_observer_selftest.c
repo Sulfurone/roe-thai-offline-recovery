@@ -3,7 +3,7 @@
 static unsigned char fixture[4096];
 static unsigned char health_fixture[4096];
 static unsigned char equipment_fixture[8192];
-static void expect(int ok) {if(!ok)ExitProcess(1);}
+#define expect(ok) do { if(!(ok)) ExitProcess(__LINE__); } while(0)
 void WINAPI TestEntry(void) {
     Sample sample;clear_bytes(&sample,sizeof(sample));
     uintptr_t fn=(uintptr_t)fixture,component=(uintptr_t)(fixture+128);
@@ -107,8 +107,13 @@ void WINAPI TestEntry(void) {
     uint32_t target=fn+0x8f1330;copy_bytes(fixture+256+0xb0,&target,4);
     target=fn+0x90d2b0;copy_bytes(fixture+256+0x1c4,&target,4);
     target=fn+0x901780;copy_bytes(fixture+256+0x258,&target,4);
+    clear_bytes(fixture+0x3ec,0xa4);
     fixture[0x480]=1;fixture[0x8ff]=1;
     target=1;copy_bytes(fixture+0x48c,&target,4);
+    target=0x1234;copy_bytes(fixture+0x3ec,&target,4);
+    fixture[0x3f0]=1;
+    health_fixture[0x184]=0;
+    target=(uint32_t)(health_fixture+0x180);copy_bytes(fixture+0x404,&target,4);
     target=(uint32_t)health_fixture;copy_bytes(fixture+0xa8,&target,4);
     target=0x12345678;copy_bytes(health_fixture+0xf0,&target,4);
     fixture[0xc]=1;fixture[0xd]=1;fixture[0xe]=1;
@@ -118,6 +123,7 @@ void WINAPI TestEntry(void) {
            visual.visual==(uint32_t)fixture && visual.visual_vtable==value && visual.secondary_gate==1 &&
            visual.gates==0x010101 && visual.nested==(uint32_t)health_fixture &&
            visual.model_gate==1 && visual.loader_ready==1 && visual.loader_stage==1 &&
+           (visual.loader_done&1) && (visual.loader_callbacks&1) && (visual.loader_pending&2) &&
            visual.model_wrapper==(uint32_t)health_fixture && visual.render_model==0x12345678);
     target=0;copy_bytes(fixture+0xa8,&target,4);fixture[0x480]=0;
     clear_bytes(&visual,sizeof(visual));visual_row((uint32_t)health_fixture,fn,&visual);

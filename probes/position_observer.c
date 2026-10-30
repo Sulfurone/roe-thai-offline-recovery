@@ -25,6 +25,7 @@ typedef struct {
 typedef struct {
     uint32_t low,high,status,actor,display_mask,visual,visual_vtable,secondary_gate,gates,nested;
     uint32_t model_wrapper,render_model,model_gate,loader_ready,loader_stage;
+    uint32_t loader_done,loader_callbacks,loader_pending,loader_unreadable;
 } VisualRow;
 typedef struct {
     char magic[8],token[32];
@@ -45,7 +46,7 @@ typedef struct {
 _Static_assert(sizeof(void*)==4,"Build for x86");
 _Static_assert(sizeof(Sample)==136,"Position sample layout changed");
 _Static_assert(sizeof(PeerSample)==260,"Peer diagnostic layout changed");
-_Static_assert(sizeof(VisualSample)==352,"Visual diagnostic layout changed");
+_Static_assert(sizeof(VisualSample)==432,"Visual diagnostic layout changed");
 _Static_assert(sizeof(EquipmentSample)==224,"Equipment diagnostic layout changed");
 
 static int self_read(uintptr_t address,void *out,SIZE_T size) {
@@ -346,6 +347,21 @@ static void visual_row(uint32_t actor,uintptr_t base,VisualRow *row) {
         row->model_gate=enabled;
         row->loader_ready=ready;
         if(row->model_wrapper && !self_read(row->model_wrapper+0xf0,&row->render_model,4))return;
+        /* Ten D00F80 entries: callback, completed byte, two dependencies.
+         * Read bounded status bytes only; never call any pointer. */
+        for(unsigned i=0;i<10;i++) {
+            uint32_t entry=row->visual+0x3ec+16*i,callback=0,dep[2]={0,0};
+            unsigned char done=0;
+            if(!self_read(entry,&callback,4) || !self_read(entry+4,&done,1) ||
+               !self_read(entry+8,dep,8))return;
+            if(callback)row->loader_callbacks|=1u<<i;
+            if(done)row->loader_done|=1u<<i;
+            for(unsigned j=0;j<2;j++)if(dep[j]) {
+                unsigned char complete=0;
+                if(!self_read((uintptr_t)dep[j]+4,&complete,1))row->loader_unreadable|=1u<<i;
+                else if(!complete)row->loader_pending|=1u<<i;
+            }
+        }
     }
     row->status=0;
 }
@@ -467,7 +483,7 @@ static DWORD WINAPI observe(void *module) {
     copy_bytes(peers.magic,"ROEPEER2",8);copy_bytes(peers.token,config.token,32);
     peers.pid=sample.pid;peers.count=4;
     VisualSample visuals;clear_bytes(&visuals,sizeof(visuals));
-    copy_bytes(visuals.magic,"ROEVIS4",7);copy_bytes(visuals.token,config.token,32);
+    copy_bytes(visuals.magic,"ROEVIS5",7);copy_bytes(visuals.token,config.token,32);
     visuals.pid=sample.pid;visuals.count=5;
     EquipmentSample equipment;clear_bytes(&equipment,sizeof(equipment));
     copy_bytes(equipment.magic,"ROEEQP1",7);copy_bytes(equipment.token,config.token,32);

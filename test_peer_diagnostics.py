@@ -88,6 +88,17 @@ class PeerDiagnosticsTests(unittest.TestCase):
         with self.assertRaises(ValueError):decode_visuals(broken,b'a'*32,123)
         with self.assertRaises(ValueError):decode_visuals(raw,b'b'*32,123)
 
+    def test_loader_entries_snapshot_masks_and_versions(self):
+        from peer_diagnostics import VISUAL_ENTRIES_ROW
+        rows=[VISUAL_ENTRIES_ROW.pack(0x10ff+i if i else 0x100,0x10000,0,
+             0x10800000,0xffffffff,0x10801000,0x2597960,0,0x010101,0,
+             0x10802000,0,0,1,1,3,1023,4,8) for i in range(5)]
+        raw=VISUAL_HEADER.pack(b'ROEVIS5\0',b'a'*32,123,91,5)+b''.join(rows)
+        row=decode_visuals(raw,b'a'*32,123)['actors'][1]
+        self.assertEqual((row['loader_done'],row['loader_callbacks'],row['loader_pending'],row['loader_unreadable']),(3,1023,4,8))
+        bad=bytearray(raw);bad[VISUAL_HEADER.size+60:VISUAL_HEADER.size+64]=(1024).to_bytes(4,'little')
+        with self.assertRaises(ValueError):decode_visuals(bad,b'a'*32,123)
+
 
 if __name__ == '__main__':
     unittest.main()
