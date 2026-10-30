@@ -95,7 +95,10 @@ class IngameSessionTests(unittest.TestCase):
     def test_armour_wear_and_hp_over_encrypted_bot_battle(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,ai=True,armour=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False,armour=False,throwable_equip=False,zones=False,survivors=False):
+    def test_circle_damage_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay',population=True,vitals=True,zones=True,zone_damage=True)
+
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False,armour=False,throwable_equip=False,zones=False,survivors=False,zone_damage=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -115,9 +118,10 @@ class IngameSessionTests(unittest.TestCase):
             if zones:
                 zone_file=root/'zone-plan.json'
                 zone_file.write_text(json.dumps(dict(version=1,
-                    initial=dict(x=325800,y=271700,radius=50000),
-                    stages=[dict(target=dict(x=326000,y=271700,radius=10000),wait=1,shrink=1)])),encoding='utf8')
+                    initial=dict(x=300000 if zone_damage else 325800,y=271700,radius=1000 if zone_damage else 50000),
+                    stages=[dict(target=dict(x=300000 if zone_damage else 326000,y=271700,radius=500 if zone_damage else 10000),wait=1,shrink=1)])),encoding='utf8')
                 argv.extend(['--world-zone-plan',str(zone_file)])
+                if zone_damage:argv.append('--world-zone-damage')
             if timed_reload:argv.extend(['--gameplay-original-reload'] if original_reload else ['--gameplay-reload-seconds','.3'])
             if extensions:argv.append('--gameplay-original-reload')
             if vitals:
@@ -608,11 +612,15 @@ class IngameSessionTests(unittest.TestCase):
                                 final=row[:3]==(0,0.,1) and row[3:6]==row[6:9]
                             else:
                                 self.assertIn(message,(0x27,0x565,0xbe7,0x1069,0x821,0x654b,0x6554,0x656e))
+                                if zone_damage and message==0x1069:life_packets.append(body)
                         decoded=[struct.unpack('>IfIiifiif',body) for body in zone_packets]
                         self.assertTrue(final)
                         self.assertEqual(decoded[0][0],0)
                         self.assertIn(2,[row[0] for row in decoded])
-                        self.assertEqual(decoded[-1][3:6],(326000,271700,10000.))
+                        self.assertEqual(decoded[-1][3:6],(300000,271700,500.) if zone_damage else (326000,271700,10000.))
+                        if zone_damage:
+                            values=[struct.unpack('>QBBBII',body)[-2] for body in life_packets if struct.unpack_from('>Q',body)[0]==256]
+                            self.assertTrue(any(hp<1000 for hp in values),values)
                     client.sendall(frame(13))
                 thread.join(5)
                 self.assertFalse(thread.is_alive())
@@ -623,6 +631,7 @@ class IngameSessionTests(unittest.TestCase):
                 states=[row for row in rows if row.get('event')=='local_zone_state_sent']
                 self.assertEqual(sum(row['finished'] for row in states),1)
                 self.assertEqual(states[-1]['stage'],1)
+                if zone_damage:self.assertTrue(any(row.get('event')=='local_zone_damage' for row in rows))
             if hit_reports:
                 rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
                 reports=[r for r in rows if r.get('event')=='character_hit_report']

@@ -67,6 +67,14 @@ class ZoneScheduleTests(unittest.TestCase):
         pacing=schedule();pacing.terrain.height_at=lambda x,y:6400
         self.assertEqual(pacing.tick(100),[])
 
+    def test_interpolation_roundoff_does_not_block_dry_ground(self):
+        pacing=schedule();pacing.terrain.height_at=lambda x,y:6499.999999999999
+        self.assertEqual(pacing.tick(0),[])
+        self.assertEqual(len(pacing.tick(3)),1)
+        pacing=schedule();pacing.terrain.height_at=lambda x,y:6499.99
+        self.assertEqual(pacing.tick(0),[])
+        self.assertEqual(pacing.tick(3),[])
+
     def test_plan_schema_bounds_and_strictly_contained_shrinking_circles(self):
         data=dict(version=1,initial=dict(x=200000,y=200000,radius=150000),
                   stages=[dict(target=dict(x=205000,y=200000,radius=100000),wait=10,shrink=20)])

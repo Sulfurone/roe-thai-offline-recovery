@@ -78,7 +78,9 @@ class ZoneSchedule:
             return False
         x,y,z=game.player_position
         ground=self.terrain.height_at(x,y)
-        return ground is not None and math.isfinite(ground) and ground>=6500 and -100<=z-ground<=250
+        # Terrain interpolation can return 6499.999999999999 for an exact
+        # 6500 cm sample. Allow only numerical noise at the dry-land cutoff.
+        return ground is not None and math.isfinite(ground) and ground>=6500-1e-6 and -100<=z-ground<=250
 
     def circle_at(self,now):
         """Current local boundary, including after the final snapshot."""
