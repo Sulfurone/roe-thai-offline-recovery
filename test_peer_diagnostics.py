@@ -76,6 +76,18 @@ class PeerDiagnosticsTests(unittest.TestCase):
             with self.assertRaises(ValueError):decode_visuals(broken,b'a'*32,123)
         with self.assertRaises(ValueError):decode_visuals(raw[:-4],b'a'*32,123)
 
+    def test_loader_snapshot_is_versioned_and_session_bound(self):
+        from peer_diagnostics import VISUAL_LOADER_ROW
+        rows=[VISUAL_LOADER_ROW.pack(0x10ff+i if i else 0x100,0x10000,0,
+                  0x10800000,0xffffffff,0x10801000,0x2597960,0,0x010101,0,
+                  0x10802000,0,0,1,1) for i in range(5)]
+        raw=VISUAL_HEADER.pack(b'ROEVIS4\0',b'a'*32,123,91,5)+b''.join(rows)
+        row=decode_visuals(raw,b'a'*32,123)['actors'][1]
+        self.assertEqual((row['loader_ready'],row['loader_stage']),(1,1))
+        broken=bytearray(raw);broken[VISUAL_HEADER.size+52:VISUAL_HEADER.size+56]=(256).to_bytes(4,'little')
+        with self.assertRaises(ValueError):decode_visuals(broken,b'a'*32,123)
+        with self.assertRaises(ValueError):decode_visuals(raw,b'b'*32,123)
+
 
 if __name__ == '__main__':
     unittest.main()

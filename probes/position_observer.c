@@ -24,7 +24,7 @@ typedef struct {
 } PeerSample;
 typedef struct {
     uint32_t low,high,status,actor,display_mask,visual,visual_vtable,secondary_gate,gates,nested;
-    uint32_t model_wrapper,render_model,model_gate;
+    uint32_t model_wrapper,render_model,model_gate,loader_ready,loader_stage;
 } VisualRow;
 typedef struct {
     char magic[8],token[32];
@@ -45,7 +45,7 @@ typedef struct {
 _Static_assert(sizeof(void*)==4,"Build for x86");
 _Static_assert(sizeof(Sample)==136,"Position sample layout changed");
 _Static_assert(sizeof(PeerSample)==260,"Peer diagnostic layout changed");
-_Static_assert(sizeof(VisualSample)==312,"Visual diagnostic layout changed");
+_Static_assert(sizeof(VisualSample)==352,"Visual diagnostic layout changed");
 _Static_assert(sizeof(EquipmentSample)==224,"Equipment diagnostic layout changed");
 
 static int self_read(uintptr_t address,void *out,SIZE_T size) {
@@ -337,11 +337,14 @@ static void visual_row(uint32_t actor,uintptr_t base,VisualRow *row) {
         /* D066B0 also requires the D01780 getter (+480), then uses the
          * wrapper at +A8 and its model at +F0. Read these fields only; a
          * nonzero pointer is still not evidence of visible pixels. */
-        uint32_t getter=0;unsigned char enabled=0;
+        uint32_t getter=0;unsigned char enabled=0,ready=0;
         if(!self_read(row->visual_vtable+0x258,&getter,4) || getter!=base+0x901780 ||
            !self_read(row->visual+0x480,&enabled,1) ||
+           !self_read(row->visual+0x8ff,&ready,1) ||
+           !self_read(row->visual+0x48c,&row->loader_stage,4) ||
            !self_read(row->visual+0xa8,&row->model_wrapper,4))return;
         row->model_gate=enabled;
+        row->loader_ready=ready;
         if(row->model_wrapper && !self_read(row->model_wrapper+0xf0,&row->render_model,4))return;
     }
     row->status=0;
@@ -464,7 +467,7 @@ static DWORD WINAPI observe(void *module) {
     copy_bytes(peers.magic,"ROEPEER2",8);copy_bytes(peers.token,config.token,32);
     peers.pid=sample.pid;peers.count=4;
     VisualSample visuals;clear_bytes(&visuals,sizeof(visuals));
-    copy_bytes(visuals.magic,"ROEVIS3",7);copy_bytes(visuals.token,config.token,32);
+    copy_bytes(visuals.magic,"ROEVIS4",7);copy_bytes(visuals.token,config.token,32);
     visuals.pid=sample.pid;visuals.count=5;
     EquipmentSample equipment;clear_bytes(&equipment,sizeof(equipment));
     copy_bytes(equipment.magic,"ROEEQP1",7);copy_bytes(equipment.token,config.token,32);

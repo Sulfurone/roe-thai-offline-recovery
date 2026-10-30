@@ -107,7 +107,8 @@ void WINAPI TestEntry(void) {
     uint32_t target=fn+0x8f1330;copy_bytes(fixture+256+0xb0,&target,4);
     target=fn+0x90d2b0;copy_bytes(fixture+256+0x1c4,&target,4);
     target=fn+0x901780;copy_bytes(fixture+256+0x258,&target,4);
-    fixture[0x480]=1;
+    fixture[0x480]=1;fixture[0x8ff]=1;
+    target=1;copy_bytes(fixture+0x48c,&target,4);
     target=(uint32_t)health_fixture;copy_bytes(fixture+0xa8,&target,4);
     target=0x12345678;copy_bytes(health_fixture+0xf0,&target,4);
     fixture[0xc]=1;fixture[0xd]=1;fixture[0xe]=1;
@@ -116,7 +117,8 @@ void WINAPI TestEntry(void) {
     expect(visual.status==0 && visual.display_mask==0xfffffffd &&
            visual.visual==(uint32_t)fixture && visual.visual_vtable==value && visual.secondary_gate==1 &&
            visual.gates==0x010101 && visual.nested==(uint32_t)health_fixture &&
-           visual.model_gate==1 && visual.model_wrapper==(uint32_t)health_fixture && visual.render_model==0x12345678);
+           visual.model_gate==1 && visual.loader_ready==1 && visual.loader_stage==1 &&
+           visual.model_wrapper==(uint32_t)health_fixture && visual.render_model==0x12345678);
     target=0;copy_bytes(fixture+0xa8,&target,4);fixture[0x480]=0;
     clear_bytes(&visual,sizeof(visual));visual_row((uint32_t)health_fixture,fn,&visual);
     expect(visual.status==0 && !visual.model_wrapper && !visual.render_model && !visual.model_gate);

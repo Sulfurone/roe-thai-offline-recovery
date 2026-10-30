@@ -1,3 +1,9 @@
+## 2026-10-30 模型加载器排查（无人值守）
+
+D00F80 在加载器阶段 visual+0x48c 为1且 visual+0x8ff 非零时才继续检查异步加载项；这是原客户端反汇编得到的前置条件，并非已确认的根因。只读观察格式升级为ROEVIS4，增加 loader_stage 与 loader_ready，并保留ROEVIS2/3兼容。原生合成观察自检、转发验证及6项诊断读取测试通过。观察结果仅供定位，不会修改游戏状态。
+
+上轮游戏和服务已经退出，旧代理收据已恢复。使用独立 start_bot_diag_unattended.cmd（主入口临时加入 --gameplay-auto-exit-seconds 12）启动无人值守测试，启动器16424，输出 private/bot-loader-diag-20261030.out/.err。模型及实机对战仍未修复或验收，须记录实际新会话结果后再判断。
+
 ## 2026-10-30 机器人可见性仍未解决，新增模型加载诊断
 
 新一轮实际日志 logs/handshake-20261030-001445-911128/server.jsonl，服务277288、游戏272880、邮箱session-btmxr2dg。用户确认已落地后，自读报告 private/typed-gameplay/bot-model-live-20261030.json 显示：玩家model_gate=1且render_model非零；三名机器人均有model_wrapper，但model_gate=0、render_model=0，三个旧外观门仍为1。已定位到模型尚未加载的阶段，尚未定位导致加载失败的具体资料/调度字段；不要强写状态位代替模型初始化。当前游戏保留供继续诊断。

@@ -13,6 +13,7 @@ ROW = struct.Struct('<9I3f')
 VISUAL_HEADER=struct.Struct('<8s32s3I')
 VISUAL_ROW=struct.Struct('<10I')
 VISUAL_MODEL_ROW=struct.Struct('<13I')
+VISUAL_LOADER_ROW=struct.Struct('<15I')
 STATUS = {0: 'position_ready', 1: 'scene_unavailable', 2: 'actor_absent',
           3: 'actor_without_position', 4: 'lookup_unavailable', 5: 'actor_removed'}
 
@@ -64,7 +65,7 @@ def read_peers(position_path, *, now=None):
 def decode_visuals(raw,token,pid):
     if len(raw)<VISUAL_HEADER.size:raise ValueError('Visual snapshot size differs')
     magic,actual_token,actual_pid,sequence,count=VISUAL_HEADER.unpack_from(raw)
-    row_type={b'ROEVIS2\0':VISUAL_ROW,b'ROEVIS3\0':VISUAL_MODEL_ROW}.get(magic)
+    row_type={b'ROEVIS2\0':VISUAL_ROW,b'ROEVIS3\0':VISUAL_MODEL_ROW,b'ROEVIS4\0':VISUAL_LOADER_ROW}.get(magic)
     if (row_type is None or actual_token!=token or actual_pid!=pid or count!=5):
         raise ValueError('Visual snapshot identity differs')
     if len(raw)!=VISUAL_HEADER.size+5*row_type.size:raise ValueError('Visual snapshot size differs')
@@ -87,6 +88,10 @@ def decode_visuals(raw,token,pid):
         if len(fields)>10:
             rows[-1].update(model_wrapper=hex(fields[10]),render_model=hex(fields[11]),
                             model_gate=fields[12] if status==0 and visual else None)
+        if len(fields)>13:
+            if status==0 and fields[13]>255:raise ValueError('Visual snapshot loader fields differ')
+            rows[-1].update(loader_ready=fields[13] if status==0 and visual else None,
+                            loader_stage=fields[14] if status==0 and visual else None)
     return dict(pid=pid,sequence=sequence,actors=rows,
                 limitation='Appearance object and raw display mask do not prove rendered model, pixels or visibility')
 
@@ -94,7 +99,7 @@ def decode_visuals(raw,token,pid):
 def read_visuals(position_path,*,now=None):
     position_path=Path(position_path);path=position_path.with_name(position_path.name+'.visuals')
     now=time.time() if now is None else now
-    for current,sizes in ((position_path,(SAMPLE.size,)),(path,tuple(VISUAL_HEADER.size+5*r.size for r in (VISUAL_ROW,VISUAL_MODEL_ROW)))):
+    for current,sizes in ((position_path,(SAMPLE.size,)),(path,tuple(VISUAL_HEADER.size+5*r.size for r in (VISUAL_ROW,VISUAL_MODEL_ROW,VISUAL_LOADER_ROW)))):
         info=current.stat()
         if info.st_size not in sizes or not -1<=now-info.st_mtime<=3:raise ValueError('Visual/position sample stale or wrong size')
     position=SAMPLE.unpack(position_path.read_bytes())
