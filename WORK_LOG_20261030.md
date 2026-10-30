@@ -1,3 +1,9 @@
+## 2026-10-30 机器人模型加载依赖实测
+
+上轮已退出并恢复原始文件；新45秒无人值守会话 logs/handshake-20261030-105259-061344/server.jsonl，服务23908、客户端16684、菜单session-2_zhhd2b。角色自动离机并在地图内坐标约268839,213850,8966附近落地，三名机器人生成。ROEVIS5实测报告 private/typed-gameplay/bot-loader-entries-live-20261030.json：玩家10项全部完成；三名机器人均只有第0项完成（done=1），callbacks=1023、pending=1016、unreadable=0；第1及第2项的依赖已完成但它们本身未完成，下游3..9依赖等待。loader_ready=1、loader_stage=1，模型指针为0。尚无画面验收。
+
+新探针 probes/validate_model_loader_graph.py 通过执行原构造函数验证10项依赖关系；第1项0xD07530涉及Actor资源及对象+0x4e8字符串，第2项0xD0B270使用对象+0x4d8拼接Data/Actors及runtimeBinary资源路径；真实路径或资源失败原因尚未读取。当前进程仍在运行，观察模块为ROEVIS5；不凭合成探针声称模型已修复。
+
 ## 2026-10-30 机器人加载器实测对照与依赖诊断
 
 45秒自动离机有效：会话 logs/handshake-20261030-104410-334719/server.jsonl，游戏21904、服务19128、邮箱session-81fijczr；角色落地在 X=44361、Y=204800、Z=9630 附近，三名机器人在附近生成。只读记录 private/typed-gameplay/bot-loader-45s-live-20261030.json 显示，玩家 loader_ready=1、loader_stage=2、model_gate=1且模型指针非零；三个机器人均 loader_ready=1、loader_stage=1、model_gate=0且模型指针为0，稍后再次读取结果相同。尚无真实画面或对战验收；当前差异表明机器人加载未完成，但不能确定具体原因。
