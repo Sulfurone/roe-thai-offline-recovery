@@ -125,6 +125,8 @@ def main():
                         help='Experimental consumed-shot/collision damage against local peers; no combat AI')
     parser.add_argument('--world-survivor-status',action='store_true',
                         help='Experimental original HUD event for the active local roster; no victory or round result')
+    parser.add_argument('--world-round-result',action='store_true',
+                        help='Experimental local last-survivor outcome in the overlay; not the original result screen')
     parser.add_argument('--world-bot-ai',action='store_true',
                         help='Experimental local perception/chase/fire; requires explicit combat and static bounds')
     parser.add_argument('--world-bot-mode',choices=('target','patrol','combat'),default='combat',
@@ -287,6 +289,8 @@ def main():
     bot_profile=None
     if args.world_survivor_status and not (args.gameplay_prototype and args.gameplay_vitals and args.world_bots):
         parser.error('--world-survivor-status requires prototype, vitals and an explicit local bot roster')
+    if args.world_round_result and not (args.gameplay_prototype and args.gameplay_vitals and args.world_bots):
+        parser.error('--world-round-result requires prototype, vitals and an explicit local bot roster')
     if args.world_bots:
         if not args.world_populate or args.world_bot_profile is None:
             parser.error('Experimental peers require population and a local basic profile')
@@ -623,6 +627,11 @@ def main():
                     zone_damage=ZoneDamage(zones,bots)
                 else:zone_damage=None
                 survivors=SurvivorStatus(gameplay,bots) if args.world_survivor_status else None
+                if args.world_round_result:
+                    from offline_round_result import LocalRoundResult
+                    round_result=LocalRoundResult(gameplay,bots)
+                    if control_session is not None:control_session.round_result=round_result
+                else:round_result=None
                 if bot_visibility is not None and bot_visibility.doors is not None:
                     bot_visibility.doors.states=gameplay.doors.states
                     emit('world_door_collision_ready',doors=len(bot_visibility.doors.items),
@@ -796,6 +805,10 @@ def main():
                                 send(connection,0,body=encrypt(response,key))
                                 emit('local_survivor_status_sent',count=survivors.last_count,
                                      scope='Active local roster only; no match outcome')
+                        if round_result is not None and state=='transport_ready' and loaded_pushes_sent:
+                            if round_result.tick():
+                                emit('local_round_result',result=round_result.state,
+                                     scope='Local overlay only; not original match result')
                         # Advance timers even when the client is continuously
                         # sending; boarding/jump/reload must not wait for quiet.
                         # Socket reads

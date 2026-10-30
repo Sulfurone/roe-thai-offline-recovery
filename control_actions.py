@@ -45,6 +45,7 @@ class ControlSession:
         self.next_vehicle_uid=TYPED_VEHICLE_UID+0x1000
         self.peer_positions = {}
         self.bot_ai=None
+        self.round_result=None
         self.active_vehicle = None
         self.client_boarding=client_boarding
         self.last_board_event=None
@@ -67,6 +68,7 @@ class ControlSession:
                     vehicles_enabled=bool(game and self.vehicle_template),
                     bots_enabled=self.bot_ai is not None,
                     bot_mode=self.bot_ai.mode if self.bot_ai else None,
+                    round_state=self.round_result.state if self.round_result else None,
                     vehicles=[dict(uid=str(uid), name=LAND_VEHICLES[car.vehicle_config].name, position=list(car.vehicle_position),
                                    seated=car.seated) for uid, car in self.vehicles.items()],
                     peers=[dict(name=f'OfflineBot{uid-TYPED_ACTOR_UID-0x1000+1}',position=list(actor['position']),

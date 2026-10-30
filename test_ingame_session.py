@@ -95,10 +95,13 @@ class IngameSessionTests(unittest.TestCase):
     def test_armour_wear_and_hp_over_encrypted_bot_battle(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,ai=True,armour=True)
 
+    def test_local_outcome_over_encrypted_connection_and_mailbox(self):
+        self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,survivors=True,round_result=True)
+
     def test_circle_damage_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,zones=True,zone_damage=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False,armour=False,throwable_equip=False,zones=False,survivors=False,zone_damage=False):
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False,armour=False,throwable_equip=False,zones=False,survivors=False,zone_damage=False,round_result=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -131,6 +134,7 @@ class IngameSessionTests(unittest.TestCase):
             if combat:
                 argv.append('--world-bot-combat')
             if survivors:argv.append('--world-survivor-status')
+            if round_result:argv.append('--world-round-result')
             if population:
                 terrain = root / 'surface.repx'
                 terrain.write_text('<root><PxHeightField><NbRows>2</NbRows><NbColumns>2</NbColumns>'
@@ -564,6 +568,12 @@ class IngameSessionTests(unittest.TestCase):
                             # cadence-limited first bot spawn. Keep the actual
                             # roster semantics: optional 1, then 2, then death 1.
                             self.assertIn(survivor_counts,([2,1],[1,2,1]))
+                            if round_result:
+                                deadline=time.monotonic()+3
+                                while time.monotonic()<deadline:
+                                    if menu.state().get('round_state')=='won':break
+                                    time.sleep(.05)
+                                self.assertEqual(menu.state().get('round_state'),'won')
                     if ai:
                         roster=combats[0].bots
                         roster.actors[bot_uid]['position']=(326000,271700,6500)

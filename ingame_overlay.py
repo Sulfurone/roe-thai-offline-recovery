@@ -274,7 +274,8 @@ class Overlay:
         self.entry.overrideredirect(True)
         self.entry.attributes('-topmost',True)
         self.entry.attributes('-toolwindow',True)
-        ttk.Button(self.entry,text='离线控制 · 点击',command=self.toggle,takefocus=False).pack(fill='both',expand=True)
+        self.entry_text=tk.StringVar(value='离线控制 · 点击')
+        ttk.Button(self.entry,textvariable=self.entry_text,command=self.toggle,takefocus=False).pack(fill='both',expand=True)
         self.entry.update_idletasks()
         self.win.no_activate(self.entry.winfo_id())
         self.entry_geometry=None
@@ -415,7 +416,9 @@ class Overlay:
                 self.position_text.set('当前位置（米）：' + ' / '.join(f'{int(v) / 100:.1f}' for v in state['position'].split(',')))
             self.vehicle_hint.set(nearby_hint(state,'vehicles','路边车辆'))
             self.peer_hint.set(bot_hint(state))
-            self.status.set('已连接 · 可操作' if ready else '界面预览 · 操作已禁用' if self.args.preview else '等待角色进入地图…')
+            outcome={'won':'本地对局：胜利','lost':'本地对局：失败'}.get(state.get('round_state'))
+            self.entry_text.set(outcome or '离线控制 · 点击')
+            self.status.set(outcome or ('已连接 · 可操作' if ready else '界面预览 · 操作已禁用' if self.args.preview else '等待角色进入地图…'))
             enabled = ready and self.client.pending is None
             if enabled != self.enabled:
                 for button in self.buttons:
