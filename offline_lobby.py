@@ -17,8 +17,22 @@ CLOTHES = {
     18: (1080011, 1080001, 1081001, 1082001),
     19: (1090005, 1090001, 1091001, 1092001),
 }
-POSITIONS = {template: slot for slot, values in CLOTHES.items() for template in values}
+_catalog = json.loads(Path(__file__).with_name('lobby_clothes.json').read_text(encoding='utf8'))
+POSITIONS = dict(_catalog['items'])
+if (_catalog['version'] != 1 or len(POSITIONS) != 770
+        or any(type(template) is not int or type(slot) is not int or slot not in (13, 14, 15, 16, 17, 18, 19, 22)
+               for template, slot in POSITIONS.items())):
+    raise ValueError('Unknown Thai wardrobe catalogue')
 CRATES = frozenset((2010000, 2010001))
+
+
+def lobby_item_wire(item):
+    # OBJECT_INFO native +0x0E / wire +14 is the expiration timestamp,
+    # not the item quantity. FE8200 treats zero as permanent. Quantity is
+    # encoded by the item union and has already been written by Item.wire.
+    body = bytearray(item.wire())
+    struct.pack_into('>I', body, 14, 0)
+    return bytes(body)
 
 
 def validate_team(body):
@@ -58,19 +72,50 @@ class LobbyInventory:
         for slot, template in enumerate(sorted(CRATES)):
             self.items[4, slot] = Item(8, template, uid, 3)
             uid += 1
+        self.unlock_all()
+
+    def unlock_all(self):
+        owned = {item.template for item in self.items.values()}
+        uid = max((item.uid for item in self.items.values()), default=0x1d00000000100000) + 1
+        slot = 0
+        for template in sorted(POSITIONS):
+            if template in owned:
+                continue
+            while (2, slot) in self.items:
+                slot += 1
+            if slot >= 1024 or uid >= 2**64:
+                raise ValueError('Local wardrobe capacity/UID limit exceeded')
+            self.items[2, slot] = Item(20, template, uid, 1)
+            uid += 1
 
     @staticmethod
     def fits(key, item):
         container, slot = key
         return (container == 1 and POSITIONS.get(item.template) == slot
-                or container == 2 and 0 <= slot < 128 and item.template in POSITIONS
+                or container == 2 and 0 <= slot < 1024 and item.template in POSITIONS
                 or container == 4 and 0 <= slot < 128 and item.template in CRATES)
 
     def full_body(self):
-        body = struct.pack('>I', len(self.items))
-        for (container, slot), item in sorted(self.items.items()):
-            body += bytes((container, slot)) + item.wire()
+        rows = [(key, item) for key, item in sorted(self.items.items()) if key[1] < 256]
+        if len(rows) > 397:
+            raise ValueError('Original full inventory row limit exceeded')
+        body = struct.pack('>I', len(rows))
+        for (container, slot), item in rows:
+            body += bytes((container, slot)) + lobby_item_wire(item)
         return body + bytes(9)  # owner flag 0: lobby, never the game bag
+
+    def snapshot(self):
+        # Full DTO has byte slots; delta DTO has ushort slots and 128 rows.
+        # Never wrap a large slot or overrun the original per-packet bounds.
+        replies = [(0x5fb, self.full_body())]
+        rows = [(key, item) for key, item in sorted(self.items.items()) if key[1] >= 256]
+        for start in range(0, len(rows), 128):
+            chunk = rows[start:start + 128]
+            body = bytes((len(chunk),))
+            for (container, slot), item in chunk:
+                body += struct.pack('>HB', slot, container) + lobby_item_wire(item)
+            replies.append((0x3e82, body + b'\0'))
+        return replies
 
     @staticmethod
     def reply(error=0, template=0):
@@ -98,8 +143,12 @@ class LobbyInventory:
             updated[source] = target
         delta = bytes((2,))
         for container, slot in sorted((source, destination)):
-            delta += struct.pack('>HB', slot, container) + updated.get((container, slot), EMPTY).wire()
+            delta += struct.pack('>HB', slot, container) + lobby_item_wire(updated.get((container, slot), EMPTY))
         self.items = updated
+        # F61C40 cannot remove an empty bag slot >=256. Rebuild its original
+        # full cache followed by bounded deltas instead of leaving a ghost.
+        if src_slot >= 256 or dst_slot >= 256:
+            return self.snapshot() + [self.reply(template=item.template)], True
         return [(0x3e82, delta + b'\0'), self.reply(template=item.template)], True
 
 
@@ -127,7 +176,7 @@ class NativeLobby:
             raise ValueError('Unknown native lobby profile; preserved without rewriting')
         if type(state['mode']) is not int or state['mode'] not in (1, 2):
             raise ValueError('Invalid saved lobby mode')
-        if not isinstance(state['items'], list) or len(state['items']) > 128:
+        if not isinstance(state['items'], list) or len(state['items']) > 1024:
             raise ValueError('Invalid saved wardrobe size')
         items, uids, definitions = {}, set(), set()
         for row in state['items']:
@@ -144,6 +193,7 @@ class NativeLobby:
             uids.add(uid)
             definitions.add(template)
         self.mode, self.inventory.items = state['mode'], items
+        self.inventory.unlock_all()
 
     def save(self):
         if self.state_file is None:
@@ -161,7 +211,7 @@ class NativeLobby:
         if message == 0x702f and len(body) == 1:
             replies = [(0x7030, self.team_body())]
             if not self.inventory_sent:
-                replies.append((0x5fb, self.inventory.full_body()))
+                replies.extend(self.inventory.snapshot())
                 self.inventory_sent = True
             self.in_team = True
             return replies

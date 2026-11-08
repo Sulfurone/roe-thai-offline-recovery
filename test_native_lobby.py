@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 import local_server
-from offline_lobby import CLOTHES, LobbyInventory, NativeLobby
+from offline_lobby import CLOTHES, POSITIONS, LobbyInventory, NativeLobby, lobby_item_wire
 from tpdu import decrypt, encrypt, frame, read_frame
 
 
@@ -26,6 +26,14 @@ def transfer(src=2, source=0, dst=1, target=15, quantity=1, owner=0):
 
 
 class NativeLobbyTests(unittest.TestCase):
+    def test_lobby_items_are_permanent_without_changing_quantity(self):
+        inventory = LobbyInventory()
+        for item in inventory.items.values():
+            old, new = item.wire(), lobby_item_wire(item)
+            self.assertEqual(new[:14], old[:14])
+            self.assertEqual(new[14:18], bytes(4))
+            self.assertEqual(new[18:], old[18:])
+
     def test_original_template_is_preserved_and_start_mode_is_valid(self):
         body = team_template()
         lobby = NativeLobby(body)
@@ -55,7 +63,7 @@ class NativeLobbyTests(unittest.TestCase):
     def test_lobby_inventory_bootstrap_is_sent_once(self):
         lobby = NativeLobby(team_template())
         first = lobby.handle(0x702f, b'\0')
-        self.assertEqual([mid for mid, _ in first], [0x7030, 0x5fb])
+        self.assertEqual([mid for mid, _ in first], [0x7030, 0x5fb] + [0x3e82]*4)
         self.assertEqual(first[1][1][-1], 0)
         self.assertEqual([mid for mid, _ in lobby.handle(0x702f, b'\0')], [0x7030])
         self.assertFalse(lobby.start_requested)
@@ -76,9 +84,33 @@ class NativeLobbyTests(unittest.TestCase):
     def test_unequip_to_bag_is_persistent(self):
         lobby = NativeLobby(team_template())
         item = lobby.inventory.items[1, 15]
-        lobby.handle(0x3e80, transfer(1, 15, 2, 127))
+        lobby.handle(0x3e80, transfer(1, 15, 2, 1000))
         self.assertNotIn((1, 15), lobby.inventory.items)
-        self.assertEqual(lobby.inventory.items[2, 127], item)
+        self.assertEqual(lobby.inventory.items[2, 1000], item)
+
+    def test_full_catalogue_and_large_slot_refresh_conserve_items(self):
+        lobby = NativeLobby(team_template())
+        before = dict(lobby.inventory.items)
+        self.assertEqual(len([v for v in before.values() if v.kind == 20]), 770)
+        source, item = next((key, value) for key, value in before.items() if key[0] == 2 and key[1] >= 256)
+        replies = lobby.handle(0x3e80, transfer(2, source[1], 1, POSITIONS[item.template]))
+        self.assertEqual(replies[0][0], 0x5fb)
+        self.assertEqual(replies[-1][0], 0x3e81)
+        self.assertEqual(lobby.inventory.items[1, POSITIONS[item.template]], item)
+        self.assertEqual(sorted(v.uid for v in before.values()), sorted(v.uid for v in lobby.inventory.items.values()))
+
+    def test_old_small_profile_is_extended_without_resetting_equipment(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'profile.json'
+            lobby = NativeLobby(team_template(), path)
+            lobby.handle(0x3e80, transfer())
+            equipped = lobby.inventory.items[1, 15]
+            state = json.loads(path.read_text())
+            state['items'] = [row for row in state['items'] if row[0] != 2 or row[1] < 15]
+            path.write_text(json.dumps(state))
+            restored = NativeLobby(team_template(), path)
+            self.assertEqual(restored.inventory.items[1, 15], equipped)
+            self.assertEqual(len(restored.inventory.items), 772)
 
     def test_wrong_clothing_slot_cannot_replace_another_garment(self):
         lobby = NativeLobby(team_template())
@@ -172,6 +204,8 @@ class NativeLobbyTests(unittest.TestCase):
                         send(0x702f, b'\0')
                         self.assertEqual(receive()[0], 0x7030)
                         self.assertEqual(receive()[0], 0x5fb)
+                        for _ in range(4):
+                            self.assertEqual(receive()[0], 0x3e82)
                         # Lobby scene readiness is not a gameplay load event.
                         send(0x0dcd, bytes(4))
                         # A subsequent request must be answered before any scene push.

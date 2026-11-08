@@ -45,12 +45,19 @@ typedef struct {
     uint32_t pid,sequence,count,inventory;
     EquipmentRow rows[2];
 } EquipmentSample;
+typedef struct {uint32_t template_id,quantity;} LobbyItem;
+typedef struct {
+    char magic[8],token[32];
+    uint32_t pid,sequence,status,actor,inventory,count;
+    LobbyItem items[1024];
+} LobbySample;
 #pragma pack(pop)
 _Static_assert(sizeof(void*)==4,"Build for x86");
 _Static_assert(sizeof(Sample)==136,"Position sample layout changed");
 _Static_assert(sizeof(PeerSample)==260,"Peer diagnostic layout changed");
 _Static_assert(sizeof(VisualSample)==1532,"Visual diagnostic layout changed");
 _Static_assert(sizeof(EquipmentSample)==224,"Equipment diagnostic layout changed");
+_Static_assert(sizeof(LobbySample)==8256,"Lobby diagnostic layout changed");
 
 static int self_read(uintptr_t address,void *out,SIZE_T size) {
     SIZE_T read=0;
@@ -458,6 +465,28 @@ static void equipment_rows(uint32_t actor,uintptr_t base,EquipmentSample *out) {
     }
 }
 
+/* 1130310/1AC9C30's lobby inventory and F5FCC0/FE8100's ownership count.
+ * Read the list without calling any getter or constructing missing entries. */
+static void lobby_items(uint32_t manager,uint32_t actor,LobbySample *out) {
+    uint32_t head=0,node=0,declared=0;
+    out->actor=actor;out->inventory=out->count=0;out->status=1;
+    clear_bytes(out->items,sizeof(out->items));
+    if(!manager || !self_read(manager+0x80,&out->inventory,4) || !out->inventory)return;
+    out->status=2;head=out->inventory+0x10;
+    if(!self_read(head,&node,4) || !self_read(head+8,&declared,4))return;
+    while(node!=head && out->count<1024) {
+        uint32_t object=0,next=0;
+        if(!node || !self_read(node+8,&object,4) || !object ||
+           !self_read(object+0x20,&out->items[out->count].template_id,4) ||
+           !self_read(object+0x30,&out->items[out->count].quantity,4) ||
+           !self_read(node,&next,4) || next==node)return;
+        out->count++;node=next;
+    }
+    if(node!=head) {out->status=3;return;}
+    if(out->count!=declared) {out->status=4;return;}
+    out->status=0;
+}
+
 static void write_atomic(const wchar_t *output,const wchar_t *temporary,const void *data,DWORD size) {
     HANDLE file=CreateFileW(temporary,GENERIC_WRITE,0,NULL,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);
     if(file!=INVALID_HANDLE_VALUE) {
@@ -474,6 +503,7 @@ static DWORD WINAPI observe(void *module) {
     static wchar_t peer_output[1040],peer_temporary[1040];
     static wchar_t visual_output[1040],visual_temporary[1040];
     static wchar_t equipment_output[1040],equipment_temporary[1040];
+    static wchar_t lobby_output[1040],lobby_temporary[1040];
     static wchar_t config_path[1024],original_path[1024];
     DWORD module_len=GetModuleFileNameW((HMODULE)module,config_path,1024);
     if(!module_len || module_len>=980)return 0;
@@ -501,6 +531,8 @@ static DWORD WINAPI observe(void *module) {
     lstrcpyW(visual_temporary,visual_output);lstrcatW(visual_temporary,L".tmp");
     lstrcpyW(equipment_output,output);lstrcatW(equipment_output,L".equipment");
     lstrcpyW(equipment_temporary,equipment_output);lstrcatW(equipment_temporary,L".tmp");
+    lstrcpyW(lobby_output,output);lstrcatW(lobby_output,L".lobby");
+    lstrcpyW(lobby_temporary,lobby_output);lstrcatW(lobby_temporary,L".tmp");
     uintptr_t base=(uintptr_t)GetModuleHandleW(NULL);
     unsigned char dos[2];
     if(base!=0x400000 || !self_read(base,dos,2) || dos[0]!='M' || dos[1]!='Z')return 0;
@@ -517,6 +549,8 @@ static DWORD WINAPI observe(void *module) {
     EquipmentSample equipment;clear_bytes(&equipment,sizeof(equipment));
     copy_bytes(equipment.magic,"ROEEQP1",7);copy_bytes(equipment.token,config.token,32);
     equipment.pid=sample.pid;equipment.count=2;
+    LobbySample lobby;clear_bytes(&lobby,sizeof(lobby));
+    copy_bytes(lobby.magic,"ROELOB2",7);copy_bytes(lobby.token,config.token,32);lobby.pid=sample.pid;
     for(;;) {
         uint32_t manager=0,actor=0,vt=0,getter=0;
         sample.sequence++;sample.status=1;sample.actor=sample.getter=0;
@@ -548,6 +582,8 @@ static DWORD WINAPI observe(void *module) {
             write_atomic(visual_output,visual_temporary,&visuals,sizeof(visuals));
             equipment.sequence=sample.sequence;equipment_rows(actor,base,&equipment);
             write_atomic(equipment_output,equipment_temporary,&equipment,sizeof(equipment));
+            lobby.sequence=sample.sequence;lobby_items(manager,actor,&lobby);
+            write_atomic(lobby_output,lobby_temporary,&lobby,sizeof(lobby));
         }
         Sleep(100);
     }

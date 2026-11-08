@@ -187,6 +187,20 @@ void WINAPI TestEntry(void) {
     eqnode[2]=0;inventory[0x88/4]=0;
     expect(equipment_object((uint32_t)inventory,1,&value)==-1);
     equipment_rows(0,fn,&equipment);expect(equipment.rows[0].status==1);
+    static uint32_t lobby_manager[40],lobby_inventory[40],lobby_node[3],lobby_item[16];
+    LobbySample lobby;clear_bytes(&lobby,sizeof(lobby));
+    lobby_items(0,0,&lobby);expect(lobby.status==1 && !lobby.count);
+    lobby_manager[0x80/4]=(uint32_t)lobby_inventory;
+    lobby_inventory[0x10/4]=(uint32_t)lobby_node;lobby_inventory[0x18/4]=1;
+    lobby_node[0]=(uint32_t)lobby_inventory+0x10;lobby_node[2]=(uint32_t)lobby_item;
+    lobby_item[0x20/4]=1050001;lobby_item[0x30/4]=1;
+    lobby_items((uint32_t)lobby_manager,123,&lobby);
+    expect(lobby.status==0 && lobby.count==1 && lobby.items[0].template_id==1050001 &&
+           lobby.items[0].quantity==1 && lobby.actor==123);
+    lobby_item[0x30/4]=0;lobby_items((uint32_t)lobby_manager,0,&lobby);
+    expect(lobby.status==0 && !lobby.items[0].quantity);
+    lobby_node[0]=(uint32_t)lobby_node;lobby_items((uint32_t)lobby_manager,0,&lobby);
+    expect(lobby.status==2);
     DWORD written;
     const char text[]="SELF_POSITION_ACCESSOR_TESTS_PASS\n";
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,sizeof(text)-1,&written,NULL);
