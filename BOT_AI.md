@@ -1,3 +1,11 @@
+## 2026-11-08 外观头部四字节错位修复候选
+
+类型单字段候选实机失败：logs/handshake-20261108-124347-466152/server.jsonl，游戏18836、服务2564，45秒自动离机并在地图内落地。ROEVIS6报告private/typed-gameplay/bot-selector-live-20261108.json显示玩家HS/HS_Skel资源有效、done=1023；三个机器人资源名仍空、done=1、stage=1、model=0。上一节“等待落地”已由此结果取代，不能记为修复成功。
+
+进一步比较原自身和远程属性消费者，发现48字节头部应从自身record+8C（ROOT+10+98）映射到peer basic+80；旧生成器用了record+90，整块偏移四字节。新validate_peer_appearance_projection.py执行两条原生指令切片，八项属性在真实样本和100..111的不同哨兵值下均一致；负对照旧偏移八项全部不一致。配置查找使用合成替身，结论限于属性投影，不证明实际资源可加载。
+
+候选private/typed-gameplay/bot-basic-profile-appearance.bin经原编码、解码及完整native回读通过；稳定profile未覆盖，独立start_bot_appearance_20261108.cmd已备好。33项位置/诊断/机器人模式与AI回归通过。当前PID18836未响应CloseMainWindow，普通stop_game -NoElevate报告path_unavailable；已请求用户关闭本轮游戏，再恢复原DataEngine并运行新候选。机器人可见性、巡逻像素和战斗仍未验收。
+
 ## 2026-10-30 机器人模型加载依赖实测
 
 上轮已退出并恢复原始文件；新45秒无人值守会话 logs/handshake-20261030-105259-061344/server.jsonl，服务23908、客户端16684、菜单session-2_zhhd2b。角色自动离机并在地图内坐标约268839,213850,8966附近落地，三名机器人生成。ROEVIS5实测报告 private/typed-gameplay/bot-loader-entries-live-20261030.json：玩家10项全部完成；三名机器人均只有第0项完成（done=1），callbacks=1023、pending=1016、unreadable=0；第1及第2项的依赖已完成但它们本身未完成，下游3..9依赖等待。loader_ready=1、loader_stage=1，模型指针为0。尚无画面验收。

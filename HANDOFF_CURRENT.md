@@ -1,3 +1,17 @@
+## 2026-11-08 外观头部四字节错位修复候选
+
+类型单字段候选实机失败：logs/handshake-20261108-124347-466152/server.jsonl，游戏18836、服务2564，45秒自动离机并在地图内落地。ROEVIS6报告private/typed-gameplay/bot-selector-live-20261108.json显示玩家HS/HS_Skel资源有效、done=1023；三个机器人资源名仍空、done=1、stage=1、model=0。上一节“等待落地”已由此结果取代，不能记为修复成功。
+
+进一步比较原自身和远程属性消费者，发现48字节头部应从自身record+8C（ROOT+10+98）映射到peer basic+80；旧生成器用了record+90，整块偏移四字节。新validate_peer_appearance_projection.py执行两条原生指令切片，八项属性在真实样本和100..111的不同哨兵值下均一致；负对照旧偏移八项全部不一致。配置查找使用合成替身，结论限于属性投影，不证明实际资源可加载。
+
+候选private/typed-gameplay/bot-basic-profile-appearance.bin经原编码、解码及完整native回读通过；稳定profile未覆盖，独立start_bot_appearance_20261108.cmd已备好。33项位置/诊断/机器人模式与AI回归通过。当前PID18836未响应CloseMainWindow，普通stop_game -NoElevate报告path_unavailable；已请求用户关闭本轮游戏，再恢复原DataEngine并运行新候选。机器人可见性、巡逻像素和战斗仍未验收。
+
+## 2026-11-08 类型修复候选实机轮启动
+
+用户确认旧游戏已关闭；核对没有Europa_Client或8003监听后，按收据恢复原DataEngine并核对SHA256，ROEVIS6构建记录校验通过。独立start_bot_selector_20261108.cmd使用候选profile（仅wire35从0改1），600秒服务/45秒自动离机；本轮日志logs/handshake-20261108-124347-466152/server.jsonl，服务2564、客户端18836（父启动器3528）、菜单session-sr520nlk、观察session-20261108-124347-466152。已连接并开始飞机流程，机器人实际资源加载仍在等待落地，不能写作已修复显示。
+
+再次以独立decode_record核对世界body[12:-18]完整解码，并确认decode_server的native记录实际从ROOT+10+12开始；来源record+8C=1属实。其余外观字段是否也需要语义重排尚未完成核对，不按相似结构推断。待新轮ROEVIS6对照后决定下一步。
+
 ## 2026-11-08 泰服机器人类型字段修复候选（实机待重启）
 
 根据11月4日公开资料所强调的远程角色资料/外观/动作分离方法，重新核对泰服自身消费者；没有复制2022 SDK代码或固定偏移。原生ROEVIS6对照已完成：本轮logs/handshake-20261108-121842-393372/server.jsonl，游戏18324、服务18296，自动离机后落地约44133,204801,9633。玩家资源名为HS及其HS_Skel骨架，done=1023；三个机器人资源名均为空，actor_resource_ready=0、runtime_data=0、done=1。私有报告private/typed-gameplay/bot-resources-live-20261108.json。空资源名已实测，但导致它的完整配置选择链尚未验证。
