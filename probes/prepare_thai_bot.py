@@ -5,18 +5,32 @@ Generated files remain private and require live rendering validation.
 """
 import json
 import struct
+import argparse
+from pathlib import Path
 from native_codec_probe import NativeCodec, ROOT
 
 codec = NativeCodec()
 folder = ROOT / 'private/typed-gameplay'
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--output',type=Path,default=folder/'bot-basic-profile.bin')
+args=parser.parse_args()
 source = folder / 'world-clothed.bin'
 if not source.exists():
     source = folder / 'world.bin'
 world_result = codec.decode_server(0x2ef, source.read_bytes())
 if world_result['code'] or world_result['consumed'] != world_result['bytes']:
     raise ValueError('Need original-codec-validated own actor appearance')
-# The same original component readers appear in the roster and peer profile:
-# D6C1E0 (0x30 bytes), D6CBC0 (0x188), D6BEC0 (0xE14).
+# World record starts at native +0x0C; 127C2C0 consumes its +0x8C
+# into properties +0x160. 127BD70 consumes peer basic +0x80 into that
+# same property. Similar codec shapes are not semantic field mappings:
+# copying the head's first DWORD (zero) previously lost this selector (one).
+selector=codec.read32(codec.ROOT_OBJECT+10+0x98)
+variant=codec.read32(codec.ROOT_OBJECT+22+0x5c8)
+if not 0<=selector<=127 or not 0<=variant<=127:
+    raise ValueError('World avatar selectors exceed the Thai signed-byte consumers')
+# These components share reader layouts (D6C1E0/0x30, D6CBC0/0x188,
+# D6BEC0/0xE14), not necessarily all semantic fields. The selector below
+# is explicitly mapped through the own/remote consumers, not blindly copied.
 components = [(0x80, bytes(codec.uc.mem_read(codec.ROOT_OBJECT+10+0x9c, 0x30))),
               (0xb1, bytes(codec.uc.mem_read(codec.ROOT_OBJECT+10+0x141a, 0x188))),
               (0x23a, bytes(codec.uc.mem_read(codec.ROOT_OBJECT+10+0x5ed, 0xe14)))]
@@ -28,6 +42,8 @@ name = b'OfflineBot1\0'
 native[0x48:0x48 + len(name)] = name
 for offset, data in components:
     native[0x48+offset:0x48+offset+len(data)] = data
+struct.pack_into('<I',native,0x48+0x80,selector)
+native[0x48+0xb0]=variant
 # Basic peer info's native +107C is the original D6AA10 position DTO.
 # A unique marker lets the runtime replace its exact wire coordinates.
 struct.pack_into('<3i',native,0x48+0x107c,123456,234567,34567)
@@ -45,6 +61,7 @@ if bytes(codec.uc.mem_read(codec.ROOT_OBJECT + 10, len(native))) != native:
     raise ValueError('Native profile round trip changed fields')
 if body.count(struct.pack('>3i',123456,234567,34567)) != 1:
     raise ValueError('Peer wire position marker is ambiguous')
-(folder / 'bot-basic-profile.bin').write_bytes(body)
+args.output.write_bytes(body)
 print(json.dumps(dict(writer='0xdc5790', native_bytes=len(native), wire_bytes=len(body),
-                      decode=decoded, scope='Default named peer only; render/AI not verified')))
+                      decode=decoded,avatar_selector=selector,avatar_variant=variant,output=str(args.output),
+                      scope='Default named peer only; render/AI not verified')))

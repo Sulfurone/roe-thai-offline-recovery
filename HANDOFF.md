@@ -1,3 +1,15 @@
+## 2026-11-08 泰服机器人类型字段修复候选（实机待重启）
+
+根据11月4日公开资料所强调的远程角色资料/外观/动作分离方法，重新核对泰服自身消费者；没有复制2022 SDK代码或固定偏移。原生ROEVIS6对照已完成：本轮logs/handshake-20261108-121842-393372/server.jsonl，游戏18324、服务18296，自动离机后落地约44133,204801,9633。玩家资源名为HS及其HS_Skel骨架，done=1023；三个机器人资源名均为空，actor_resource_ready=0、runtime_data=0、done=1。私有报告private/typed-gameplay/bot-resources-live-20261108.json。空资源名已实测，但导致它的完整配置选择链尚未验证。
+
+查出原生成器丢失了一个语义字段：自己record+8C由127C2C0的127C3E3..3F1写入属性+160；远程basic+80首DWORD由127BD70写入同一属性。二者虽共享某些解码组件形状，却不能直接等同语义。世界记录的类型值为1，旧生成器从头部复制来的首DWORD为0。候选从世界记录取得类型，写basic+80；另核对变体由自己record+5C8及远程basic+B0写入属性+164，本样本两边均为0，不将类型1误写入变体。
+
+prepare_thai_bot.py新增--output，原有编码/完整回读后才写文件；本机候选为private/typed-gameplay/bot-basic-profile-selector.bin。和旧5681字节文件只差wire偏移35的一字节0→1。validate_peer_avatar_selector.py执行原远程属性消费和原自身消费切片，验证0/1/127/255类型与变体保持；停止于下一配置查询，不把属性一致视为模型加载成功。原编码/解码完整回读、该探针及原显示掩码/资料分支/资源等待探针通过，另33项位置/诊断/机器人模式与AI检查通过。
+
+旧服务已结束，观察收据现为restore_pending_game_exit；游戏18324仍在。CloseMainWindow、Alt+F4均未退出，普通stop_game -NoElevate报告path_unavailable；截图FrameArrived超时。已请求用户关闭当前窗口，不能在进程还在时恢复代理或启动第二轮。候选未覆盖稳定bot-basic-profile.bin，独立start_bot_selector_20261108.cmd已准备；关闭后先恢复原DataEngine，运行候选轮，对比资源名/加载完成，再验收真实模型与战斗。尚不能宣称机器人已恢复显示。
+
+公开镜像已有未提交死亡掉落相关修改（local_server.py/offline_blast.py/offline_bot_ai.py/offline_bots.py及offline_death_loot.py）；不是本次变更，保持原样且不纳入本次提交。
+
 ## 2026-11-08 网上公开服务端资料核查
 
 本轮范围为查找与核验公开资料。已查到ROE-LIVE于11月4日公开新增SDK（a99d03bb），含远程角色/外观/动作和传输源码；公开启动器仍是10月演示，新机器人和完整多人编排未公开。目标为2022-0.2.989.0 x64，不能直接代替本地泰服0.2.15.5。其RIGHTS说明自写代码尚无统一许可，只有原大厅部分明确MIT。详细项目、排除项、版本与后续方法见[公开资料核查](RESEARCH_SOURCES_20261108.md)。本次未启动游戏或更改服务代码；10月进程记录是历史事实，未作为当前状态复用。
