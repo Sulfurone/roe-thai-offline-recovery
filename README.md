@@ -1,5 +1,7 @@
 # 无限法则泰服离线恢复实验 / ROE Thai Offline Recovery
 
+原版大厅恢复新增独立候选入口 `start_native_lobby_recovery.cmd`，处理模式、主动开始与本地衣柜库存保存；当前实机待确认，使用及限制见 [大厅恢复说明](NATIVE_LOBBY.md)。
+
 这是针对 **Garena 泰服 0.2.15.5（th_live）** 的社区研究项目，目标是让已有原版客户端的玩家能够自行探索并逐步重建停服后的游戏功能。Steam 版和其他发行版本的协议、资源与本项目目标不同。
 
 This is an experimental, community-maintained reconstruction for the original Garena Thai client, version 0.2.15.5. The repository contains research and original implementation code; it does not include the game client, proprietary game assets, captured traffic, user profiles, or generated binaries. **A fresh clone is not yet a ready-to-play server.**

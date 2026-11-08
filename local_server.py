@@ -34,6 +34,7 @@ from offline_match_status import SurvivorStatus
 from offline_posture import posture_speed_delta,CROUCH_CM_PER_SECOND,PRONE_CM_PER_SECOND
 from self_position import PositionInstallation,recover_previous
 from service_pacing import ServiceCadence
+from offline_lobby import NativeLobby
 
 
 def main():
@@ -46,6 +47,10 @@ def main():
     parser.add_argument('--launch', action='store_true')
     parser.add_argument('--single-session',action='store_true',
                         help='Exit after the authenticated client disconnects, releasing the local port')
+    parser.add_argument('--native-lobby', action='store_true',
+                        help='Original lobby mode/wardrobe; defer the team push chain until explicit Start')
+    parser.add_argument('--lobby-profile-file', type=Path,
+                        help='Separate native lobby mode/clothing profile; requires --native-lobby')
     parser.add_argument('--control-ui-port', type=int, metavar='PORT',
                         help='Enable the local weather/weapon/vehicle control panel (e.g. 8765)')
     parser.add_argument('--ingame-control', action='store_true',
@@ -417,6 +422,15 @@ def main():
     world_body = None
     enter_body = args.enter_body_file.read_bytes() if args.enter_body_file else None
     team_body = args.team_body_file.read_bytes() if args.team_body_file else None
+    if args.lobby_profile_file and not args.native_lobby:
+        parser.error('--lobby-profile-file requires --native-lobby')
+    if args.native_lobby:
+        try:
+            if team_body is None:
+                raise ValueError('A native team template is required')
+            NativeLobby(team_body, args.lobby_profile_file)
+        except (OSError, ValueError, TypeError) as error:
+            parser.error(f'Cannot prepare native lobby (profile preserved): {error}')
     ready_body = args.ready_body_file.read_bytes() if args.ready_body_file else None
     match_body = args.match_body_file.read_bytes() if args.match_body_file else None
     team_sync_body = args.team_sync_file.read_bytes() if args.team_sync_file else None
@@ -585,6 +599,8 @@ def main():
                 map_load_count = 0
                 map_pushes_sent = False
                 player_pushes_sent = False
+                lobby = NativeLobby(team_body, args.lobby_profile_file) if args.native_lobby else None
+                lobby_pushes = []
                 environment = (EnvironmentSchedule(args.environment_hour,args.environment_ready_delay)
                                if args.environment_hour is not None
                                and args.environment_trigger == 'player-ready' else None)
@@ -733,6 +749,14 @@ def main():
                         mailbox.publish(control.snapshot())
                 try:
                     while time.monotonic() < deadline:
+                        if state == 'transport_ready' and lobby_pushes and time.monotonic() >= lobby_pushes[0][0]:
+                            _, push_id, push_path = lobby_pushes.pop(0)
+                            push_body = push_path.read_bytes()
+                            if len(push_body) > 65536:
+                                raise ValueError('Lobby start push exceeds the wire bound')
+                            response = struct.pack('>IHI', 1, push_id, push_id) + push_body
+                            send(connection, 0, body=encrypt(response, key))
+                            emit('lobby_start_push_sent', message_id=push_id, body_bytes=len(push_body), source=str(push_path))
                         loop_started=time.monotonic()
                         if cadence.due('capture_flush'):
                             received_raw.flush();application_raw.flush();log.flush()
@@ -833,7 +857,7 @@ def main():
                                                     and not schedule.sent)
                         environment_timer=bool(environment_schedules and state=='transport_ready')
                         max_background_seconds=max(max_background_seconds,time.monotonic()-loop_started)
-                        if gameplay_timers or environment_timer or control is not None or population is not None:
+                        if gameplay_timers or environment_timer or control is not None or population is not None or lobby_pushes:
                             wait=min(.25,max(0,deadline-time.monotonic()))
                             if environment_timer:
                                 wait=min(wait,max(0,min(schedule.armed_at
@@ -880,6 +904,21 @@ def main():
                             application_raw.write(application)
                             message_id = struct.unpack_from('>H', application, 4)[0] if len(application) >= 6 else None
                             emit('application_message', bytes=len(application), message_id=message_id)
+                            lobby_replies = lobby.handle(message_id, application[26:]) if lobby is not None else None
+                            if lobby_replies is not None:
+                                for response_id, response_body in lobby_replies:
+                                    response = struct.pack('>IHI', 1, response_id, response_id) + response_body
+                                    send(connection, 0, body=encrypt(response, key))
+                                    emit('native_lobby_response_sent', request_id=message_id, message_id=response_id,
+                                         body_bytes=len(response_body), mode=lobby.mode)
+                            if (lobby is not None and message_id == 0x6e29 and not lobby.start_requested
+                                    and len(application[26:]) == 4
+                                    and struct.unpack('>I', application[26:])[0] == lobby.mode + 1):
+                                lobby.start_requested = True
+                                started = time.monotonic()
+                                lobby_pushes = [(started + index * args.push_delay, mid, path)
+                                                for index, (mid, path) in enumerate(push_specs)]
+                                emit('native_lobby_start_requested', mode=lobby.mode, pushes=len(lobby_pushes))
                             if gameplay is not None and message_id==0x11e9 and combat is None:
                                 hit=character_hit(application[26:])
                                 if hit is None:
@@ -916,7 +955,7 @@ def main():
                                          generated_from=('offline inventory state' if gameplay is not None
                                                          and gameplay.inventory is not None
                                                          and push_id in (0x05fb,0x04a0) else 'file'))
-                            if gameplay is not None and loaded_pushes_sent:
+                            if gameplay is not None and loaded_pushes_sent and lobby_replies is None:
                                 previous_saves=gameplay.state_save_count
                                 previous_magazine=gameplay.magazine
                                 bot_replies=bots.handle(message_id,application[26:]) if bots is not None else None
@@ -1023,7 +1062,8 @@ def main():
                                          body_bytes=len(push_body),
                                          body_sha256=hashlib.sha256(push_body).hexdigest(),
                                          source=str(push_path), load_notification=map_load_count)
-                            if message_id == 0x0DCD and not loaded_pushes_sent:
+                            if (message_id == 0x0DCD and not loaded_pushes_sent
+                                    and (lobby is None or lobby.start_requested)):
                                 loaded_pushes_sent = True
                                 for push_id, push_path in loaded_push_specs:
                                     push_body = push_path.read_bytes()
@@ -1043,7 +1083,7 @@ def main():
                                 emit('enter_body_response_sent', body_bytes=len(enter_body),
                                      body_sha256=hashlib.sha256(enter_body).hexdigest(),
                                      source=str(args.enter_body_file))
-                            if team_body is not None and message_id == 0x702F:
+                            if team_body is not None and message_id == 0x702F and lobby is None:
                                 response = struct.pack('>IHI', 1, 0x7030, 0x7030) + team_body
                                 send(connection, 0, body=encrypt(response, key))
                                 emit('team_body_response_sent', body_bytes=len(team_body),
@@ -1081,7 +1121,7 @@ def main():
                                     emit('team_sync_push_sent', body_bytes=len(team_sync_body),
                                          body_sha256=hashlib.sha256(team_sync_body).hexdigest(),
                                          source=str(args.team_sync_file))
-                            if match_body is not None and message_id == 0x6E29:
+                            if match_body is not None and message_id == 0x6E29 and lobby is None:
                                 match_body = args.match_body_file.read_bytes()
                                 response = struct.pack('>IHI', 1, 0x6E2A, 0x6E2A) + match_body
                                 send(connection, 0, body=encrypt(response, key))
