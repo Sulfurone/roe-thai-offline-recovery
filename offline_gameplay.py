@@ -61,6 +61,7 @@ class OfflineGameplay:
     route_origin: tuple | None = None
     route_next: float = 0
     inventory_enabled: bool = False
+    empty_start: bool = False
     state_file: Path | None = None
     inventory: OfflineInventory | None = field(default=None,init=False)
     _saved_payload: str | None = field(default=None,init=False,repr=False)
@@ -137,6 +138,9 @@ class OfflineGameplay:
         if not self.inventory_enabled:
             return
         self.inventory=OfflineInventory(self.reserve)
+        if self.empty_start:
+            self.inventory.items.clear()
+            self.magazine = self.reserve = self.selected_slot = 0
         weapon=self.inventory.items.get((1,1))
         if weapon is not None:
             self.inventory.weapon_magazines[weapon.uid]=self.magazine

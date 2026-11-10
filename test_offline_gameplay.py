@@ -4,6 +4,22 @@ from offline_gameplay import OfflineGameplay, ACTOR_UID, JEEP_UID, TYPED_ACTOR_U
 
 
 class GameplayStateTests(unittest.TestCase):
+    def test_empty_start_requires_a_ground_weapon_before_firing(self):
+        from offline_inventory import Item
+        from test_ground_loot import request
+        game=OfflineGameplay(inventory_enabled=True,ground_loot_enabled=True,empty_start=True)
+        self.assertEqual(game.inventory.items,{})
+        self.assertEqual((game.selected_slot,game.magazine,game.reserve),(0,0,0))
+        game.handle(0x2a,struct.pack('>I3i',1,325800,271700,6501))
+        shot=struct.pack('>6fIB',325800,271700,6600,326000,271700,6600,1,0)
+        self.assertEqual(game.handle(0x11d3,shot),[])
+        item=Item(1,10201,game.inventory.next_uid,1)
+        stack=game.ground_loot.add(item,game.player_position,17)
+        game.handle(0x3b63,request(entity=stack.entity,camera=game.player_position))
+        self.assertEqual((game.selected_slot,game.magazine,game.reserve),(1,17,0))
+        game.handle(0x11d3,shot)
+        self.assertEqual(game.magazine,16)
+
     def test_stationary_fire_consumes_every_round_and_cannot_go_negative(self):
         game = OfflineGameplay()
         shot = struct.pack('>6fIB',1,2,3,0,1,0,7,0)

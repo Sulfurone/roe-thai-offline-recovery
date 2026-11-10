@@ -163,6 +163,8 @@ def main():
                         help='Diagnostic only: force exit after this many seconds seated; zero disables')
     parser.add_argument('--gameplay-aircraft-route-speed',type=int,choices=range(0,5001),default=0,
                         metavar='CM_PER_SECOND',help='Diagnostic helicopter route speed; zero disables')
+    parser.add_argument('--gameplay-empty-start',action='store_true',
+                        help='Start a fresh offline inventory with empty hands and no carried items')
     parser.add_argument('--gameplay-starting-magazine',type=int,choices=range(31),default=30,
                         metavar='0..30',help='Initial M4A1 magazine for the opt-in offline loadout')
     parser.add_argument('--gameplay-inventory',action='store_true',
@@ -614,6 +616,7 @@ def main():
                 gameplay = OfflineGameplay(reload_original=args.gameplay_original_reload,reload_seconds=args.gameplay_reload_seconds,vitals_enabled=args.gameplay_vitals,throwables_enabled=args.gameplay_throwables,auto_board=args.gameplay_auto_seat,
                     auto_board_delay=args.gameplay_auto_board_delay,
                     magazine=args.gameplay_starting_magazine,
+                    empty_start=args.gameplay_empty_start,
                     inventory_enabled=args.gameplay_inventory,state_file=args.gameplay_state_file,
                     inventory_selftest=args.gameplay_inventory_selftest,
                     ground_loot_enabled=args.gameplay_ground_loot,
