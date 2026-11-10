@@ -13,9 +13,9 @@ POSITION_MARKER = struct.pack('>3i',123456,234567,34567)
 
 
 def peer_motion(uid, point, sequence):
-    # Thai 27 consumes exactly 36 bytes. 2B is a different, 12-byte DTO;
-    # attaching a client trajectory to it silently leaves unread bytes.
-    return 0x27, struct.pack('>Q3iBBBffIB', uid, *point, 0, 0, 0, 0., 0., sequence, 0)
+    # Thai 0x27 has a 36-byte body. The remote controller accepts mode 3
+    # and queues subtype 0 for interpolation.
+    return 0x27, struct.pack('>Q3iBBBffIB', uid, *point, 0, 3, 0, 0., 0., sequence, 0)
 
 
 class BotRoster:

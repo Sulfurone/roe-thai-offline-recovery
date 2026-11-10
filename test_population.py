@@ -71,7 +71,9 @@ class PopulationTests(unittest.TestCase):
             self.assertEqual(struct.unpack_from('>Q', reply[0][1], 8)[0], uid)
             self.assertEqual(struct.unpack_from('>3i',reply[0][1],bots.position_offset),bots.actors[uid]['position'])
         moved = bots.tick(population, bots.started + 1)
-        self.assertEqual(len([1 for m,b in moved if m == 0x27 and len(b) == 36]), 2)
+        motion = [body for message, body in moved if message == 0x27]
+        self.assertEqual([len(body) for body in motion], [36, 36])
+        self.assertEqual([body[20:23] for body in motion], [b'\x00\x03\x00'] * 2)
         self.assertEqual([m for m,b in moved].count(0xbe7), 2)
         self.assertEqual(bots.tick(population, bots.started + 1.1), [])
         self.assertEqual(bots.handle(0xbe6, b''), None)

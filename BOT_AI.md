@@ -1,18 +1,26 @@
-## 2026-11-10 远程角色模型初始化的变体检查
+## 2026-11-10 泰服机器人模型已加载，巡逻收包修复待进图复测
 
-无人值守会话 `logs/handshake-20261110-100110-469753/server.jsonl` 使用四字节错位修正后的资料。角色自动离机并落地，三个机器人在附近生成，且客户端读到了坐标。只读报告 `private/typed-gameplay/bot-appearance-live-20261110.json` 中，玩家有 `HS`、`HS_Skel`、加载完成位图 1023 和非空模型指针。机器人资源名为空，完成位图仍为 1，模型指针为 0。头部修正未能恢复模型。
+变体 1 会话 `logs/handshake-20261110-101914-523690/server.jsonl` 自动离机落地，三个机器人均生成。真实客户端 PID 18964 的 ROEVIS6 在 23 秒采样中持续记录 `HS`、`HS_Skel`、加载阶段 2、完成位图 1023 和非空模型指针。变体 0 对照轮 `logs/handshake-20261110-100110-469753/server.jsonl` 已使用相同的四字节头部修正，三个机器人的资源名仍为空、完成位图为 1、模型指针为 0。
 
-原版 `0x127BEAC` 路径将远程 basic 的 `+0xB0` 有符号字节写入角色属性 `+0x164`。模型描述符读取此字段，`0x12F936F` 遇到 0 会在查资源配置前退出。保留 selector 1，选择原客户端查表回退也使用的 variant 1 作为测试值。原生编码和逐字节回读通过。对照探针确认 variant 0 提前退出、variant 1 到达查表分支，另用替身查表返回值确认查询参数依次为 `(1,1)`、`(1,0)`。本地 43 项相关检查通过。
+原版 `0x127BEAC` 将远程 basic 的 `+0xB0` 有符号字节写入角色属性 `+0x164`。模型描述符读取此字段，`0x12F936F` 遇到 0 会在查资源配置前退出。原生分支探针和两次进图对照确认，保留 selector 1 并使用 variant 1 可通过模型初始化。生成器默认把来源中的零变体替换为 1，保留非零值。显式 `--variant 0` 可复现旧对照。
 
-复现时在恢复目录运行以下命令。需要原有的私有原生镜像与样本，生成物留在本机。
+正式资料 `private/typed-gameplay/bot-basic-profile.bin` 已原子替换，逐字节匹配实测文件。旧资料备份为 `bot-basic-profile-before-variant-20261110.bin`。本机桌面“ROE（泰服离线）”指向现有 `start_ingame_control.cmd`，该入口和原版大厅试验入口下次启动均会加载修正后的资料。
+
+对战检查经游戏菜单的会话邮箱切换到对战，记录到机器人开火和一次命中，同时读到真实客户端玩家生命从 1000 降至 980，随后已切回巡逻。私有报告为 `bot-variant-live-20261110.json` 和 `bot-variant-combat-20261110.json`。游戏窗口两次捕获均超时（`window capture timed out`），未验收持枪或开火画面。
+
+巡逻时服务器不断更新坐标并发送 `0x27` 位置包，客户端只读脚点在 23 秒内仍停在出生点。运行原生注册代码确认 `0x27 -> 0x12783C0`，远程控制器 `0x12CC4B0` 会丢弃 mode 0。发送端改为 mode 3、subtype 0，原生队列对照由 0 点变为 2 点，坐标及序号完整进入 `0x13357A0` 的插值队列。探针使用合成演员查找和分配器，真正的脚点变化及行走动画仍待新局验证。
+
+在恢复目录用以下命令复现。需要原有的私有原生镜像与样本，生成物留在本机。
 
 ```powershell
-python probes/prepare_thai_bot.py --output private/typed-gameplay/bot-basic-profile-appearance.bin
+python probes/prepare_thai_bot.py --variant 0 --output private/typed-gameplay/bot-basic-profile-appearance.bin
 python probes/prepare_thai_bot.py --variant 1 --output private/typed-gameplay/bot-basic-profile-variant.bin
 python probes/validate_peer_variant_gate.py
+python probes/validate_peer_motion.py
+python probes/prepare_thai_bot.py
 ```
 
-本机独立入口 `start_bot_variant_20261110.cmd` 使用新资料，保留 45 秒自动离机和落地后的三名巡逻机器人。旧服务已正常结束，旧客户端 PID 18060 经正常退出请求和 Alt+F4 后仍在运行，普通关闭工具报告 `path_unavailable`。候选尚未进图实测。下轮从新的 ROEVIS 记录核对资源名、加载完成位图和非空模型指针，再验证画面、巡逻及对战。日常入口继续使用原配置。
+独立入口 `start_bot_variant_20261110.cmd` 保留 45 秒自动离机，用于无人值守复测。上一轮服务已结束，游戏 PID 18964 未响应 Alt+F4，普通停止工具报告 `path_unavailable`。需等旧进程退出再启动，持续采样三名机器人脚点及模型状态。
 
 ## 2026-11-08 外观头部四字节错位修复候选
 

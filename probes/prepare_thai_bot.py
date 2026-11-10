@@ -1,7 +1,7 @@
 """Generate Thai peer appearance/runtime data with the own-client pure writer.
 
-Only a default named actor, not an original AI or combat implementation.
-Generated files remain private and require live rendering validation.
+The profile supplies the appearance and initial runtime state of a named peer.
+Generated files remain private.
 """
 import json
 import struct
@@ -13,8 +13,8 @@ codec = NativeCodec()
 folder = ROOT / 'private/typed-gameplay'
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output',type=Path,default=folder/'bot-basic-profile.bin')
-parser.add_argument('--variant', type=int, choices=range(1, 128), metavar='1..127',
-                    help='Test a nonzero variant in the remote appearance lookup')
+parser.add_argument('--variant', type=int, choices=range(128), metavar='0..127',
+                    help='Override the remote appearance variant (0 reproduces the missing model)')
 args=parser.parse_args()
 source = folder / 'world-clothed.bin'
 if not source.exists():
@@ -27,9 +27,10 @@ if world_result['code'] or world_result['consumed'] != world_result['bytes']:
 # same property. Similar codec shapes are not semantic field mappings:
 # copying the head's first DWORD (zero) previously lost this selector (one).
 selector=codec.read32(codec.ROOT_OBJECT+10+0x98)
-variant=codec.read32(codec.ROOT_OBJECT+22+0x5c8)
-if args.variant is not None:
-    variant = args.variant
+source_variant=codec.read32(codec.ROOT_OBJECT+22+0x5c8)
+# The remote model builder skips resource lookup for variant 0. Variant 1
+# matches the native fallback and loaded all three models in the Thai client.
+variant = (source_variant or 1) if args.variant is None else args.variant
 if not 0<=selector<=127 or not 0<=variant<=127:
     raise ValueError('World avatar selectors exceed the Thai signed-byte consumers')
 # The 48-byte head must begin at own record +0x8C, not +0x90.
@@ -69,4 +70,4 @@ if body.count(struct.pack('>3i',123456,234567,34567)) != 1:
 args.output.write_bytes(body)
 print(json.dumps(dict(writer='0xdc5790', native_bytes=len(native), wire_bytes=len(body),
                       decode=decoded,avatar_selector=selector,avatar_variant=variant,output=str(args.output),
-                      scope='Default named peer only; render/AI not verified')))
+                      scope='Native profile round trip; gameplay validated separately')))
