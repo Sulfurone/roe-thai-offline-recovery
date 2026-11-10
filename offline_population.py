@@ -62,11 +62,12 @@ class WorldPopulation:
             return None
         return round(heights[0])
 
-    def choose_spot(self, position, rng, vehicle=False, peer=False):
+    def choose_spot(self, position, rng, vehicle=False, peer=False, loot_placer=None):
         if hasattr(self.terrain, 'spawn_spot'):
             for _ in range(12 if peer and self.peer_visibility else 1):
-                spot = self.terrain.spawn_spot(position,rng,
-                    'vehicle' if vehicle else 'peer' if peer else 'loot',self.spots)
+                spot = (loot_placer(rng,self.spots) if loot_placer is not None else
+                        self.terrain.spawn_spot(position,rng,
+                            'vehicle' if vehicle else 'peer' if peer else 'loot',self.spots))
                 if spot is None:return None
                 if peer and self.peer_visibility and self.peer_visibility.walk(spot,spot) is None:continue
                 self.spots.append(spot[:2])
@@ -161,8 +162,15 @@ class WorldPopulation:
             return []
         position = game.player_position
         ground = self.terrain.height_at(*position[:2])
-        if ground is None or not math.isfinite(ground) or not -100 <= position[2] - ground <= 1500:
-            return []  # do not populate during flight/early descent
+        if ground is None or not math.isfinite(ground):
+            return []
+        height = position[2] - ground
+        if not -100 <= height <= 1500:
+            if (1500 < height <= 12000 and not game.seated and self.vehicles
+                    and self.control.vehicle_template is not None
+                    and hasattr(self.terrain, 'prefetch_roads')):
+                self.terrain.prefetch_roads(position)
+            return []
         replies=self.unload_far(position)+self.upstairs(position)
         cell = position[0] // self.CELL, position[1] // self.CELL
         if cell in self.visited or len(self.visited) >= 1024:
@@ -173,12 +181,14 @@ class WorldPopulation:
         rng = random.Random((self.seed ^ cell[0] * 73856093 ^ cell[1] * 19349663) & (2**64 - 1))
         world = game.ground_loot
         if self.loot and world and world.announced:
+            prepare_loot = getattr(self.terrain, 'loot_placer', None)
+            loot_placer = prepare_loot(position) if prepare_loot is not None else None
             loot_spots=[]
             for _ in range(self.clusters):
                 # Keep room for manual F6 spawning; picked items release slots.
                 if len(world.stacks) > min(self.AUTO_GROUND_CAP-2, MAX_GROUND_STACKS - 2):
                     break
-                spot = self.choose_spot(position, rng)
+                spot = self.choose_spot(position, rng, loot_placer=loot_placer)
                 if spot is None:
                     continue
                 loot_spots.append(spot)
@@ -204,7 +214,7 @@ class WorldPopulation:
                         if len(world.stacks)>=self.AUTO_GROUND_CAP:
                             break
                         if not loot_spots:
-                            spot=self.choose_spot(position,rng)
+                            spot=self.choose_spot(position,rng,loot_placer=loot_placer)
                             if spot is None:continue
                             loot_spots.append(spot)
                         # Reuse verified indoor floors. A sparse residential

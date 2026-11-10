@@ -1,5 +1,6 @@
 """Experimental loopback TPDU handshake, not a playable game server."""
 import argparse
+from collections import deque
 from contextlib import ExitStack
 import datetime
 import hashlib
@@ -27,6 +28,7 @@ from offline_bots import BotRoster
 from offline_hit_reports import character_hit
 from offline_combat import BotCombat
 from offline_bot_ai import BotAI
+from offline_bot_parcels import BotParcels
 from offline_blast import BlastCombat
 from offline_visibility import StaticVisibility
 from offline_zone_schedule import ZonePlan,ZoneSchedule
@@ -34,7 +36,11 @@ from offline_match_status import SurvivorStatus
 from offline_posture import posture_speed_delta,CROUCH_CM_PER_SECOND,PRONE_CM_PER_SECOND
 from self_position import PositionInstallation,recover_previous
 from service_pacing import ServiceCadence
+from service_log import ServiceLog
 from offline_lobby import NativeLobby
+
+
+WORLD_SEND_BATCH = 12
 
 
 def main():
@@ -506,23 +512,10 @@ def main():
     stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     folder = root / 'recovery' / 'logs' / ('handshake-' + stamp)
     folder.mkdir(parents=True)
-    log = (folder / 'server.jsonl').open('w', encoding='utf-8')
-
-    log_flush_at = 0.
-    transport_events = {'received','application_message','sent','self_position_updated','actor_motion_ack_sent'}
+    log = ServiceLog(folder / 'server.jsonl')
     def emit(event, **fields):
-        nonlocal log_flush_at
         record = {'time': datetime.datetime.now().astimezone().isoformat(), 'event': event, **fields}
-        encoded = json.dumps(record)
-        log.write(encoded + '\n')
-        now = time.monotonic()
-        # Retain every transport record without repainting the Windows
-        # console twice per packet or flushing tiny file writes each time.
-        if event not in transport_events or now >= log_flush_at:
-            log.flush()
-            log_flush_at = now + 1
-        if event not in transport_events:
-            print(encoded, flush=True)
+        log.emit(record)
 
     def send(connection, command, extension=b'', body=b''):
         packet = frame(command, extension, body)
@@ -531,6 +524,7 @@ def main():
 
     deadline = time.monotonic() + args.seconds
     with socket.socket() as listener, ExitStack() as resources:
+        resources.callback(log.close)
         if args.world_client_map and population_surface is not None:
             population_surface.enable_background_roads()
             resources.callback(population_surface.close)
@@ -593,6 +587,8 @@ def main():
                 work_started=time.monotonic()
                 max_loop_seconds=max_background_seconds=max_dispatch_seconds=0.
                 phase_max=dict(position=0.,control=0.,population=0.,world_send=0.,ai=0.)
+                pending_world = deque()
+                world_batch_total = 0
                 challenge = os.urandom(16)
                 state = 'await_auth'
                 loaded_pushes_sent = False
@@ -635,6 +631,9 @@ def main():
                     clusters=args.world_loot_clusters,vehicle_clusters=args.world_vehicle_clusters,
                     extra_items=args.world_extra_items) if args.world_populate else None
                 ai=BotAI(gameplay,bots,population,bot_visibility,mode=args.world_bot_mode) if args.world_bot_ai else None
+                parcels = BotParcels(gameplay,bots,ai) if ai is not None else None
+                if parcels is not None:
+                    bots.death_parcel = parcels.drop
                 if control_session is not None:control_session.bot_ai=ai
                 blast=BlastCombat(gameplay,bots,bot_visibility) if args.world_throwable_combat else None
                 zones=ZoneSchedule(gameplay,population_surface,zone_plan) if zone_plan is not None else None
@@ -759,7 +758,7 @@ def main():
                             emit('lobby_start_push_sent', message_id=push_id, body_bytes=len(push_body), source=str(push_path))
                         loop_started=time.monotonic()
                         if cadence.due('capture_flush'):
-                            received_raw.flush();application_raw.flush();log.flush()
+                            received_raw.flush();application_raw.flush()
                         if cadence.due('statistics'):
                             emit('service_loop_statistics',elapsed_seconds=round(loop_started-work_started,3),
                                  max_loop_ms=round(max_loop_seconds*1000,3),
@@ -798,22 +797,30 @@ def main():
                                 for event in zone_damage.events:
                                     emit('local_zone_damage',**event)
                         if (population is not None and state == 'transport_ready' and loaded_pushes_sent
-                                and cadence.due('population')):
+                                and not pending_world and cadence.due('population')):
                             work_counts['population']+=1
                             phase_started=time.monotonic()
-                            population_replies=population.tick()
+                            pending_world.extend(population.tick())
+                            world_batch_total = len(pending_world)
                             phase_max['population']=max(phase_max['population'],time.monotonic()-phase_started)
+                        if (pending_world and cadence.due('world_send')
+                                and select.select([], [connection], [], 0)[1]):
                             phase_started=time.monotonic()
-                            for response_id,response_body in population_replies:
+                            packets = []
+                            for _ in range(min(WORLD_SEND_BATCH, len(pending_world))):
+                                response_id,response_body = pending_world.popleft()
                                 response=struct.pack('>IHI',1,response_id,response_id)+response_body
-                                send(connection,0,body=encrypt(response,key))
-                            if population_replies:
-                                emit('world_population_sent',messages=len(population_replies),
+                                packets.append(frame(0,body=encrypt(response,key)))
+                            connection.sendall(b''.join(packets))
+                            for packet in packets:
+                                emit('sent', command=0, bytes=len(packet))
+                            if not pending_world:
+                                emit('world_population_sent',messages=world_batch_total,
                                      actor_position=gameplay.player_position,cells=len(population.visited),
                                      ground_items=len(gameplay.ground_loot.stacks),vehicles=population.auto_vehicles,
                                      peers=len(bots.actors) if bots is not None else 0)
                             phase_max['world_send']=max(phase_max['world_send'],time.monotonic()-phase_started)
-                        if (ai is not None and state=='transport_ready' and loaded_pushes_sent
+                        if (ai is not None and state=='transport_ready' and loaded_pushes_sent and not pending_world
                                 and cadence.due('ai')):
                             phase_started=time.monotonic()
                             for response_id,response_body in ai.tick():
@@ -823,7 +830,7 @@ def main():
                             for event in ai.events:
                                 emit('bot_ai',**event)
                             phase_max['ai']=max(phase_max['ai'],time.monotonic()-phase_started)
-                        if survivors is not None and state=='transport_ready' and loaded_pushes_sent:
+                        if survivors is not None and state=='transport_ready' and loaded_pushes_sent and not pending_world:
                             for response_id,response_body in survivors.tick():
                                 response=struct.pack('>IHI',1,response_id,response_id)+response_body
                                 send(connection,0,body=encrypt(response,key))
@@ -859,6 +866,8 @@ def main():
                         max_background_seconds=max(max_background_seconds,time.monotonic()-loop_started)
                         if gameplay_timers or environment_timer or control is not None or population is not None or lobby_pushes:
                             wait=min(.25,max(0,deadline-time.monotonic()))
+                            if pending_world:
+                                wait=min(wait,ServiceCadence.INTERVALS['world_send'])
                             if environment_timer:
                                 wait=min(wait,max(0,min(schedule.armed_at
                                                       for schedule in environment_schedules)
@@ -967,6 +976,8 @@ def main():
                                             if equipped is not None and bots.vitals[uid].current:
                                                 bot_replies.append(equipped)
                                 control_replies=bot_replies
+                                if control_replies is None and parcels is not None:
+                                    control_replies=parcels.handle(message_id,application[26:])
                                 if control_replies is None and control_session is not None:
                                     control_replies=control_session.handle(message_id,application[26:])
                                     if control_session.last_board_event is not None:
@@ -1267,7 +1278,6 @@ def main():
                 if args.single_session and state=='transport_ready':
                     break
         emit('finished', connections=number)
-    log.close()
 
 
 if __name__ == '__main__':

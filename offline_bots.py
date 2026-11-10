@@ -18,6 +18,17 @@ def peer_motion(uid, point, sequence):
     return 0x27, struct.pack('>Q3iBBBffIB', uid, *point, 0, 3, 0, 0., 0., sequence, 0)
 
 
+def peer_locomotion(uid, point, sequence, speed, heading):
+    # Original 0x25 includes the speed and orientation absent from 0x27.
+    # One zero-displacement keyframe makes the controller consume the state.
+    body = struct.pack('>QH3iBBIB', uid, round(speed), *point, 0, 0, sequence, 1)
+    body += struct.pack('>3hBBI', 0, 0, 0, 0, 0, sequence)
+    direction_x = 32768  # Horizontal look elevation.
+    direction_y = round((heading / math.pi + 1) * 65535 / 2)
+    body += struct.pack('>bHHI', 0, direction_x, direction_y, sequence)
+    return 0x25, body
+
+
 class BotRoster:
     def __init__(self, profile, count=1):
         if type(count) is not int or not 1 <= count <= 4:
@@ -37,6 +48,7 @@ class BotRoster:
         self.started = None
         self.retries = 0
         self.external_motion=False
+        self.death_parcel = None
 
     def profile_for(self, uid):
         profile = bytearray(self.profile)
@@ -56,7 +68,10 @@ class BotRoster:
         hp=self.vitals.get(uid)
         if hp is None or not hp.current:return []
         if not hp.damage(amount):return []
-        return self.life_packets(uid)
+        replies = self.life_packets(uid)
+        if not hp.current and self.death_parcel is not None:
+            replies.extend(self.death_parcel(uid))
+        return replies
 
     def spawn(self, population, position, rng):
         if len(self.actors)>=self.count:

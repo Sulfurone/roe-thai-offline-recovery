@@ -9,7 +9,7 @@ import math
 import random
 import time
 
-from offline_bots import peer_motion
+from offline_bots import peer_motion, peer_locomotion
 from offline_combat import death_packet,hit_feedback
 from offline_peer_messages import peer_equipment,peer_fire
 from offline_armour import absorb_bullet,local_region
@@ -63,10 +63,14 @@ class BotAI:
         population.peer_visibility=visibility
 
     def stop(self,brain):
-        if brain.firing is None:return []
+        replies=[]
+        actor=self.bots.actors.get(brain.uid)
+        if actor is not None and actor.pop('walking',False):
+            replies.append(peer_locomotion(brain.uid,actor['position'],actor['sequence'],0,actor.get('heading',0)))
+        if brain.firing is None:return replies
         origin,aim=brain.firing
         brain.firing=None
-        return [peer_fire(brain.uid,origin,aim,True)]
+        return replies+[peer_fire(brain.uid,origin,aim,True)]
 
     def set_mode(self,mode):
         if mode not in self.MODES:raise ValueError('Unknown bot mode')
@@ -100,7 +104,10 @@ class BotAI:
         point=actor['position']
         dx,dy=destination[0]-point[0],destination[1]-point[1]
         distance=math.hypot(dx,dy)
-        if distance<100:return []
+        if distance<100:
+            if actor.pop('walking',False):
+                return [peer_locomotion(uid,point,actor['sequence'],0,actor.get('heading',0))]
+            return []
         angle=math.atan2(dy,dx)
         step=min(distance,self.WALK_SPEED*seconds)
         if step<.1:return []
@@ -110,7 +117,11 @@ class BotAI:
             if accepted is None:continue
             actor['position']=accepted
             actor['sequence']=(actor['sequence']+1)&0xffffffff
-            return [peer_motion(uid,accepted,actor['sequence'])]
+            heading=math.atan2(accepted[1]-point[1],accepted[0]-point[0])
+            actor['walking']=True
+            actor['heading']=heading
+            return [peer_locomotion(uid,accepted,actor['sequence'],self.WALK_SPEED,heading),
+                    peer_motion(uid,accepted,actor['sequence'])]
         return []
 
     def damage_player(self,uid,impact):

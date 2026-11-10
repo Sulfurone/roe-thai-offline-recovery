@@ -19,6 +19,31 @@ from tpdu import decrypt, encrypt, frame, read_frame
 
 
 class ServicePacingTests(unittest.TestCase):
+    def test_diagnostic_disk_stall_does_not_hold_gameplay_thread(self):
+        from service_log import ServiceLog
+        entered=threading.Event()
+        release=threading.Event()
+        records=[]
+        class SlowFile:
+            def open(self,*args,**kwargs):return self
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+            def flush(self):pass
+            def write(self,value):
+                entered.set()
+                if not release.wait(2):raise OSError('Writer was not released')
+                records.append(json.loads(value))
+        log=ServiceLog(SlowFile())
+        try:
+            log.emit(dict(event='sent',sequence=1))
+            self.assertTrue(entered.wait(1))
+            log.emit(dict(event='sent',sequence=2))
+            self.assertEqual(records,[])
+        finally:
+            release.set()
+            log.close()
+        self.assertEqual([row['sequence'] for row in records],[1,2])
+
     def test_cadence_coalesces_missed_work_and_does_not_follow_packet_rate(self):
         cadence = ServiceCadence()
         calls = sum(cadence.due('population', i / 10000) for i in range(10000))
@@ -59,11 +84,19 @@ class ServicePacingTests(unittest.TestCase):
                     '--ingame-overlay','--control-vehicle-template',str(jeep),'--gameplay-reload-seconds','.15']
             errors = queue.Queue(); output = io.StringIO(); calls = []
             original_tick = WorldPopulation.tick
+            added_burst = False
+            first_batch_marker = struct.pack('>QI', 0x100, 1)
+            last_batch_marker = struct.pack('>QI', 0x100, 2)
 
             def slow_tick(population):
+                nonlocal added_burst
                 calls.append(time.monotonic())
                 time.sleep(.006)  # Repeated per packet this exceeds 3 seconds.
-                return original_tick(population)
+                replies = original_tick(population)
+                if replies and not added_burst:
+                    added_burst = True
+                    return [(0x2b, first_batch_marker)] * 80 + replies + [(0x2c, last_batch_marker)]
+                return replies
 
             def serve():
                 try: local_server.main()
@@ -104,6 +137,10 @@ class ServicePacingTests(unittest.TestCase):
                     client.sendall(request(0xdcd,bytes(4)))
                     client.sendall(request(0x2a,struct.pack('>I3i',1,325800,271700,6501)))
                     receive_until(0x821,time.monotonic()+2)
+                    self.assertEqual(receive_until(0x2b,time.monotonic()+2),first_batch_marker)
+                    client.sendall(request(0x6f57,struct.pack('>II',17415,1)))
+                    self.assertEqual(receive_until(0x6f55,time.monotonic()+2),struct.pack('>5I',17415,1,1,0,0))
+                    self.assertEqual(receive_until(0x2c,time.monotonic()+2),last_batch_marker)
                     flood=request(0x3783,bytes(120))*600
                     started=time.monotonic()
                     client.sendall(flood+request(0x6f57,struct.pack('>II',17415,1)))
@@ -129,6 +166,9 @@ class ServicePacingTests(unittest.TestCase):
             if not errors.empty():raise errors.get()
             log=next((root/'recovery/logs').glob('*/server.jsonl'))
             rows=[json.loads(line) for line in log.read_text(encoding='utf8').splitlines()]
+            first_door=next(i for i,row in enumerate(rows) if row.get('message_id')==0x6f55)
+            first_world=next(i for i,row in enumerate(rows) if row['event']=='world_population_sent')
+            self.assertLess(first_door,first_world, 'A door response waited for the entire world update')
             self.assertEqual(sum(x['event']=='application_message' and x.get('message_id')==0x3783 for x in rows),1800)
             self.assertNotIn('"event": "application_message"',output.getvalue())
             self.assertTrue(any(x['event']=='service_loop_statistics' for x in rows))

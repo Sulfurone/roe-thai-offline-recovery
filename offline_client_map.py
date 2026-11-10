@@ -157,6 +157,10 @@ class ThaiClientMap:
             from concurrent.futures import ThreadPoolExecutor
             self.road_executor=ThreadPoolExecutor(max_workers=1,thread_name_prefix='road-placement')
 
+    def prefetch_roads(self, position):
+        if self.road_executor is not None:
+            self.roadside(position)
+
     def close(self):
         if self.road_executor is not None:self.road_executor.shutdown(wait=False,cancel_futures=True)
 
@@ -186,16 +190,18 @@ class ThaiClientMap:
                             break
         return sorted(candidates)
 
-    def spawn_spot(self, position, rng, kind, occupied):
+    def loot_placer(self, position):
         x,y,_ = position
-        if kind == 'loot':
-            if self.indoor_floors is not None:
-                floors=self.indoor_floors.nearby(position,self.houses)
-                rng.shuffle(floors)
-                for spot in floors:
-                    if all(math.hypot(spot[0]-a,spot[1]-b)>=150 for a,b in occupied):
-                        return spot
-            choices = sorted(self.doors,key=lambda p:math.hypot(p[0]-x,p[1]-y))[:32]
+        floors = self.indoor_floors.nearby(position,self.houses) if self.indoor_floors is not None else []
+        doors = sorted(self.doors,key=lambda p:math.hypot(p[0]-x,p[1]-y))[:32]
+
+        def place(rng, occupied):
+            choices = floors.copy()
+            rng.shuffle(choices)
+            for spot in choices:
+                if all(math.hypot(spot[0]-a,spot[1]-b)>=150 for a,b in occupied):
+                    return spot
+            choices = doors.copy()
             rng.shuffle(choices)
             for door in choices:
                 px,py,z,dx,dy=door[:5]
@@ -207,6 +213,12 @@ class ThaiClientMap:
                 if all(math.hypot(spot[0]-a,spot[1]-b) >= 120 for a,b in occupied):
                     return spot
             return None
+        return place
+
+    def spawn_spot(self, position, rng, kind, occupied):
+        x,y,_ = position
+        if kind == 'loot':
+            return self.loot_placer(position)(rng,occupied)
         if kind == 'peer':
             # The verified ground-entry point sits beside low coastal terrain:
             # its original 8..25 m search has no dry candidates. Widen only

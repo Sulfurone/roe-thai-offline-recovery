@@ -188,7 +188,7 @@ class BotAITests(unittest.TestCase):
         ai.tick(100)
         game.accept_self_position(game.player_position,100.5)
         packets=ai.tick(100.5)
-        self.assertEqual([m for m,b in packets],[0x27])
+        self.assertEqual([m for m,b in packets],[0x25,0x27])
         self.assertLessEqual(math.dist(bots.actors[uid]['position'],(334300,271700,6505)),111)
         before=bots.actors[uid]['position']
         ai.visibility=StaticVisibility(Flat(),[(*before[:2],before[2]+100,1000)])

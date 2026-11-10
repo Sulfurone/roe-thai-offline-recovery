@@ -16,6 +16,33 @@ def tile(values):
 
 
 class ClientMapTests(unittest.TestCase):
+    def test_late_descent_prepares_vehicles_for_first_ground_tick(self):
+        from offline_population import WorldPopulation
+
+        data=ThaiClientMap(SimpleNamespace(width=409600,height_at=lambda x,y:7000),b'',[],[])
+        data._roadside_candidates=lambda key: [(102500,200000,7100),(103500,200000,7100),(104500,200000,7100)]
+        data.enable_background_roads()
+        game=ready_game()
+        control=ControlSession(game,jeep_template())
+        population=WorldPopulation(control,data,loot=False)
+        try:
+            game.player_position=(100000,200000,20000)
+            self.assertEqual(population.tick(),[])
+            self.assertFalse(data.road_jobs)
+            game.player_position=(100000,200000,15000)
+            game.seated=True
+            self.assertEqual(population.tick(),[])
+            self.assertFalse(data.road_jobs)
+            game.seated=False
+            self.assertEqual(population.tick(),[])
+            next(iter(data.road_jobs.values())).result(timeout=2)
+            self.assertFalse(population.visited)
+            self.assertFalse(control.vehicles)
+            game.player_position=(100000,200000,7020)
+            self.assertEqual([m for m,_ in population.tick()],[0x654b,0x6554,0x656e]*3)
+        finally:
+            data.close()
+
     def test_background_road_scan_does_not_block_or_lose_late_vehicle_generation(self):
         entered=threading.Event();release=threading.Event()
         data=ThaiClientMap(SimpleNamespace(width=409600,height_at=lambda x,y:7000),b'',[],[])
