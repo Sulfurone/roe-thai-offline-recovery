@@ -78,6 +78,12 @@ class ThaiClientMap:
         return [house for dx in (-1,0,1) for dy in (-1,0,1)
                 for house in self.house_grid.get((gx+dx,gy+dy),())]
 
+    def loot_houses(self, position):
+        x,y = map(int,position[:2])
+        return [house for gx in range((x-35000)//10000,(x+35000)//10000+1)
+                for gy in range((y-35000)//10000,(y+35000)//10000+1)
+                for house in self.house_grid.get((gx,gy),())]
+
     @classmethod
     def from_folder(cls, folder):
         folder = Path(folder)
@@ -190,27 +196,36 @@ class ThaiClientMap:
                             break
         return sorted(candidates)
 
-    def loot_placer(self, position):
+    def loot_placer(self, position, *, nearby_first=4):
         x,y,_ = position
-        floors = self.indoor_floors.nearby(position,self.houses) if self.indoor_floors is not None else []
-        doors = sorted(self.doors,key=lambda p:math.hypot(p[0]-x,p[1]-y))[:32]
+        distance = lambda p: math.hypot(p[0]-x,p[1]-y)
+        floors = (self.indoor_floors.nearby(position,self.loot_houses(position))
+                  if self.indoor_floors is not None else [])
+        doors = [door for door in sorted(self.doors,key=distance)[:32] if distance(door)<=35000]
+        nearby = sorted([(point,False) for point in floors]+[(door,True) for door in doors],
+                        key=lambda choice: distance(choice[0]))
+        placed = 0
 
         def place(rng, occupied):
-            choices = floors.copy()
-            rng.shuffle(choices)
-            for spot in choices:
-                if all(math.hypot(spot[0]-a,spot[1]-b)>=150 for a,b in occupied):
-                    return spot
-            choices = doors.copy()
-            rng.shuffle(choices)
-            for door in choices:
-                px,py,z,dx,dy=door[:5]
-                if math.hypot(px-x,py-y) > 35000:
-                    continue
-                inward = rng.uniform(90,door[5] if len(door)>5 else 220)
-                side = rng.uniform(-60,60)
-                spot = (round(px+dx*inward-dy*side),round(py+dy*inward+dx*side),round(z)+10)
-                if all(math.hypot(spot[0]-a,spot[1]-b) >= 120 for a,b in occupied):
+            nonlocal placed
+            choices = nearby
+            if placed >= nearby_first:
+                floor_choices = [(point,False) for point in floors]
+                door_choices = [(door,True) for door in doors]
+                rng.shuffle(floor_choices)
+                rng.shuffle(door_choices)
+                choices = floor_choices+door_choices
+            for point,entrance in choices:
+                if entrance:
+                    px,py,z,dx,dy=point[:5]
+                    inward = rng.uniform(90,point[5] if len(point)>5 else 220)
+                    side = rng.uniform(-60,60)
+                    spot = (round(px+dx*inward-dy*side),round(py+dy*inward+dx*side),round(z)+10)
+                else:
+                    spot = point
+                separation = 120 if entrance else 150
+                if all(math.hypot(spot[0]-a,spot[1]-b)>=separation for a,b in occupied):
+                    placed += 1
                     return spot
             return None
         return place
@@ -218,7 +233,7 @@ class ThaiClientMap:
     def spawn_spot(self, position, rng, kind, occupied):
         x,y,_ = position
         if kind == 'loot':
-            return self.loot_placer(position)(rng,occupied)
+            return self.loot_placer(position,nearby_first=0)(rng,occupied)
         if kind == 'peer':
             # The verified ground-entry point sits beside low coastal terrain:
             # its original 8..25 m search has no dry candidates. Widen only

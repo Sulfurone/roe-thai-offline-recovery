@@ -188,12 +188,16 @@ class BotAITests(unittest.TestCase):
         ai.tick(100)
         game.accept_self_position(game.player_position,100.5)
         packets=ai.tick(100.5)
-        self.assertEqual([m for m,b in packets],[0x25,0x27])
+        self.assertEqual([m for m,b in packets],[0x25])
+        self.assertEqual(packets[0][1][41],1)  # Forward movement intent.
         self.assertLessEqual(math.dist(bots.actors[uid]['position'],(334300,271700,6505)),111)
         before=bots.actors[uid]['position']
         ai.visibility=StaticVisibility(Flat(),[(*before[:2],before[2]+100,1000)])
         game.accept_self_position(game.player_position,100.9)
-        self.assertEqual(ai.tick(100.9),[])
+        stopped=ai.tick(100.9)
+        self.assertEqual([m for m,b in stopped],[0x25])
+        self.assertEqual(stopped[0][1][8:10],bytes(2))
+        self.assertEqual(stopped[0][1][41],0)
         self.assertEqual(bots.actors[uid]['position'],before)
 
 

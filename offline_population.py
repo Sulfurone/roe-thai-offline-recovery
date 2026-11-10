@@ -18,6 +18,7 @@ import struct
 
 class WorldPopulation:
     CELL = 15000  # centimetres
+    MIN_CELL_TRAVEL = 3000
     UNLOAD_DISTANCE=45000
     AUTO_GROUND_CAP=384
     EXTRA_PER_GROUP=4
@@ -31,6 +32,7 @@ class WorldPopulation:
         self.control, self.terrain = control, terrain
         self.seed, self.loot, self.vehicles = seed, loot, vehicles
         self.visited = set()
+        self.last_cell_entry = None
         self.spots = []
         self.auto_vehicles = 0
         self.auto_item_ids=set()
@@ -122,7 +124,9 @@ class WorldPopulation:
         world=game.ground_loot
         if finder is None or not self.loot or world is None or not world.announced:return []
         replies=[]
-        for house,points in finder.ready_buildings(position,self.terrain.houses):
+        nearby_houses=getattr(self.terrain,'loot_houses',None)
+        houses=nearby_houses(position) if nearby_houses is not None else self.terrain.houses
+        for house,points in finder.ready_buildings(position,houses):
             if house in self.upstairs_houses or not points:continue
             lowest=min(p[2] for p in points)
             choices=[p for p in points if p[2]>=lowest+200]
@@ -150,6 +154,7 @@ class WorldPopulation:
             # Do not mark full-capacity worlds: revisit after the working set
             # unloads or pickups make room. Empty geometry does not get retried.
             if generated or not choices:self.upstairs_houses.add(house)
+            if generated:break  # Bound each follow-up tick to one building.
         return replies
 
     def tick(self):
@@ -171,19 +176,29 @@ class WorldPopulation:
                     and hasattr(self.terrain, 'prefetch_roads')):
                 self.terrain.prefetch_roads(position)
             return []
-        replies=self.unload_far(position)+self.upstairs(position)
+        replies=self.unload_far(position)
         cell = position[0] // self.CELL, position[1] // self.CELL
+        if self.last_cell_entry is not None and cell not in self.visited:
+            previous_cell,entry = self.last_cell_entry
+            if previous_cell in self.visited and math.dist(position[:2],entry)<self.MIN_CELL_TRAVEL:
+                # A parachute can cross a grid edge just before touchdown.
+                # The first group already covers this spot; wait for travel
+                # before building another full set of nearby entities.
+                cell = previous_cell
         if cell in self.visited or len(self.visited) >= 1024:
+            replies.extend(self.upstairs(position))
             spawned=self.try_peers(position)
             vehicles=self.try_vehicles(position,random.Random(self.seed^cell[0]*73856093^cell[1]*19349663),cell)
             return replies+vehicles+spawned+(self.bots.tick(self) if self.bots and not spawned else [])
         self.visited.add(cell)
+        self.last_cell_entry = (cell,position[:2])
         rng = random.Random((self.seed ^ cell[0] * 73856093 ^ cell[1] * 19349663) & (2**64 - 1))
         world = game.ground_loot
         if self.loot and world and world.announced:
             prepare_loot = getattr(self.terrain, 'loot_placer', None)
             loot_placer = prepare_loot(position) if prepare_loot is not None else None
             loot_spots=[]
+            new_loot=[]
             for _ in range(self.clusters):
                 # Keep room for manual F6 spawning; picked items release slots.
                 if len(world.stacks) > min(self.AUTO_GROUND_CAP-2, MAX_GROUND_STACKS - 2):
@@ -200,7 +215,7 @@ class WorldPopulation:
                                  (spot[0] + 50, spot[1], spot[2]))
                 game.inventory.next_uid += 1
                 self.auto_item_ids.update((gun.entity,ammo.entity))
-                replies.extend((gun.spawn(), ammo.spawn()))
+                new_loot.extend((gun,ammo))
             if self.extra_items:
                 extra_number=0
                 groups=([i for i,v in EXTRA_ITEMS.items() if v.slot==11],
@@ -235,7 +250,12 @@ class WorldPopulation:
                         item=world.add(Item(spec.kind,template,game.inventory.next_uid,quantity),spot)
                         game.inventory.next_uid+=1
                         self.auto_item_ids.add(item.entity)
-                        replies.append(item.spawn())
+                        new_loot.append(item)
+            # The transport sends only a limited number per batch. Put all
+            # item types in the same distance order so nearby gear can arrive
+            # with the gun and ammunition, ahead of distant houses.
+            new_loot.sort(key=lambda stack:math.dist(position,stack.position))
+            replies.extend(stack.spawn() for stack in new_loot)
         replies.extend(self.try_vehicles(position,rng,cell))
         if self.bots is not None:
             replies.extend(self.try_peers(position,rng))

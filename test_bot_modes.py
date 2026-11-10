@@ -33,7 +33,7 @@ class BotModeTests(unittest.TestCase):
         ai.set_mode('patrol')
         g.accept_self_position(g.player_position,101.5)
         packets=ai.tick(101.5)
-        self.assertIn(0x27,[m for m,b in packets])
+        self.assertIn(0x25,[m for m,b in packets])
         self.assertNotIn(0x11d4,[m for m,b in packets])
 
     def test_switching_to_combat_requires_new_reaction_and_dead_bot_stays_dead(self):

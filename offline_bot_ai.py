@@ -9,7 +9,7 @@ import math
 import random
 import time
 
-from offline_bots import peer_motion, peer_locomotion
+from offline_bots import peer_locomotion
 from offline_combat import death_packet,hit_feedback
 from offline_peer_messages import peer_equipment,peer_fire
 from offline_armour import absorb_bullet,local_region
@@ -62,11 +62,16 @@ class BotAI:
         bots.external_motion=True
         population.peer_visibility=visibility
 
-    def stop(self,brain):
-        replies=[]
-        actor=self.bots.actors.get(brain.uid)
+    def stop_walking(self,uid):
+        actor=self.bots.actors.get(uid)
         if actor is not None and actor.pop('walking',False):
-            replies.append(peer_locomotion(brain.uid,actor['position'],actor['sequence'],0,actor.get('heading',0)))
+            actor['sequence']=(actor['sequence']+1)&0xffffffff
+            point=actor['position']
+            return [peer_locomotion(uid,point,point,actor['sequence'],0,actor['heading'])]
+        return []
+
+    def stop(self,brain):
+        replies=self.stop_walking(brain.uid)
         if brain.firing is None:return replies
         origin,aim=brain.firing
         brain.firing=None
@@ -105,9 +110,7 @@ class BotAI:
         dx,dy=destination[0]-point[0],destination[1]-point[1]
         distance=math.hypot(dx,dy)
         if distance<100:
-            if actor.pop('walking',False):
-                return [peer_locomotion(uid,point,actor['sequence'],0,actor.get('heading',0))]
-            return []
+            return self.stop_walking(uid)
         angle=math.atan2(dy,dx)
         step=min(distance,self.WALK_SPEED*seconds)
         if step<.1:return []
@@ -120,9 +123,8 @@ class BotAI:
             heading=math.atan2(accepted[1]-point[1],accepted[0]-point[0])
             actor['walking']=True
             actor['heading']=heading
-            return [peer_locomotion(uid,accepted,actor['sequence'],self.WALK_SPEED,heading),
-                    peer_motion(uid,accepted,actor['sequence'])]
-        return []
+            return [peer_locomotion(uid,point,accepted,actor['sequence'],self.WALK_SPEED,heading)]
+        return self.stop_walking(uid)
 
     def damage_player(self,uid,impact):
         g=self.game
@@ -202,6 +204,7 @@ class BotAI:
                 self.events.append(dict(action='reloaded',uid=uid,magazine=brain.magazine,reserve=brain.reserve))
                 brain.phase='search'
             if not active or not g.vitals.current or now-brain.created<self.WARMUP:
+                replies.extend(self.stop_walking(uid))
                 brain.phase='waiting'
                 brain.target=None
                 brain.visible=False;brain.sense_at=0
@@ -246,6 +249,7 @@ class BotAI:
                 brain.target=None
                 replies.extend(self.walk_towards(uid,brain.last_known,dt))
                 continue
+            replies.extend(self.stop_walking(uid))
             if not brain.equipped:continue
             if brain.phase not in ('aim','cooldown'):
                 brain.phase='aim'

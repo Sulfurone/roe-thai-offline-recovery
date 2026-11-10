@@ -18,6 +18,31 @@ class Surface:
 
 
 class PopulationTests(unittest.TestCase):
+    def test_nearby_gear_is_sent_before_more_distant_ground_loot(self):
+        game=ready_game()
+        game.player_position=(100000,200000,7020)
+        population=WorldPopulation(ControlSession(game),Surface(),extra_items=True,vehicles=False)
+        replies=population.tick()
+        world=game.ground_loot
+        stacks=[world.stacks[struct.unpack_from('>Q',body,4)[0]] for message,body in replies
+                if message==0x821]
+        distances=[sum((a-b)**2 for a,b in zip(stack.position,game.player_position)) for stack in stacks]
+        self.assertEqual(distances,sorted(distances))
+        self.assertTrue(any(stack.item.template in EXTRA_ITEMS for stack in stacks[:12]))
+        self.assertEqual(len(stacks),56)
+
+    def test_crossing_cell_edge_near_touchdown_does_not_duplicate_first_wave(self):
+        game=ready_game()
+        population=WorldPopulation(ControlSession(game),Surface(),vehicles=False)
+        game.player_position=(46136,204800,7700)
+        self.assertEqual(len(population.tick()),32)
+        game.player_position=(44131,204800,7000)
+        self.assertEqual(population.tick(),[])
+        self.assertEqual(len(population.visited),1)
+        game.player_position=(43000,204800,7000)
+        self.assertEqual(len(population.tick()),32)
+        self.assertEqual(len(population.visited),2)
+
     def test_sparse_house_floor_keeps_medicine_armor_optics_and_other_categories(self):
         class Sparse(Surface):
             used=False

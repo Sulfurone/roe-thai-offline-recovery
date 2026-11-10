@@ -18,15 +18,16 @@ def peer_motion(uid, point, sequence):
     return 0x27, struct.pack('>Q3iBBBffIB', uid, *point, 0, 3, 0, 0., 0., sequence, 0)
 
 
-def peer_locomotion(uid, point, sequence, speed, heading):
-    # Original 0x25 includes the speed and orientation absent from 0x27.
-    # One zero-displacement keyframe makes the controller consume the state.
-    action = int(speed > 0)  # Original walking trajectories carry action 1.
-    body = struct.pack('>QH3iBBIB', uid, round(speed), *point, action, 0, sequence, 1)
-    body += struct.pack('>3hBBI', 0, 0, 0, 0, action, sequence)
-    direction_x = 32768  # Horizontal look elevation.
-    direction_y = round((heading / math.pi + 1) * 65535 / 2)
-    body += struct.pack('>bHHI', 0, direction_x, direction_y, sequence)
+def peer_locomotion(uid, start, end, sequence, speed, heading):
+    # The native interpolator reads the base point and a relative keyframe.
+    # Forward intent is separate from the keyframe action, which is an event.
+    intent = int(speed > 0)
+    first_tick = (sequence - intent) & 0xffffffff
+    displacement = (b-a for a,b in zip(start,end))
+    body = struct.pack('>QH3iBBIB', uid, round(speed), *start, 0, 0, first_tick, 1)
+    body += struct.pack('>3hBBI', *displacement, 0, 0, sequence)
+    azimuth = round((heading / math.pi + 1) * 65535 / 2)
+    body += struct.pack('>bHHI', intent, azimuth, 32768, sequence)
     return 0x25, body
 
 
