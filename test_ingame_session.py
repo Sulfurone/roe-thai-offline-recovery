@@ -549,15 +549,14 @@ class IngameSessionTests(unittest.TestCase):
                     if combat and not ai:
                         roster=combats[0].bots
                         roster.actors[bot_uid]['position']=(326000,271700,6500)
-                        roster.vitals[bot_uid].damage(960)
-                        for sequence,current in ((37,20),(38,0)):
+                        for sequence,current in enumerate((800,600,400,200,0),start=37):
                             send(0x11d3,struct.pack('>6fIB',325800,271700,6600,327000,271700,6600,0,0)+bytes(8))
                             self.assertEqual(receive_raw()[0],0x3e82)
                             send(0x11e9,struct.pack('>I',sequence)+hit_body()[4:]+bytes(8))
                             self.assertEqual(receive_raw(),(0x1069,struct.pack('>QBBBII',bot_uid,0,1,0,current,1000)))
-                            self.assertEqual(receive_raw(),(0x11eb,struct.pack('>QQ3iBBIB',256,bot_uid,0,0,100,0,2,20,int(current==0))))
+                            self.assertEqual(receive_raw(),(0x11eb,struct.pack('>QQ3iBBIB',256,bot_uid,0,0,100,0,2,200,int(current==0))))
                             if not current:self.assertEqual(receive_raw(),(0x533,struct.pack('>IQ',0,bot_uid)))
-                        self.assertEqual(games[0].magazine,28)
+                        self.assertEqual(games[0].magazine,25)
                         self.assertEqual(roster.vitals[bot_uid].current,0)
                         if survivors:
                             # The next request drains the asynchronous HUD update
@@ -664,7 +663,7 @@ class IngameSessionTests(unittest.TestCase):
             if combat and not ai:
                 rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
                 changes=[r for r in rows if r.get('event')=='bot_combat']
-                self.assertEqual([r['current'] for r in changes],[28,10,0] if armour else [20,0])
+                self.assertEqual([r['current'] for r in changes],[800,600,400,200,0])
                 self.assertTrue(all(r['accepted'] and r['damage_applied'] for r in changes))
             if ai:
                 rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]

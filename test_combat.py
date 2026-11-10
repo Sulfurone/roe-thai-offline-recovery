@@ -15,7 +15,7 @@ def fixture():
     bots=BotRoster(profile)
     uid=0x1000000001100
     bots.actors[uid]=dict(origin=(326000,271700,6500),position=(326000,271700,6500),sequence=1)
-    bots.vitals[uid]=Vitals(40,1000)
+    bots.vitals[uid]=Vitals(2*BotCombat.DAMAGE,1000)
     return game,bots,BotCombat(game,bots),uid
 
 
@@ -32,7 +32,7 @@ class CombatTests(unittest.TestCase):
         self.assertTrue(shoot(game,combat))
         first=combat.handle(hit_body()+bytes(8),100.1)
         self.assertEqual([m for m,b in first],[0x1069,0x11eb])
-        self.assertEqual(bots.vitals[uid].current,20)
+        self.assertEqual(bots.vitals[uid].current,BotCombat.DAMAGE)
         self.assertEqual(game.magazine,29)
         self.assertTrue(shoot(game,combat,100.2))
         self.assertEqual(combat.handle(hit_body(),100.3),[])
@@ -73,7 +73,7 @@ class CombatTests(unittest.TestCase):
             if kind=='seated':game.seated=True
             self.assertFalse(shoot(game,combat,flag=int(kind=='stop')))
             self.assertEqual(combat.handle(hit_body(),100.1),[])
-            self.assertEqual(bots.vitals[uid].current,40)
+            self.assertEqual(bots.vitals[uid].current,2*BotCombat.DAMAGE)
 
     def test_report_needs_the_consumed_shot_line_and_each_ticket_is_single_use(self):
         game,bots,combat,uid=fixture()
@@ -83,13 +83,13 @@ class CombatTests(unittest.TestCase):
         combat.shots[0].aim=(327000,271700,6600)
         self.assertEqual(len(combat.handle(hit_body(),100.2)),2)
         self.assertEqual(combat.handle(struct.pack('>I',38)+hit_body()[4:],100.3),[])
-        self.assertEqual(bots.vitals[uid].current,20)
+        self.assertEqual(bots.vitals[uid].current,BotCombat.DAMAGE)
 
     def test_malformed_reports_and_feedback_fields_fail_without_damage(self):
         game,bots,combat,uid=fixture()
         self.assertTrue(shoot(game,combat))
         self.assertEqual(combat.handle(hit_body()[:-1],100.1),[])
-        self.assertEqual(bots.vitals[uid].current,40)
+        self.assertEqual(bots.vitals[uid].current,2*BotCombat.DAMAGE)
         for owner in (0,-1,2**64,True):
             with self.assertRaises(ValueError):death_packet(owner)
         for values in ((0,uid,(0,0,0),1,20,False),(256,uid,(0,0,0),1,-1,False),

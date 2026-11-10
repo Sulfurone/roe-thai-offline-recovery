@@ -39,7 +39,7 @@ class Shot:
 
 class BotCombat:
     WINDOW=3.
-    DAMAGE=20  # Current original WeaponParams prefix/encoded attribute 4.
+    DAMAGE=200  # Local balance on the 1000-point health scale.
 
     def __init__(self,game,bots):
         self.game,self.bots=game,bots
