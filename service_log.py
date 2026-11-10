@@ -17,6 +17,7 @@ class ServiceLog:
     def emit(self, record):
         if self.error is not None:
             raise OSError('Diagnostic writer failed') from self.error
+
         try:
             self.pending.put_nowait(record)
         except queue.Full:
@@ -48,3 +49,46 @@ class ServiceLog:
         self.thread.join()
         if self.error is not None:
             raise OSError('Diagnostic writer failed') from self.error
+
+
+class CaptureFile:
+    def __init__(self, path):
+        self.path = path
+        self.pending = queue.Queue(maxsize=4096)
+        self.error = None
+        self.thread = threading.Thread(target=self.run, name='packet-files', daemon=True)
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def run(self):
+        try:
+            with self.path.open('ab') as output:
+                while True:
+                    data = self.pending.get()
+                    if data is None:
+                        return
+                    output.write(data)
+                    if self.pending.empty():output.flush()
+        except Exception as error:
+            self.error = error
+
+    def write(self, data):
+        if self.error is not None:
+            raise OSError('Packet capture failed') from self.error
+        try:self.pending.put_nowait(data)
+        except queue.Full:raise OSError('Packet capture queue is full')
+
+    def flush(self):
+        if self.error is not None:
+            raise OSError('Packet capture failed') from self.error
+
+    def __exit__(self, *args):
+        while self.thread.is_alive():
+            try:
+                self.pending.put(None, timeout=.1)
+                break
+            except queue.Full:continue
+        self.thread.join()
+        self.flush()

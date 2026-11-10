@@ -28,6 +28,7 @@ def hook(uc,address,*_):
         return
     dto=codec.read32(sp+4)
     seen.append(dict(speed=struct.unpack('<f',uc.mem_read(dto+0x84,4))[0],
+                     action=struct.unpack('<f',uc.mem_read(dto+0x74,4))[0],
                      facing=struct.unpack('<3f',uc.mem_read(dto+0x48,12))))
     uc.reg_write(UC_X86_REG_EAX,1)
     uc.reg_write(UC_X86_REG_EIP,codec.RETURN)
@@ -40,7 +41,7 @@ for speed in (220,0):
     if result['code'] or result['consumed']!=result['bytes']:raise ValueError(result)
     codec.invoke(0x12d0360,controller,[codec.ROOT_OBJECT+10])
     row=seen[-1]
-    if row['speed']!=speed or speed and (abs(row['facing'][0]-.5)>.001 or abs(row['facing'][1]-math.sqrt(.75))>.001):
+    if row['speed']!=speed or row['action']!=int(speed>0) or speed and (abs(row['facing'][0]-.5)>.001 or abs(row['facing'][1]-math.sqrt(.75))>.001):
         raise ValueError(row)
 report=dict(passed=True,checks=seen,limitation='FSM, direction conversion and queue boundaries supplied; rendered animation pending')
 (ROOT/'private/typed-gameplay/peer-locomotion-validation.json').write_text(json.dumps(report,indent=2),encoding='utf8')

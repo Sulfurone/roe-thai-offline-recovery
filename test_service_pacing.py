@@ -160,6 +160,10 @@ class ServicePacingTests(unittest.TestCase):
                     receive_until(0x49d,time.monotonic()+2)
                     client.sendall(flood)
                     receive_until(0x4a0,time.monotonic()+2)
+                    # Reload can finish while the third burst is still queued.
+                    # Drain its trailing door receipt before closing the socket.
+                    client.sendall(request(0x6f57,struct.pack('>II',17415,0)))
+                    receive_until(0x6f55,time.monotonic()+2)
                     client.sendall(frame(13))
                 server.join(4)
                 self.assertFalse(server.is_alive())

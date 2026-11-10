@@ -36,7 +36,9 @@ from offline_match_status import SurvivorStatus
 from offline_posture import posture_speed_delta,CROUCH_CM_PER_SECOND,PRONE_CM_PER_SECOND
 from self_position import PositionInstallation,recover_previous
 from service_pacing import ServiceCadence
-from service_log import ServiceLog
+from service_log import ServiceLog, CaptureFile
+from service_position import BufferedPositionFeed
+from service_mailbox import BufferedMailbox
 from offline_lobby import NativeLobby
 
 
@@ -540,6 +542,8 @@ def main():
             recover_previous(root/'32838',root/'recovery/private/self-position')
             observer=resources.enter_context(PositionInstallation(root/'32838',
                 root/'recovery/private/self-position'/('session-'+stamp)))
+            observer.feed = BufferedPositionFeed(observer.feed)
+            resources.callback(observer.feed.close)
             emit('self_position_observer_prepared',output=str(observer.output),
                  scope='Local self-memory reads only; original DataEngine exports forwarded')
         control = ControlHub() if args.control_ui_port is not None or args.ingame_control or args.ingame_overlay else None
@@ -571,6 +575,9 @@ def main():
             os.startfile(executable, arguments=subprocess.list2cmdline(arguments),
                          cwd=str(root / '32838'))
             emit('shell_launch_requested', arguments=arguments)
+        if mailbox is not None:
+            mailbox = BufferedMailbox(mailbox, control)
+            resources.callback(mailbox.close)
         number = 0
         while time.monotonic() < deadline:
             try:
@@ -578,8 +585,8 @@ def main():
             except socket.timeout:
                 continue
             number += 1
-            with connection, (folder / f'{number}-received.bin').open('ab') as received_raw, \
-                    (folder / f'{number}-application.bin').open('ab') as application_raw:
+            with connection, CaptureFile(folder / f'{number}-received.bin') as received_raw, \
+                    CaptureFile(folder / f'{number}-application.bin') as application_raw:
                 connection.settimeout(min(45, max(1, deadline - time.monotonic())))
                 connection.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)
                 cadence=ServiceCadence()
