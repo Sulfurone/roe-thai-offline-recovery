@@ -13,6 +13,8 @@ codec = NativeCodec()
 folder = ROOT / 'private/typed-gameplay'
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output',type=Path,default=folder/'bot-basic-profile.bin')
+parser.add_argument('--variant', type=int, choices=range(1, 128), metavar='1..127',
+                    help='Test a nonzero variant in the remote appearance lookup')
 args=parser.parse_args()
 source = folder / 'world-clothed.bin'
 if not source.exists():
@@ -26,6 +28,8 @@ if world_result['code'] or world_result['consumed'] != world_result['bytes']:
 # copying the head's first DWORD (zero) previously lost this selector (one).
 selector=codec.read32(codec.ROOT_OBJECT+10+0x98)
 variant=codec.read32(codec.ROOT_OBJECT+22+0x5c8)
+if args.variant is not None:
+    variant = args.variant
 if not 0<=selector<=127 or not 0<=variant<=127:
     raise ValueError('World avatar selectors exceed the Thai signed-byte consumers')
 # The 48-byte head must begin at own record +0x8C, not +0x90.

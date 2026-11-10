@@ -1,3 +1,19 @@
+## 2026-11-10 远程角色模型初始化的变体检查
+
+无人值守会话 `logs/handshake-20261110-100110-469753/server.jsonl` 使用四字节错位修正后的资料。角色自动离机并落地，三个机器人在附近生成，且客户端读到了坐标。只读报告 `private/typed-gameplay/bot-appearance-live-20261110.json` 中，玩家有 `HS`、`HS_Skel`、加载完成位图 1023 和非空模型指针。机器人资源名为空，完成位图仍为 1，模型指针为 0。头部修正未能恢复模型。
+
+原版 `0x127BEAC` 路径将远程 basic 的 `+0xB0` 有符号字节写入角色属性 `+0x164`。模型描述符读取此字段，`0x12F936F` 遇到 0 会在查资源配置前退出。保留 selector 1，选择原客户端查表回退也使用的 variant 1 作为测试值。原生编码和逐字节回读通过。对照探针确认 variant 0 提前退出、variant 1 到达查表分支，另用替身查表返回值确认查询参数依次为 `(1,1)`、`(1,0)`。本地 43 项相关检查通过。
+
+复现时在恢复目录运行以下命令。需要原有的私有原生镜像与样本，生成物留在本机。
+
+```powershell
+python probes/prepare_thai_bot.py --output private/typed-gameplay/bot-basic-profile-appearance.bin
+python probes/prepare_thai_bot.py --variant 1 --output private/typed-gameplay/bot-basic-profile-variant.bin
+python probes/validate_peer_variant_gate.py
+```
+
+本机独立入口 `start_bot_variant_20261110.cmd` 使用新资料，保留 45 秒自动离机和落地后的三名巡逻机器人。旧服务已正常结束，旧客户端 PID 18060 经正常退出请求和 Alt+F4 后仍在运行，普通关闭工具报告 `path_unavailable`。候选尚未进图实测。下轮从新的 ROEVIS 记录核对资源名、加载完成位图和非空模型指针，再验证画面、巡逻及对战。日常入口继续使用原配置。
+
 ## 2026-11-08 外观头部四字节错位修复候选
 
 类型单字段候选实机失败：logs/handshake-20261108-124347-466152/server.jsonl，游戏18836、服务2564，45秒自动离机并在地图内落地。ROEVIS6报告private/typed-gameplay/bot-selector-live-20261108.json显示玩家HS/HS_Skel资源有效、done=1023；三个机器人资源名仍空、done=1、stage=1、model=0。上一节“等待落地”已由此结果取代，不能记为修复成功。
