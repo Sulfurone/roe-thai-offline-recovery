@@ -33,7 +33,8 @@ def nearby_hint(state,key,title):
 
 def bot_hint(state):
     if state.get('bots_enabled')!='1':return '当前入口未启用机器人'
-    phases={'preparing':'准备','waiting':'等待','target':'静止靶','patrol':'巡逻','search':'搜索',
+    phases={'preparing':'准备','waiting':'等待','target':'静止靶','patrol':'步行巡逻','patrol_run':'跑步巡逻',
+            'search':'搜索','investigate':'查看枪声',
             'aim':'瞄准','chase':'追击','cooldown':'射击间隔','reload':'换弹','empty':'弹尽','dead':'已死亡'}
     modes={'target':'静止练习靶','patrol':'巡逻（不反击）','combat':'对战'}
     result='当前模式：'+modes.get(state.get('bot_mode'),'等待同步')

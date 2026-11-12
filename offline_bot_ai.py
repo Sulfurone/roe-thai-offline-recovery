@@ -25,7 +25,7 @@ class Brain:
     phase:str='preparing'
     deadline:float=0
     target:tuple|None=None
-    last_seen:float=0
+    contact_at:float=0
     equipped:bool=False
     last_known:tuple|None=None
     firing:tuple|None=None
@@ -34,6 +34,10 @@ class Brain:
     sense_at:float=0
     visible:bool=False
     patrol_waypoint:int=0
+    search_step:int=-1
+    search_heading:float=0
+    contact_phase:str='search'
+    heard_at:float=-math.inf
     activation:int=0
     peer_retry:int=0
 
@@ -48,13 +52,18 @@ class BotAI:
     DETECT_DISTANCE=9000
     FIRE_DISTANCE=8000
     WALK_SPEED=220
-    CHASE_SPEED=360
+    RUN_SPEED=500
+    RUN_DISTANCE=600
     ARRIVAL_DISTANCE=100
-    PATROL_RADIUS=800
+    PATROL_RADIUS=1200
     PATROL_WAYPOINTS=8
     DAMAGE=20
     SHOT_SECONDS=.12
-    MEMORY_SECONDS=5.
+    MEMORY_SECONDS=12.
+    SEARCH_RADIUS=425
+    SEARCH_ANGLES=(0, math.pi/2, -math.pi/2, math.pi)
+    HEAR_DISTANCE=6500
+    HEAR_SECONDS=2.
     AIM_ERROR_DEGREES=1.2
     MODES=('target','patrol','combat')
 
@@ -67,6 +76,7 @@ class BotAI:
         self.previous_tick=None
         self.last_retries=0
         self.events=[]
+        self.last_shot=None
         bots.external_motion=True
         population.peer_visibility=visibility
 
@@ -89,10 +99,12 @@ class BotAI:
         if mode not in self.MODES:raise ValueError('Unknown bot mode')
         if mode==self.mode:return []
         self.mode=mode
+        self.last_shot=None
         replies=[]
         for brain in self.brains.values():
             if self.bots.visible(brain.uid):replies.extend(self.stop(brain))
             brain.phase='waiting';brain.target=brain.last_known=None
+            brain.search_step=-1
             brain.visible=False;brain.sense_at=0
         return replies
 
@@ -111,7 +123,9 @@ class BotAI:
         if math.dist(start[:2],destination[:2])<self.ARRIVAL_DISTANCE:
             brain.patrol_waypoint=(brain.patrol_waypoint+1)%self.PATROL_WAYPOINTS
             destination=waypoint()
-        replies=self.walk_towards(uid,destination,dt)
+        running=(brain.patrol_waypoint+uid)%2==0 and math.dist(start[:2],destination[:2])>=self.RUN_DISTANCE
+        replies=self.walk_towards(uid,destination,dt,speed=self.RUN_SPEED if running else self.WALK_SPEED)
+        brain.phase='patrol_run' if running and actor['position']!=start else 'patrol'
         if dt>=.05 and actor['position']==start:
             # Try the next destination when collision blocks every step.
             brain.patrol_waypoint=(brain.patrol_waypoint+1)%self.PATROL_WAYPOINTS
@@ -154,16 +168,41 @@ class BotAI:
         return self.stop_walking(uid)
 
     def search(self,uid,brain,dt):
-        destination=brain.last_known
         actor=self.bots.actors[uid]
-        if self.bots.streamed and math.dist(actor['position'][:2],destination[:2])<self.ARRIVAL_DISTANCE:
-            # Sweep around the last observation. An unseen player's current
-            # position never enters this search.
-            if 'search_point' not in actor:
-                angle=actor.get('heading',0)+(math.pi/2 if uid%2 else -math.pi/2)
-                actor['search_point']=(destination[0]+360*math.cos(angle),
-                                       destination[1]+360*math.sin(angle),destination[2])
-        return self.walk_towards(uid,actor.get('search_point',destination),dt)
+        start=actor['position']
+        anchor=brain.last_known
+        if brain.search_step<0:
+            distance=math.dist(start[:2],anchor[:2])
+            if distance>=self.ARRIVAL_DISTANCE:
+                speed=self.RUN_SPEED if distance>=self.RUN_DISTANCE else self.WALK_SPEED
+                replies=self.walk_towards(uid,anchor,dt,speed=speed)
+                if dt>=.05 and actor['position']==start:
+                    brain.search_step=0
+                    brain.search_heading=math.atan2(anchor[1]-start[1],anchor[0]-start[0])
+                return replies
+            brain.search_step=0
+            brain.search_heading=actor.get('heading',0)
+
+        # Sweep distinct points around the remembered location, then return
+        # to patrol. The current position of a hidden player is never used.
+        side=1 if uid%2 else -1
+        while brain.search_step<len(self.SEARCH_ANGLES):
+            heading=brain.search_heading+side*self.SEARCH_ANGLES[brain.search_step]
+            point=(anchor[0]+self.SEARCH_RADIUS*math.cos(heading),
+                   anchor[1]+self.SEARCH_RADIUS*math.sin(heading),anchor[2])
+            if math.dist(start[:2],point[:2])<self.ARRIVAL_DISTANCE:
+                brain.search_step+=1
+                continue
+            replies=self.walk_towards(uid,point,dt)
+            if dt>=.05 and actor['position']==start:
+                brain.search_step+=1
+            return replies
+        brain.last_known=None
+        return self.patrol(uid,dt)
+
+    def hear_shot(self,origin,now=None):
+        if self.mode=='combat':
+            self.last_shot=(time.monotonic() if now is None else now,origin)
 
     def damage_player(self,uid,impact):
         g=self.game
@@ -230,7 +269,8 @@ class BotAI:
                 brain.created=now
                 brain.equipped=brain.visible=False
                 brain.firing=brain.target=brain.last_known=None
-                actor.pop('search_point',None)
+                brain.search_step=-1
+                brain.heard_at=now
                 brain.phase='preparing'
                 brain.sense_at=0
             if not self.bots.vitals[uid].current:
@@ -283,26 +323,32 @@ class BotAI:
                 brain.sense_at=now+.2
                 brain.visible=distance<=self.DETECT_DISTANCE and sight(origin,target)
                 if brain.visible:
-                    actor.pop('search_point',None)
-                    brain.last_seen=now;brain.last_known=target
+                    brain.search_step=-1
+                    brain.contact_phase='search'
+                    brain.contact_at=now;brain.last_known=target
             visible=brain.visible and distance<=self.DETECT_DISTANCE
             if not visible:
-                brain.phase='search'
                 brain.target=None
-                if brain.last_known is not None and now-brain.last_seen<=self.MEMORY_SECONDS:
+                if now-brain.contact_at>self.MEMORY_SECONDS:
+                    brain.last_known=None
+                if brain.last_known is None and self.last_shot is not None:
+                    fired_at,noise=self.last_shot
+                    if (fired_at>brain.heard_at and 0<=now-fired_at<=self.HEAR_SECONDS
+                            and math.dist(point,noise)<=self.HEAR_DISTANCE):
+                        brain.heard_at=brain.contact_at=fired_at
+                        brain.last_known=noise
+                        brain.contact_phase='investigate'
+                        brain.search_step=-1
+                if brain.last_known is not None:
+                    brain.phase=brain.contact_phase
                     replies.extend(self.search(uid,brain,dt))
                 else:
-                    brain.last_known=None
-                    actor.pop('search_point',None)
                     replies.extend(self.patrol(uid,dt))
                 continue
             if distance>self.FIRE_DISTANCE:
                 brain.phase='chase'
                 brain.target=None
-                if self.bots.streamed:
-                    replies.extend(self.walk_towards(uid,brain.last_known,dt,speed=self.CHASE_SPEED))
-                else:
-                    replies.extend(self.walk_towards(uid,brain.last_known,dt))
+                replies.extend(self.walk_towards(uid,brain.last_known,dt,speed=self.RUN_SPEED))
                 continue
             if (self.bots.streamed and brain.phase=='cooldown' and now<brain.deadline
                     and brain.firing is None and distance>900):

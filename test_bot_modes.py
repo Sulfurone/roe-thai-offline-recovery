@@ -24,32 +24,44 @@ class BotModeTests(unittest.TestCase):
         game.accept_self_position(game.player_position,100.1)
         packets=ai.tick(100.1)
         movement=next(body for message,body in packets if message==0x25)
-        self.assertEqual(struct.unpack_from('>H',movement,8)[0],ai.CHASE_SPEED)
+        self.assertEqual(struct.unpack_from('>H',movement,8)[0],ai.RUN_SPEED)
 
         brain=ai.brains[uid]
         last=actor['position']
         brain.last_known=last
+        hidden=(game.player_position[0],game.player_position[1]+3000,game.player_position[2])
+        visited=set()
         with patch.object(ai.visibility,'sight_clear',return_value=False):
-            game.accept_self_position(game.player_position,100.3)
-            self.assertIn(0x25,[message for message,_ in ai.tick(100.3)])
-        self.assertEqual(brain.last_known,last)
-        self.assertGreater(abs(actor['position'][1]-last[1]),0)
+            for frame in range(1,121):
+                now=100.2+frame*.1
+                game.accept_self_position(hidden,now)
+                self.assertNotIn(0x11d4,[message for message,_ in ai.tick(now)])
+                if brain.last_known is None:
+                    break
+                self.assertEqual(brain.last_known,last)
+                visited.add(brain.search_step)
+        self.assertEqual(visited,set(range(len(ai.SEARCH_ANGLES))))
+        self.assertIsNone(brain.last_known)
+        self.assertIn(brain.phase,('patrol','patrol_run'))
 
-    def test_patrol_keeps_walking_through_waypoint_arrivals(self):
+    def test_patrol_switches_between_walking_and_running_without_position_gaps(self):
         game,bots,ai,uid=setup()
         ai.set_mode('patrol')
         ai.tick(100)
         actor=bots.actors[uid]
         positions=[]
+        speeds=set()
         for frame in range(1,401):
             now=100+frame*.05
             game.accept_self_position(game.player_position,now)
             movement=[body for message,body in ai.tick(now) if message==0x25]
             self.assertEqual(len(movement),1)
             self.assertEqual(movement[0][41],1)
+            speeds.add(struct.unpack_from('>H',movement[0],8)[0])
             positions.append(actor['position'])
         self.assertEqual(len(set(positions)),len(positions))
         self.assertNotEqual(ai.brains[uid].patrol_waypoint,0)
+        self.assertEqual(speeds,{ai.WALK_SPEED,ai.RUN_SPEED})
 
     def test_fire_stop_is_delayed_once_and_pausing_cancels_fire_without_refilling(self):
         g,bots,ai,uid=setup()
@@ -107,10 +119,30 @@ class BotModeTests(unittest.TestCase):
             g.accept_self_position((300000,270000,6505),101)
             ai.tick(101)
             self.assertEqual(walk.call_args.args[1],known)
-            g.accept_self_position((300000,270000,6505),106)
-            ai.tick(106)
+            expired=100+ai.MEMORY_SECONDS+.1
+            g.accept_self_position((300000,270000,6505),expired)
+            ai.tick(expired)
             self.assertIsNone(ai.brains[uid].last_known)
             self.assertNotEqual(walk.call_args.args[1],known)
+
+    def test_recent_nearby_gunfire_provides_a_fixed_investigation_target(self):
+        for distance, age in ((2800,.4),(7000,.4),(2800,3)):
+            game,bots,ai,uid=setup()
+            x,y,z=bots.actors[uid]['position']
+            gunshot=(x+distance,y,z+90)
+            with patch.object(ai.visibility,'sight_clear',return_value=False):
+                ai.tick(100)
+                ai.hear_shot(gunshot,100)
+                game.accept_self_position((x,y+4000,z),100+age)
+                packets=ai.tick(100+age)
+            brain=ai.brains[uid]
+            self.assertNotIn(0x11d4,[mid for mid,_ in packets])
+            if distance==2800 and age<1:
+                self.assertEqual((brain.phase,brain.last_known),('investigate',gunshot))
+                self.assertGreater(bots.actors[uid]['position'][0],x)
+                self.assertEqual(bots.actors[uid]['position'][1],y)
+            else:
+                self.assertIsNone(brain.last_known)
 
     def test_aim_noise_is_bounded_and_does_not_adjust_during_reaction(self):
         g,bots,ai,uid=setup();ai.AIM_ERROR_DEGREES=1.2

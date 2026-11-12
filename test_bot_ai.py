@@ -190,7 +190,8 @@ class BotAITests(unittest.TestCase):
         packets=ai.tick(100.5)
         self.assertEqual([m for m,b in packets],[0x25])
         self.assertEqual(packets[0][1][41],1)  # Forward movement intent.
-        self.assertLessEqual(math.dist(bots.actors[uid]['position'],(334300,271700,6505)),111)
+        self.assertEqual(struct.unpack_from('>H',packets[0][1],8)[0],ai.RUN_SPEED)
+        self.assertLessEqual(math.dist(bots.actors[uid]['position'],(334300,271700,6505)),ai.RUN_SPEED*.5+1)
         before=bots.actors[uid]['position']
         ai.visibility=StaticVisibility(Flat(),[(*before[:2],before[2]+100,1000)])
         game.accept_self_position(game.player_position,100.9)

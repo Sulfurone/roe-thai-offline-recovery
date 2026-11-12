@@ -10,6 +10,7 @@ from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_EIP, UC_X86_REG_ESP
 
 sys.path.insert(0,str(ROOT))
 from offline_bots import peer_locomotion, peer_motion
+from offline_bot_ai import BotAI
 
 
 def main():
@@ -116,24 +117,29 @@ def main():
     put(motion+0x1cc,movement)
     put(movement,movement_vtable)
     put(movement_vtable+0x24,0x12cd690)
-    codec.invoke(0x13353c0,timeline,[])
-    put(timeline,motion)
     frame_time=struct.unpack('<I',struct.pack('<f',1/60))[0]
-    frames=0
     startup_frames=30  # Allow the native queue to establish its playback buffer.
-    for index in range(40):
-        x=start[0]+index*11
-        deliver(0x1278350,*peer_locomotion(uid,(x,start[1],start[2]),
-                                          (x+11,start[1],start[2]),index+2,220,0))
-        for _ in range(3):
-            codec.invoke(0x13358d0,timeline,[])
-            codec.invoke(0x1335e40,timeline,[frame_time])
-            forward=struct.unpack('<f',uc.mem_read(motion+0x1f8,4))[0]
-            if frames>=startup_frames and abs(forward-220)>.01:
-                raise ValueError(f'Walking animation dropped at frame {frames}: {forward}')
-            frames+=1
+    steady_frames={}
+    for speed in (BotAI.WALK_SPEED,BotAI.RUN_SPEED):
+        codec.invoke(0x13353c0,timeline,[])
+        put(timeline,motion)
+        frames=0
+        step=round(speed/20)
+        for index in range(40):
+            x=start[0]+index*step
+            deliver(0x1278350,*peer_locomotion(uid,(x,start[1],start[2]),
+                                              (x+step,start[1],start[2]),index+2,speed,0))
+            for _ in range(3):
+                codec.invoke(0x13358d0,timeline,[])
+                codec.invoke(0x1335e40,timeline,[frame_time])
+                forward=struct.unpack('<f',uc.mem_read(motion+0x1f8,4))[0]
+                if frames>=startup_frames and abs(forward-speed)>.01:
+                    raise ValueError(f'Movement input {speed} dropped at frame {frames}: {forward}')
+                frames+=1
+        steady_frames[speed]=frames-startup_frames
     report=dict(passed=True,waypoints=points,facing=facing,walking_parameters=walking_parameters,
-                idle_parameters=idle_parameters,zero_clock_steady_walking_frames=frames-startup_frames,
+                idle_parameters=idle_parameters,zero_clock_steady_walking_frames=steady_frames[BotAI.WALK_SPEED],
+                zero_clock_steady_running_frames=steady_frames[BotAI.RUN_SPEED],running_speed=BotAI.RUN_SPEED,
                 position_only_queue_reset=True,
                 limitation='Synthetic peer lookup, timeline, allocator, property cache and model interface; no live renderer')
     (ROOT/'private/typed-gameplay/peer-locomotion-validation.json').write_text(

@@ -1046,7 +1046,9 @@ def main():
                                 if message_id==0x2a and gameplay.last_medicine_cancel:
                                     emit('medicine_cancelled',source='native_movement_action',action=20)
                                 if combat is not None and message_id==0x11d3:
-                                    combat.record_shot(application[26:],previous_magazine)
+                                    if combat.record_shot(application[26:],previous_magazine) and ai is not None:
+                                        shot=combat.shots[-1]
+                                        ai.hear_shot(shot.origin,shot.time)
                                 if combat is not None and message_id==0x11e9:
                                     gameplay_replies.extend(combat.handle(application[26:]))
                                     if combat.last_event is not None:
