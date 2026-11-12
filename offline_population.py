@@ -24,7 +24,7 @@ class WorldPopulation:
     EXTRA_PER_GROUP=4
 
     def __init__(self, control, terrain, seed=1, loot=True, vehicles=True, bots=None, clusters=16,
-                 vehicle_clusters=3,extra_items=False):
+                 vehicle_clusters=3,extra_items=False,bot_start_delay=0):
         if type(clusters) is not int or not 1<=clusters<=16:
             raise ValueError('Population density must be 1..16 weapon/ammo pairs per region')
         if type(vehicle_clusters) is not int or not 1<=vehicle_clusters<=4:
@@ -43,6 +43,9 @@ class WorldPopulation:
         self.peer_visibility=None
         self.peer_retry_at=0
         self.peer_attempts=0
+        self.bot_start_delay = bot_start_delay
+        self.bot_ground_sample = None
+        self.bot_spawn_at = None
         self.clusters=clusters
         self.vehicle_clusters=vehicle_clusters
         self.extra_items=extra_items
@@ -95,6 +98,22 @@ class WorldPopulation:
     def try_peers(self,position,rng=None):
         if self.bots is None or not self.bots.streamed and len(self.bots.actors)>=self.bots.count:return []
         now=time.monotonic()
+        if self.bot_start_delay:
+            if self.bot_spawn_at is None:
+                if self.control.gameplay.seated:
+                    self.bot_ground_sample = None
+                    return []
+                # Population can place loot up to 15 metres above terrain.
+                # Confirm that the player's descent has settled before timing bots.
+                sample = self.bot_ground_sample
+                if sample is None or abs(position[2]-sample[0]) > 100:
+                    self.bot_ground_sample = (position[2],now)
+                    return []
+                if now-sample[1] < .75:
+                    return []
+                self.bot_spawn_at = now+self.bot_start_delay
+            if now < self.bot_spawn_at:
+                return []
         if now<self.peer_retry_at:return []
         self.peer_retry_at=now+(.2 if self.bots.streamed else 3)
         if rng is None:

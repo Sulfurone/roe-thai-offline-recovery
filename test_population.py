@@ -2,6 +2,7 @@
 import struct
 import unittest
 import random
+from unittest.mock import patch
 
 from control_actions import ControlSession
 from offline_gameplay import OfflineGameplay
@@ -18,6 +19,34 @@ class Surface:
 
 
 class PopulationTests(unittest.TestCase):
+    def test_bots_wait_after_landing_while_loot_spawns_immediately(self):
+        profile = struct.pack('>IIQI', 3, 1, 1, 12) + b'OfflineBot1\0' + POSITION_MARKER
+        bots = BotRoster(profile, 63)
+        game = ready_game(empty_start=True)
+        control = ControlSession(game, jeep_template())
+        population = WorldPopulation(control, Surface(), bots=bots, clusters=3, bot_start_delay=45)
+
+        def tick(at, position):
+            game.player_position = position
+            with patch('offline_population.time.monotonic', return_value=at):
+                return [mid for mid, _ in population.tick()]
+
+        initial = tick(100, (100000, 200000, 8400))
+        self.assertIn(0x821, initial)
+        self.assertIn(0x654b, initial)
+        self.assertNotIn(0x565, initial)
+        self.assertEqual(tick(101, (100200, 200000, 7900)), [])
+        self.assertEqual(tick(102, (100400, 200000, 7000)), [])
+        self.assertIsNone(population.bot_spawn_at)
+        self.assertEqual(tick(103, (100600, 200000, 7000)), [])
+        self.assertEqual(population.bot_spawn_at, 148)
+        moved = tick(147.9, (120000, 200000, 7000))
+        self.assertIn(0x821, moved)
+        self.assertFalse(bots.actors)
+        self.assertEqual(len(bots.vitals), 63)
+        self.assertIn(0x565, tick(148, (120000, 200000, 7000)))
+        self.assertEqual(population.bot_spawn_at, 148)
+
     def test_full_roster_streams_by_distance_without_refilling_or_reviving(self):
         from offline_match_status import SurvivorStatus,survivor_number
 

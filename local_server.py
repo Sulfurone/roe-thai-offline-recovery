@@ -117,6 +117,8 @@ def main():
                         help='Single-player: trust local selection of loaded generated vehicles for boarding')
     parser.add_argument('--world-bots', type=int, default=0,
                         help='Local bot count, 0..63; passive unless --world-bot-ai')
+    parser.add_argument('--world-bot-start-delay', type=int, default=0,
+                        help='Seconds after the opening landing before bots first appear')
     parser.add_argument('--world-bot-profile', type=Path,
                         help='Locally prepared original-codec-validated basic peer profile')
     parser.add_argument('--gameplay-arsenal',action='store_true',
@@ -306,6 +308,8 @@ def main():
         except (OSError,ValueError,TypeError) as error:parser.error(f'Cannot prepare local circle plan: {error}')
     population_surface=None
     bot_profile=None
+    if args.world_bot_start_delay < 0:
+        parser.error('--world-bot-start-delay must be nonnegative')
     if args.world_survivor_status and not (args.gameplay_prototype and args.gameplay_vitals and args.world_bots):
         parser.error('--world-survivor-status requires prototype, vitals and an explicit local bot roster')
     if args.world_round_result and not (args.gameplay_prototype and args.gameplay_vitals and args.world_bots):
@@ -659,7 +663,7 @@ def main():
                 combat=BotCombat(gameplay,bots) if args.world_bot_combat else None
                 population = WorldPopulation(control_session,population_surface,args.world_seed,bots=bots,
                     clusters=args.world_loot_clusters,vehicle_clusters=args.world_vehicle_clusters,
-                    extra_items=args.world_extra_items) if args.world_populate else None
+                    extra_items=args.world_extra_items,bot_start_delay=args.world_bot_start_delay) if args.world_populate else None
                 ai=BotAI(gameplay,bots,population,bot_visibility,mode=args.world_bot_mode) if args.world_bot_ai else None
                 parcels = BotParcels(gameplay,bots,ai) if ai is not None else None
                 if parcels is not None:
