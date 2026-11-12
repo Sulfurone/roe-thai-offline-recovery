@@ -15,6 +15,7 @@ from unicorn import UC_HOOK_CODE
 from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_EIP, UC_X86_REG_ESP
 
 from offline_inventory import OfflineInventory
+from offline_gameplay import TYPED_ACTOR_UID
 from offline_lobby import NativeLobby, world_with_wardrobe
 from offline_round_result import LocalRoundResult
 from offline_vitals import Vitals
@@ -44,7 +45,7 @@ def main():
     room_uid = struct.unpack_from('>Q', room)[0]
     name_size = struct.unpack_from('>I', team, 40)[0]
     name = team[44:44 + name_size]
-    game = SimpleNamespace(actor_ready=True, actor_uid=256, vitals=Vitals(current=0))
+    game = SimpleNamespace(actor_ready=True, actor_uid=TYPED_ACTOR_UID, vitals=Vitals(current=0))
     result = LocalRoundResult(game, SimpleNamespace(count=63, vitals={}))
     assert result.tick()
     packets = dict(result.native_messages(room_uid, name, killer_uid=500, killer_name=b'OfflineBot1'))
@@ -80,7 +81,10 @@ def main():
     dressed_world = world_with_wardrobe(world, clothes)
     decode(0x02ef, dressed_world)
     code, used, actor = codec.decode_record(dressed_world[12:-18])
-    assert code == 0 and used == len(dressed_world) - 30 and actor[6] == 0
+    assert code == 0 and used == len(dressed_world) - 30
+    assert struct.unpack_from('<Q', actor)[0] == game.actor_uid
+    for offset in (16, 32):  # leader and sole member
+        assert struct.unpack_from('>Q', team, offset)[0] == game.actor_uid
     for (_, slot), item in clothes:
         assert struct.unpack_from('<4I', actor, 0x5e1 + slot * 0x78 + 0x14) == (1, item.template, 1, 0)
     inventory = OfflineInventory(0)

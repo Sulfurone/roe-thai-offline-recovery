@@ -247,8 +247,9 @@ def world_with_wardrobe(body, clothes):
             or body[record_offset + 1] not in (0, 1)
             or any(body[first_wearable + (slot - 13) * 24] for slot in set(POSITIONS.values()))):
         raise ValueError('Wardrobe needs the Thai 32838 one-player world template with empty clothing slots')
+    # Keep the complete actor UID. Its high bytes are also used by the lobby
+    # to identify the local team leader and by gameplay to route player updates.
     result = bytearray(body)
-    result[record_offset + 1] = 0  # original self actor variant
     for (container, slot), item in reversed(clothes):
         if container != 1 or POSITIONS.get(item.template) != slot:
             raise ValueError('Invalid equipped wardrobe slot')

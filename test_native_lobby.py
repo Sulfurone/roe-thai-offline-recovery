@@ -38,7 +38,7 @@ class NativeLobbyTests(unittest.TestCase):
         source = world_template()[:-18] + bytes(range(18))
         clothes = lobby.inventory.worn_clothes()
         body = world_with_wardrobe(source, clothes)
-        self.assertEqual(body[13], 0)
+        self.assertEqual(body[:20], source[:20])
         self.assertEqual(body[-18:], source[-18:])
         self.assertEqual(len(body), len(source) + len(clothes) * 12)
         for (_, slot), item in clothes:
