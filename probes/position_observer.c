@@ -23,6 +23,16 @@ typedef struct {
     PeerRow rows[4];
 } PeerSample;
 typedef struct {
+    uint32_t low,actor,controller_vtable,motion_vtable,mode,intent,queue_count;
+    uint32_t first_tick,last_tick;
+    float playback_time,forward,side,first_speed,last_speed;
+} MotionRow;
+typedef struct {
+    char magic[8],token[32];
+    uint32_t pid,sequence,tick_ms,world_tick;
+    MotionRow rows[4];
+} MotionSample;
+typedef struct {
     uint32_t low,high,status,actor,display_mask,visual,visual_vtable,secondary_gate,gates,nested;
     uint32_t model_wrapper,render_model,model_gate,loader_ready,loader_stage;
     uint32_t loader_done,loader_callbacks,loader_pending,loader_unreadable;
@@ -308,6 +318,48 @@ static void peer_rows(uintptr_t manager,uintptr_t base,PeerSample *out) {
     }
 }
 
+/* Optional diagnostic for four local peers. Read only the verified Thai
+ * remote controller and its first/last queued records. */
+static void motion_rows(const PeerSample *peers,MotionSample *out) {
+    uint32_t world=0,clock=0;
+    out->tick_ms=out->world_tick=0;
+    if(self_read(0x2eed5b0,&world,4) && world && self_read(world+0xc8,&clock,4) && clock) {
+        self_read(clock+0x74,&out->tick_ms,4);
+        self_read(clock+0x7c,&out->world_tick,4);
+    }
+    for(unsigned i=0;i<4;i++) {
+        const PeerRow *peer=peers->rows+i;
+        MotionRow *row=out->rows+i;
+        clear_bytes(row,sizeof(*row));
+        row->low=peer->low;
+        if(peer->status!=0)continue;
+        row->actor=peer->actor;
+        uint32_t controller=0;
+        if(!self_read(peer->actor+0x348,&controller,4) || !controller ||
+           !self_read(controller,&row->controller_vtable,4))continue;
+        uintptr_t motion=controller+0x80;
+        if(!self_read(motion,&row->motion_vtable,4) || row->motion_vtable!=0x261e978)continue;
+        self_read(motion+0x1a8,&row->mode,1);
+        self_read(motion+0x1e8,&row->intent,1);
+        self_read(motion+0x1f8,&row->forward,4);
+        self_read(motion+0x1fc,&row->side,4);
+        uintptr_t timeline=motion+0xc0,queue=timeline+0xb8;
+        self_read(timeline+4,&row->playback_time,4);
+        uint32_t nodes[3]={0};
+        if(!self_read(queue,nodes,sizeof(nodes)))continue;
+        row->queue_count=nodes[2];
+        if(!row->queue_count)continue;
+        if(nodes[0] && nodes[0]!=queue) {
+            self_read(nodes[0]+0x64,&row->first_tick,4);
+            self_read(nodes[0]+0x8c,&row->first_speed,4);
+        }
+        if(nodes[1] && nodes[1]!=queue) {
+            self_read(nodes[1]+0x64,&row->last_tick,4);
+            self_read(nodes[1]+0x8c,&row->last_speed,4);
+        }
+    }
+}
+
 /* Original 108D720 -> 113E2C0 -> 113C6A0 property lookup and 139FA40
  * HP decoding, read only. A successful server send alone does not prove
  * the own actor consumed it. No object construction/initialization here. */
@@ -504,6 +556,7 @@ static DWORD WINAPI observe(void *module) {
     static wchar_t visual_output[1040],visual_temporary[1040];
     static wchar_t equipment_output[1040],equipment_temporary[1040];
     static wchar_t lobby_output[1040],lobby_temporary[1040];
+    static wchar_t motion_output[1040],motion_temporary[1040],motion_marker[1040];
     static wchar_t config_path[1024],original_path[1024];
     DWORD module_len=GetModuleFileNameW((HMODULE)module,config_path,1024);
     if(!module_len || module_len>=980)return 0;
@@ -537,12 +590,18 @@ static DWORD WINAPI observe(void *module) {
     unsigned char dos[2];
     if(base!=0x400000 || !self_read(base,dos,2) || dos[0]!='M' || dos[1]!='Z')return 0;
     Sleep(15000);
+    lstrcpyW(motion_marker,output);lstrcatW(motion_marker,L".motion-enabled");
+    int motion_enabled=GetFileAttributesW(motion_marker)!=INVALID_FILE_ATTRIBUTES;
+    lstrcpyW(motion_output,output);lstrcatW(motion_output,L".motion");
+    lstrcpyW(motion_temporary,motion_output);lstrcatW(motion_temporary,L".tmp");
     Sample sample;clear_bytes(&sample,sizeof(sample));
     copy_bytes(sample.magic,"ROEPOS1",7);copy_bytes(sample.token,config.token,32);
     sample.pid=GetCurrentProcessId();
     PeerSample peers;clear_bytes(&peers,sizeof(peers));
     copy_bytes(peers.magic,"ROEPEER2",8);copy_bytes(peers.token,config.token,32);
     peers.pid=sample.pid;peers.count=4;
+    MotionSample motion;clear_bytes(&motion,sizeof(motion));
+    copy_bytes(motion.magic,"ROEMOT1",7);copy_bytes(motion.token,config.token,32);motion.pid=sample.pid;
     VisualSample visuals;clear_bytes(&visuals,sizeof(visuals));
     copy_bytes(visuals.magic,"ROEVIS6",7);copy_bytes(visuals.token,config.token,32);
     visuals.pid=sample.pid;visuals.count=5;
@@ -584,6 +643,11 @@ static DWORD WINAPI observe(void *module) {
             write_atomic(equipment_output,equipment_temporary,&equipment,sizeof(equipment));
             lobby.sequence=sample.sequence;lobby_items(manager,actor,&lobby);
             write_atomic(lobby_output,lobby_temporary,&lobby,sizeof(lobby));
+        }
+        if(motion_enabled) {
+            motion.sequence=sample.sequence;
+            motion_rows(&peers,&motion);
+            write_atomic(motion_output,motion_temporary,&motion,sizeof(motion));
         }
         Sleep(100);
     }

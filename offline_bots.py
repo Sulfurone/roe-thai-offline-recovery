@@ -25,7 +25,11 @@ def peer_locomotion(uid, start, end, sequence, speed, heading):
     first_tick = (sequence - intent) & 0xffffffff
     displacement = (b-a for a,b in zip(start,end))
     body = struct.pack('>QH3iBBIB', uid, round(speed), *start, 0, 0, first_tick, 1)
-    body += struct.pack('>3hBBI', *displacement, 0, 0, sequence)
+    # The offline client's world tick duration is zero. A 50 ms keyframe
+    # offset gives the animation queue a playback interval even in that
+    # state. The native action reader ignores 50, outside its 1..34 range.
+    keyframe_ms = 50 if intent else 0
+    body += struct.pack('>3hBBI', *displacement, 0, keyframe_ms, sequence)
     azimuth = round((heading / math.pi + 1) * 65535 / 2)
     body += struct.pack('>bHHI', intent, azimuth, 32768, sequence)
     return 0x25, body

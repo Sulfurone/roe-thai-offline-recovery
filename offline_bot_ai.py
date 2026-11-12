@@ -33,6 +33,7 @@ class Brain:
     reload_at:float=0
     sense_at:float=0
     visible:bool=False
+    patrol_waypoint:int=0
 
 
 class BotAI:
@@ -44,6 +45,9 @@ class BotAI:
     DETECT_DISTANCE=9000
     FIRE_DISTANCE=8000
     WALK_SPEED=220
+    ARRIVAL_DISTANCE=100
+    PATROL_RADIUS=800
+    PATROL_WAYPOINTS=8
     DAMAGE=20
     SHOT_SECONDS=.12
     MEMORY_SECONDS=5.
@@ -88,10 +92,25 @@ class BotAI:
             brain.visible=False;brain.sense_at=0
         return replies
 
-    def patrol(self,uid,now,dt):
+    def patrol(self,uid,dt):
         actor=self.bots.actors[uid];brain=self.brains[uid]
-        ox,oy,oz=actor['origin'];elapsed=now-brain.created
-        return self.walk_towards(uid,(ox+800*math.sin(elapsed*.12),oy+800*(1-math.cos(elapsed*.12)),oz),dt)
+        origin=actor['origin']
+        start=actor['position']
+
+        def waypoint():
+            angle=math.tau*brain.patrol_waypoint/self.PATROL_WAYPOINTS
+            return (origin[0]+self.PATROL_RADIUS*math.cos(angle),
+                    origin[1]+self.PATROL_RADIUS*math.sin(angle),origin[2])
+
+        destination=waypoint()
+        if math.dist(start[:2],destination[:2])<self.ARRIVAL_DISTANCE:
+            brain.patrol_waypoint=(brain.patrol_waypoint+1)%self.PATROL_WAYPOINTS
+            destination=waypoint()
+        replies=self.walk_towards(uid,destination,dt)
+        if dt>=.05 and actor['position']==start:
+            # Try the next destination when collision blocks every step.
+            brain.patrol_waypoint=(brain.patrol_waypoint+1)%self.PATROL_WAYPOINTS
+        return replies
 
     def aim_at(self,origin,target):
         # Sample once per reaction interval, never follow an unseen live target.
@@ -109,7 +128,7 @@ class BotAI:
         point=actor['position']
         dx,dy=destination[0]-point[0],destination[1]-point[1]
         distance=math.hypot(dx,dy)
-        if distance<100:
+        if distance<self.ARRIVAL_DISTANCE:
             return self.stop_walking(uid)
         angle=math.atan2(dy,dx)
         step=min(distance,self.WALK_SPEED*seconds)
@@ -211,7 +230,7 @@ class BotAI:
                 continue
             if self.mode!='combat':
                 brain.phase=self.mode
-                if self.mode=='patrol':replies.extend(self.patrol(uid,now,dt))
+                if self.mode=='patrol':replies.extend(self.patrol(uid,dt))
                 continue
             if brain.reload_at:
                 brain.phase='reload'
@@ -242,7 +261,7 @@ class BotAI:
                     replies.extend(self.walk_towards(uid,brain.last_known,dt))
                 else:
                     brain.last_known=None
-                    replies.extend(self.patrol(uid,now,dt))
+                    replies.extend(self.patrol(uid,dt))
                 continue
             if distance>self.FIRE_DISTANCE:
                 brain.phase='chase'

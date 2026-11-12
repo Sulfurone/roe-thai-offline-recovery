@@ -13,6 +13,22 @@ from ingame_client import MailboxClient,bot_hint
 
 
 class BotModeTests(unittest.TestCase):
+    def test_patrol_keeps_walking_through_waypoint_arrivals(self):
+        game,bots,ai,uid=setup()
+        ai.set_mode('patrol')
+        ai.tick(100)
+        actor=bots.actors[uid]
+        positions=[]
+        for frame in range(1,401):
+            now=100+frame*.05
+            game.accept_self_position(game.player_position,now)
+            movement=[body for message,body in ai.tick(now) if message==0x25]
+            self.assertEqual(len(movement),1)
+            self.assertEqual(movement[0][41],1)
+            positions.append(actor['position'])
+        self.assertEqual(len(set(positions)),len(positions))
+        self.assertNotEqual(ai.brains[uid].patrol_waypoint,0)
+
     def test_fire_stop_is_delayed_once_and_pausing_cancels_fire_without_refilling(self):
         g,bots,ai,uid=setup()
         ai.tick(100)
