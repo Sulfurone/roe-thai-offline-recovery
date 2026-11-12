@@ -128,8 +128,26 @@ flags.clear()
 c.invoke(0x1281f30,0,[uid&0xffffffff,uid>>32,c.OBJECT])
 if created!=[True] or registered!=[(uid&0xffffffff,uid>>32,actor)] or flags!=[(2,1)]:
     raise ValueError(f'Original missing-actor branch differs: {created}, {registered}, {flags}')
+
+# Streaming uses the original counted UID list and interest withdrawal path.
+removed=[]
+hook(0x1130320,lambda:finish(actor))
+hook(0x65ae90,lambda:finish())
+put(vt+0x114,stub(lambda:finish(0)))
+put(vt+0x110,stub(lambda:(removed.append(args(2)),finish(0,8))))
+result=c.decode_server(0x605,struct.pack('>HQ',1,uid))
+if result['code'] or result['consumed']!=result['bytes']:raise ValueError(result)
+c.invoke(0x127e0a0,0,[c.ROOT_OBJECT+6])
+if not removed or c.invoke(0x1365450,0x2eedc90,[uid&0xffffffff,uid>>32])&0xff:
+    raise ValueError('Native interest did not release the actor')
+result=c.decode_server(0x565,struct.pack('>B3iBQ',1,*position,0,uid))
+if result['code'] or result['consumed']!=result['bytes']:raise ValueError(result)
+c.invoke(0x127df70,0,[c.ROOT_OBJECT+6])
+if not c.invoke(0x1365450,0x2eedc90,[uid&0xffffffff,uid>>32])&0xff:
+    raise ValueError('Native interest did not readmit the UID')
 report=dict(passed=True,interest_uid=hex(uid),checks=checks,
     missing_actor_factory=True,scene_registration_arguments=[list(r) for r in registered],
+    interest_withdrawal=True,interest_readmission=True,
     limitation='Factory and scene registration synthetic; callback stops at flag setter; no renderer/assets/live visibility proof')
 (ROOT/'private/typed-gameplay/peer-visibility-validation.json').write_text(json.dumps(report,indent=2),encoding='utf8')
 print(json.dumps(report))

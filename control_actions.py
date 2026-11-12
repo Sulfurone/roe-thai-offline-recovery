@@ -57,6 +57,10 @@ class ControlSession:
 
     def snapshot(self):
         game = self.gameplay
+        bots=self.bot_ai.bots if self.bot_ai else None
+        peers=list(bots.active_actors() if bots else self.peer_positions.items())
+        if game is not None and bots and bots.streamed:
+            peers.sort(key=lambda row:math.dist(row[1]['position'][:2],game.player_position[:2]))
         position_ready=bool(game and (not game.require_self_position_for_drop or game.has_fresh_self_position()
                             or game.seated and self.active_vehicle is not None))
         return dict(connected=True, ready=bool(game and game.actor_ready and (not game.vitals_enabled or game.vitals.current>0)),
@@ -68,13 +72,15 @@ class ControlSession:
                     vehicles_enabled=bool(game and self.vehicle_template),
                     bots_enabled=self.bot_ai is not None,
                     bot_mode=self.bot_ai.mode if self.bot_ai else None,
+                    bots_total=bots.count if bots else 0,
+                    bots_alive=sum(hp.current>0 for hp in bots.vitals.values()) if bots else 0,
                     round_state=self.round_result.state if self.round_result else None,
                     vehicles=[dict(uid=str(uid), name=LAND_VEHICLES[car.vehicle_config].name, position=list(car.vehicle_position),
                                    seated=car.seated) for uid, car in self.vehicles.items()],
                     peers=[dict(name=f'OfflineBot{uid-TYPED_ACTOR_UID-0x1000+1}',position=list(actor['position']),
                                 hp=self.bot_ai.bots.vitals[uid].current if self.bot_ai else None,
                                 phase=self.bot_ai.brains[uid].phase if self.bot_ai and uid in self.bot_ai.brains else 'preparing')
-                           for uid,actor in self.peer_positions.items()])
+                           for uid,actor in peers[:4]])
 
     def execute(self, command):
         command = validate_command({k: v for k, v in command.items() if k != 'id'})

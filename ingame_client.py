@@ -38,6 +38,9 @@ def bot_hint(state):
     modes={'target':'静止练习靶','patrol':'巡逻（不反击）','combat':'对战'}
     result='当前模式：'+modes.get(state.get('bot_mode'),'等待同步')
     try:
+        total=int(state.get('bots_total',0)); alive=int(state.get('bots_alive',0))
+        if 0<=alive<=total<=63 and total:
+            result+=f'\n机器人存活 {alive}/{total}'
         rows=json.loads(state.get('peers','[]'))
         if not isinstance(rows,list) or len(rows)>4:raise ValueError('Invalid peers')
         if not rows:return result+'\n等待落地并找到可站立的出生点'

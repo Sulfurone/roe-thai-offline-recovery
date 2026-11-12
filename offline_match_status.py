@@ -1,4 +1,4 @@
-"""Local active-roster count through the original Thai survivor-number DTO.
+"""Local surviving participant count through the original Thai DTO.
 
 The second DWORD is deliberately left uninterpreted. This does not implement
 original matchmaking, a fixed participant pool, evacuation or victory rules.
@@ -23,7 +23,7 @@ class SurvivorStatus:
     def tick(self):
         if not self.game.actor_ready:return []
         count=int(self.game.vitals.current>0)
-        count+=sum(self.bots.vitals[uid].current>0 for uid in self.bots.actors)
+        count+=sum(hp.current>0 for hp in self.bots.vitals.values())
         if count==self.last_count:return []
         packet=survivor_number(count)
         self.last_count=count

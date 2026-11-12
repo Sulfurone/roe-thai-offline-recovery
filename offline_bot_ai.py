@@ -34,6 +34,8 @@ class Brain:
     sense_at:float=0
     visible:bool=False
     patrol_waypoint:int=0
+    activation:int=0
+    peer_retry:int=0
 
 
 class BotAI:
@@ -41,10 +43,12 @@ class BotAI:
     EQUIP_DELAY=1.
     AIM_SECONDS=.8
     FIRE_INTERVAL=.9
+    MAX_SIMULTANEOUS_SHOOTERS=2
     RELOAD_SECONDS=3.
     DETECT_DISTANCE=9000
     FIRE_DISTANCE=8000
     WALK_SPEED=220
+    CHASE_SPEED=360
     ARRIVAL_DISTANCE=100
     PATROL_RADIUS=800
     PATROL_WAYPOINTS=8
@@ -87,7 +91,7 @@ class BotAI:
         self.mode=mode
         replies=[]
         for brain in self.brains.values():
-            replies.extend(self.stop(brain))
+            if self.bots.visible(brain.uid):replies.extend(self.stop(brain))
             brain.phase='waiting';brain.target=brain.last_known=None
             brain.visible=False;brain.sense_at=0
         return replies
@@ -96,11 +100,12 @@ class BotAI:
         actor=self.bots.actors[uid];brain=self.brains[uid]
         origin=actor['origin']
         start=actor['position']
+        radius=self.PATROL_RADIUS
+        if self.bots.streamed:radius+=200*(uid%5)
 
         def waypoint():
             angle=math.tau*brain.patrol_waypoint/self.PATROL_WAYPOINTS
-            return (origin[0]+self.PATROL_RADIUS*math.cos(angle),
-                    origin[1]+self.PATROL_RADIUS*math.sin(angle),origin[2])
+            return (origin[0]+radius*math.cos(angle),origin[1]+radius*math.sin(angle),origin[2])
 
         destination=waypoint()
         if math.dist(start[:2],destination[:2])<self.ARRIVAL_DISTANCE:
@@ -123,7 +128,7 @@ class BotAI:
         brain=self.brains.get(uid)
         return peer_equipment(uid,brain.weapon_uid,magazine=brain.magazine) if brain else None
 
-    def walk_towards(self,uid,destination,seconds):
+    def walk_towards(self,uid,destination,seconds,*,speed=None):
         actor=self.bots.actors[uid]
         point=actor['position']
         dx,dy=destination[0]-point[0],destination[1]-point[1]
@@ -131,19 +136,34 @@ class BotAI:
         if distance<self.ARRIVAL_DISTANCE:
             return self.stop_walking(uid)
         angle=math.atan2(dy,dx)
-        step=min(distance,self.WALK_SPEED*seconds)
+        speed=self.WALK_SPEED if speed is None else speed
+        step=min(distance,speed*seconds)
         if step<.1:return []
-        for adjustment in (0,math.pi/4,-math.pi/4,math.pi/2,-math.pi/2):
+        side=actor.get('detour',1 if not self.bots.streamed or uid%2 else -1)
+        for adjustment in (0,side*math.pi/4,-side*math.pi/4,side*math.pi/2,-side*math.pi/2):
             end=(point[0]+step*math.cos(angle+adjustment),point[1]+step*math.sin(angle+adjustment),point[2])
             accepted=self.visibility.walk(point,end)
-            if accepted is None:continue
+            if accepted is None or accepted==point:continue
             actor['position']=accepted
             actor['sequence']=(actor['sequence']+1)&0xffffffff
             heading=math.atan2(accepted[1]-point[1],accepted[0]-point[0])
             actor['walking']=True
             actor['heading']=heading
-            return [peer_locomotion(uid,point,accepted,actor['sequence'],self.WALK_SPEED,heading)]
+            if adjustment:actor['detour']=1 if adjustment>0 else -1
+            return [peer_locomotion(uid,point,accepted,actor['sequence'],speed,heading)]
         return self.stop_walking(uid)
+
+    def search(self,uid,brain,dt):
+        destination=brain.last_known
+        actor=self.bots.actors[uid]
+        if self.bots.streamed and math.dist(actor['position'][:2],destination[:2])<self.ARRIVAL_DISTANCE:
+            # Sweep around the last observation. An unseen player's current
+            # position never enters this search.
+            if 'search_point' not in actor:
+                angle=actor.get('heading',0)+(math.pi/2 if uid%2 else -math.pi/2)
+                actor['search_point']=(destination[0]+360*math.cos(angle),
+                                       destination[1]+360*math.sin(angle),destination[2])
+        return self.walk_towards(uid,actor.get('search_point',destination),dt)
 
     def damage_player(self,uid,impact):
         g=self.game
@@ -202,17 +222,28 @@ class BotAI:
         # Airborne distance and occlusion are handled by the actual aim ray;
         # seated aircraft/vehicles, dead/unready and stale targets stay paused.
         active=fresh
-        for index,(uid,actor) in enumerate(self.bots.actors.items()):
-            brain=self.brains.setdefault(uid,Brain(uid,now,0x2000000000100+index))
+        for uid,actor in self.bots.active_actors():
+            brain=self.brains.setdefault(uid,Brain(uid,now,0x2000000000100+uid-self.bots.FIRST_UID))
+            activation=actor.get('activation',0)
+            if activation!=brain.activation:
+                brain.activation=activation
+                brain.created=now
+                brain.equipped=brain.visible=False
+                brain.firing=brain.target=brain.last_known=None
+                actor.pop('search_point',None)
+                brain.phase='preparing'
+                brain.sense_at=0
             if not self.bots.vitals[uid].current:
                 replies.extend(self.stop(brain))
                 brain.phase='dead'
                 continue
             if brain.firing is not None and (now>=brain.stop_at or not active or self.mode!='combat'):
                 replies.extend(self.stop(brain))
-            if now-brain.created>=self.EQUIP_DELAY and (not brain.equipped or retry):
+            refresh=actor.get('retry',0)!=brain.peer_retry if self.bots.streamed else retry
+            if now-brain.created>=self.EQUIP_DELAY and (not brain.equipped or refresh):
                 replies.append(self.equipment(uid))
                 brain.equipped=True
+                brain.peer_retry=actor.get('retry',0)
                 self.events.append(dict(action='equipped',uid=uid,magazine=brain.magazine,reserve=brain.reserve))
             # Reload progress is independent of whether the target is currently
             # observed; pausing perception must not reset the transfer timer.
@@ -252,27 +283,39 @@ class BotAI:
                 brain.sense_at=now+.2
                 brain.visible=distance<=self.DETECT_DISTANCE and sight(origin,target)
                 if brain.visible:
+                    actor.pop('search_point',None)
                     brain.last_seen=now;brain.last_known=target
             visible=brain.visible and distance<=self.DETECT_DISTANCE
             if not visible:
                 brain.phase='search'
                 brain.target=None
                 if brain.last_known is not None and now-brain.last_seen<=self.MEMORY_SECONDS:
-                    replies.extend(self.walk_towards(uid,brain.last_known,dt))
+                    replies.extend(self.search(uid,brain,dt))
                 else:
                     brain.last_known=None
+                    actor.pop('search_point',None)
                     replies.extend(self.patrol(uid,dt))
                 continue
             if distance>self.FIRE_DISTANCE:
                 brain.phase='chase'
                 brain.target=None
-                replies.extend(self.walk_towards(uid,brain.last_known,dt))
+                if self.bots.streamed:
+                    replies.extend(self.walk_towards(uid,brain.last_known,dt,speed=self.CHASE_SPEED))
+                else:
+                    replies.extend(self.walk_towards(uid,brain.last_known,dt))
+                continue
+            if (self.bots.streamed and brain.phase=='cooldown' and now<brain.deadline
+                    and brain.firing is None and distance>900):
+                angle=math.atan2(target[1]-point[1],target[0]-point[0])
+                angle+=math.pi/2 if uid%2 else -math.pi/2
+                side=(point[0]+250*math.cos(angle),point[1]+250*math.sin(angle),point[2])
+                replies.extend(self.walk_towards(uid,side,dt))
                 continue
             replies.extend(self.stop_walking(uid))
             if not brain.equipped:continue
             if brain.phase not in ('aim','cooldown'):
                 brain.phase='aim'
-                brain.deadline=now+self.AIM_SECONDS
+                brain.deadline=now+self.AIM_SECONDS+(.08*(uid%5) if self.bots.streamed else 0)
                 brain.target=self.aim_at(origin,brain.last_known)
                 continue
             if now<brain.deadline:continue
@@ -285,11 +328,15 @@ class BotAI:
             if aim is None or math.dist(origin,aim)<1 or distance>self.FIRE_DISTANCE or not self.visibility.clear(origin,aim):
                 brain.phase='search'
                 continue
+            if self.bots.streamed and sum(other.firing is not None and now<other.stop_at
+                                          for other in self.brains.values())>=self.MAX_SIMULTANEOUS_SHOOTERS:
+                brain.deadline=now+.12
+                continue
             brain.magazine-=1
             replies.append(peer_fire(uid,origin,aim))
             brain.firing=(origin,aim);brain.stop_at=now+self.SHOT_SECONDS
             brain.phase='cooldown'
-            brain.deadline=now+self.FIRE_INTERVAL
+            brain.deadline=now+self.FIRE_INTERVAL+(.3 if self.bots.streamed else 0)
             # Aim is locked during reaction time: lateral movement can dodge
             # this approximation, rather than granting unavoidable hits.
             impact=self.player_impact(origin,aim)

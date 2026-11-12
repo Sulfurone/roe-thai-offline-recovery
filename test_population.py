@@ -18,6 +18,49 @@ class Surface:
 
 
 class PopulationTests(unittest.TestCase):
+    def test_full_roster_streams_by_distance_without_refilling_or_reviving(self):
+        from offline_match_status import SurvivorStatus,survivor_number
+
+        profile=struct.pack('>IIQI',3,1,1,12)+b'OfflineBot1\0'+POSITION_MARKER
+        bots=BotRoster(profile,63)
+        game=ready_game()
+        population=WorldPopulation(ControlSession(game),Surface(),bots=bots)
+        start=(100000,200000,7005)
+        rng=random.Random(7)
+        status=SurvivorStatus(game,bots)
+        self.assertEqual(status.tick(),[survivor_number(64)])
+        for tick in range(30):
+            bots.stream(population,start,rng,now=tick)
+            self.assertLessEqual(len(bots.active),8)
+        self.assertEqual(len(bots.actors),63)
+        self.assertGreater(len(set(actor['origin'][:2] for actor in bots.actors.values())),50)
+        last=bots.profile_for(bots.FIRST_UID+62)
+        self.assertEqual(last[20:33],b'OfflineBot63\0')
+        self.assertEqual(struct.unpack_from('>I',last,16)[0],13)
+
+        uid,dead=sorted(bots.active)[:2]
+        bots.damage(uid,125)
+        bots.damage(dead,1000)
+        self.assertEqual(status.tick(),[survivor_number(63)])
+        far=bots.actors[bots.FIRST_UID+62]['position']
+        replies=bots.stream(population,far,rng,now=31)
+        removed=next(body for message,body in replies if message==0x605)
+        self.assertIn(struct.pack('>Q',uid),removed)
+        self.assertFalse(bots.visible(uid))
+        self.assertEqual(bots.handle(0xbe6,struct.pack('>IIQ',2,1,uid)),[])
+        replies=bots.stream(population,start,rng,now=32)
+        self.assertTrue(bots.visible(uid))
+        self.assertFalse(bots.visible(dead))
+        self.assertIn(bots.vitals[uid].packet(uid),replies)
+        self.assertEqual(bots.vitals[uid].current,875)
+        self.assertEqual(status.tick(),[])
+
+        for index in range(51,63):
+            bots.actors[bots.FIRST_UID+index]['position']=far
+        for tick in range(33,38):
+            bots.stream(population,far,rng,now=tick)
+        self.assertEqual(len(bots.active),8)
+
     def test_nearby_gear_is_sent_before_more_distant_ground_loot(self):
         game=ready_game()
         game.player_position=(100000,200000,7020)

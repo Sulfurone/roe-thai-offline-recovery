@@ -1,9 +1,10 @@
 """Optional local last-survivor outcome; not the original ROE result protocol."""
+from offline_bots import BotRoster
 
 
 class LocalRoundResult:
     def __init__(self,game,bots):
-        if game is None or bots is None or not 1<=bots.count<=4:
+        if game is None or bots is None or not 1<=bots.count<=BotRoster.MAX_COUNT:
             raise ValueError('A round requires the player and a bounded bot roster')
         self.game,self.bots=game,bots
         self.state='waiting'

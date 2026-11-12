@@ -93,10 +93,10 @@ class WorldPopulation:
         return None
 
     def try_peers(self,position,rng=None):
-        if self.bots is None or len(self.bots.actors)>=self.bots.count:return []
+        if self.bots is None or not self.bots.streamed and len(self.bots.actors)>=self.bots.count:return []
         now=time.monotonic()
         if now<self.peer_retry_at:return []
-        self.peer_retry_at=now+3
+        self.peer_retry_at=now+(.2 if self.bots.streamed else 3)
         if rng is None:
             rng=random.Random((self.seed^int(position[0])*73856093^int(position[1])*19349663
                                ^self.peer_attempts*83492791)&(2**64-1))

@@ -67,17 +67,23 @@ class BlastCombat:
                 and (not g.require_self_position_for_drop or g.has_fresh_self_position(now))):
             targets.append((g.actor_uid,g.player_position,g.vitals,True))
         if self.bots is not None:
+            active_actors=getattr(self.bots,'active_actors',self.bots.actors.items)
             targets.extend((uid,actor['position'],self.bots.vitals[uid],False)
-                           for uid,actor in self.bots.actors.items() if self.bots.vitals[uid].current)
+                           for uid,actor in active_actors() if self.bots.vitals[uid].current)
         replies=[]
         for uid,feet,hp,own in targets:
             amount=self.damage_at(position,feet)
             if not amount or not self.exposed(position,feet):continue
-            applied=hp.damage(amount)
-            replies.append(hp.packet(uid))
-            if not hp.current:
-                replies.append(death_packet(uid))
-                if own:g.medicine.cancel()
+            if not own and hasattr(self.bots,'damage'):
+                before=hp.current
+                replies.extend(self.bots.damage(uid,amount))
+                applied=before-hp.current
+            else:
+                applied=hp.damage(amount)
+                replies.append(hp.packet(uid))
+                if not hp.current:
+                    replies.append(death_packet(uid))
+                    if own:g.medicine.cancel()
             self.events.append(dict(action='blast_hit',serial=serial,target_uid=uid,
                 damage=applied,current=hp.current,original_damage_formula=False))
         self.events.append(dict(action='blast_completed',serial=serial,position=position,

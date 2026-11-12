@@ -4,6 +4,7 @@ import struct
 
 from offline_ground_loot import GroundStack
 from offline_inventory import Item
+from offline_bots import BotRoster
 
 
 class BotParcels:
@@ -18,7 +19,7 @@ class BotParcels:
         world = self.game.ground_loot
         if uid in self.owners or brain is None or not brain.equipped or world is None:
             return []
-        if len(self.parcels) >= 4:
+        if len(self.parcels) >= BotRoster.MAX_COUNT:
             return []
         entity = world.next_entity
         world.next_entity += 1

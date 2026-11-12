@@ -1,6 +1,7 @@
 """Behavior transitions and the real session mailbox, using synthetic actors."""
 import json
 import math
+import struct
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -13,6 +14,27 @@ from ingame_client import MailboxClient,bot_hint
 
 
 class BotModeTests(unittest.TestCase):
+    def test_streamed_bot_runs_to_a_visible_target_and_sweeps_last_observation(self):
+        game,bots,ai,uid=setup()
+        bots.streamed=True
+        bots.active.add(uid)
+        actor=bots.actors[uid]
+        actor['position']=(334300,271700,6505)
+        ai.tick(100)
+        game.accept_self_position(game.player_position,100.1)
+        packets=ai.tick(100.1)
+        movement=next(body for message,body in packets if message==0x25)
+        self.assertEqual(struct.unpack_from('>H',movement,8)[0],ai.CHASE_SPEED)
+
+        brain=ai.brains[uid]
+        last=actor['position']
+        brain.last_known=last
+        with patch.object(ai.visibility,'sight_clear',return_value=False):
+            game.accept_self_position(game.player_position,100.3)
+            self.assertIn(0x25,[message for message,_ in ai.tick(100.3)])
+        self.assertEqual(brain.last_known,last)
+        self.assertGreater(abs(actor['position'][1]-last[1]),0)
+
     def test_patrol_keeps_walking_through_waypoint_arrivals(self):
         game,bots,ai,uid=setup()
         ai.set_mode('patrol')

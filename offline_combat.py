@@ -80,7 +80,8 @@ class BotCombat:
         if h.sequence in self.seen:return reject('duplicate',h.target_uid)
         actor=self.bots.actors.get(h.target_uid)
         hp=self.bots.vitals.get(h.target_uid)
-        if actor is None or hp is None or not hp.current:return reject('unknown_or_dead_target',h.target_uid)
+        if actor is None or hp is None or not hp.current or not self.bots.visible(h.target_uid):
+            return reject('unknown_or_dead_target',h.target_uid)
         p=actor['position']
         if math.dist(h.target_position,p)>250:return reject('target_position',h.target_uid)
         if (math.hypot(h.impact[0]-p[0],h.impact[1]-p[1])>120

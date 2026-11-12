@@ -1,8 +1,9 @@
-"""Small experimental Thai peer roster; default bodies, no combat AI.
+"""Thai peer roster and bounded client interest management.
 
 Patrol messages use the original trajectory DTO. Terrain checks provide
 only ground height and slope; they do not navigate buildings or map props.
 """
+from collections import deque
 import math
 import struct
 import time
@@ -36,9 +37,16 @@ def peer_locomotion(uid, start, end, sequence, speed, heading):
 
 
 class BotRoster:
+    MAX_COUNT = 63
+    ACTIVE_LIMIT = 8
+    ENTER_RANGE = 16000
+    LEAVE_RANGE = 21000
+    CORPSE_SECONDS = 20
+    FIRST_UID = TYPED_ACTOR_UID + 0x1000
+
     def __init__(self, profile, count=1):
-        if type(count) is not int or not 1 <= count <= 4:
-            raise ValueError('Experimental roster supports 1..4 peers')
+        if type(count) is not int or not 1 <= count <= self.MAX_COUNT:
+            raise ValueError('Local roster supports 1..63 peers')
         if not 24 <= len(profile) <= 8192 or struct.unpack_from('>II', profile) != (3,1):
             raise ValueError('Regenerate original-codec-validated Thai appearance + runtime profile (mode 3)')
         name_size = struct.unpack_from('>I', profile, 16)[0]
@@ -47,23 +55,91 @@ class BotRoster:
         if profile.count(POSITION_MARKER) != 1:
             raise ValueError('Regenerate the peer profile with its validated spawn-position marker')
         self.position_offset = profile.index(POSITION_MARKER)
+        self.name_size = name_size
         self.profile, self.count = bytes(profile), count
+        self.streamed = count > 4
         self.actors = {}
-        self.vitals = {}
+        self.vitals = {self.FIRST_UID+i:Vitals() for i in range(count)} if self.streamed else {}
+        self.active = set()
+        self.placement_anchors = None
         self.next_tick = 0
         self.started = None
         self.retries = 0
         self.external_motion=False
         self.death_parcel = None
 
+    def visible(self,uid):
+        return uid in (self.active if self.streamed else self.actors)
+
+    def active_actors(self):
+        if self.streamed:
+            return ((uid,self.actors[uid]) for uid in sorted(self.active))
+        return self.actors.items()
+
     def profile_for(self, uid):
         profile = bytearray(self.profile)
         struct.pack_into('>Q', profile, 8, uid)
         struct.pack_into('>3i',profile,self.position_offset,*self.actors[uid]['position'])
-        size = struct.unpack_from('>I', profile, 16)[0]
-        if profile[20:20 + size] == b'OfflineBot1\0':
-            profile[20 + size - 2] = ord('1') + uid - (TYPED_ACTOR_UID + 0x1000)
+        if self.streamed or profile[20:20+self.name_size] == b'OfflineBot1\0':
+            name = f'OfflineBot{uid-self.FIRST_UID+1}\0'.encode('ascii')
+            struct.pack_into('>I',profile,16,len(name))
+            profile[20:20+self.name_size] = name
         return bytes(profile)
+
+    def announce(self,uid):
+        actor=self.actors[uid]
+        return [(0x565,struct.pack('>B3iBQ',1,*actor['position'],0,uid)),
+                (0xbe7,self.profile_for(uid)),self.vitals[uid].packet(uid),
+                peer_motion(uid,actor['position'],actor['sequence'])]
+
+    def stream(self,population,position,rng,now):
+        if self.placement_anchors is None:
+            # Three early encounters, then groups of three spread over the map.
+            width=getattr(population.terrain,'width',409600)
+            sectors=[(round(width*x/8),round(width*y/8),position[2])
+                     for x in range(1,8) for y in range(1,8)
+                     if math.dist((width*x/8,width*y/8),position[:2])>24000]
+            rng.shuffle(sectors)
+            self.placement_anchors=[position]*min(3,self.count)
+            self.placement_anchors.extend(sectors[i//3%len(sectors)] if sectors else position
+                                          for i in range(self.count-len(self.placement_anchors)))
+            self.pending_placements=deque(range(self.count))
+        for _ in range(min(3,len(self.pending_placements))):
+            index=self.pending_placements.popleft()
+            uid=self.FIRST_UID+index
+            anchor=self.placement_anchors[index]
+            spot=population.choose_spot(anchor,rng,peer=True)
+            if spot is None:
+                # Move failed sectors to the end. A later visit can provide
+                # walkable ground while preserving the original participant.
+                width=getattr(population.terrain,'width',409600)
+                self.placement_anchors[index]=(rng.randrange(1,8)*width//8,
+                                               rng.randrange(1,8)*width//8,position[2])
+                self.pending_placements.append(index)
+                continue
+            if not hasattr(population.terrain,'spawn_spot'):
+                spot=(*spot[:2],spot[2]-25)
+            self.actors[uid]=dict(origin=spot,position=spot,sequence=1,created=now,retry=3)
+
+        distances={uid:math.dist(actor['position'][:2],position[:2]) for uid,actor in self.actors.items()}
+        removed=sorted(uid for uid in self.active if distances[uid]>self.LEAVE_RANGE
+                       or now>=self.actors[uid].get('retire_at',math.inf))
+        replies=[]
+        if removed:
+            self.active.difference_update(removed)
+            for uid in removed:
+                self.actors[uid].pop('walking',None)
+            # Native interest removal takes a short count and a UID list.
+            replies.append((0x605,struct.pack('>H',len(removed))+b''.join(struct.pack('>Q',uid) for uid in removed)))
+        nearby=sorted((dist,uid) for uid,dist in distances.items()
+                      if uid not in self.active and self.vitals[uid].current and dist<=self.ENTER_RANGE)
+        for _,uid in nearby[:min(3,self.ACTIVE_LIMIT-len(self.active))]:
+            self.active.add(uid)
+            actor=self.actors[uid]
+            actor.update(created=now,retry=0)
+            actor['activation']=actor.get('activation',0)+1
+            replies.extend(self.announce(uid))
+        return replies
 
     def life_packets(self,uid):
         from offline_combat import death_packet
@@ -74,18 +150,22 @@ class BotRoster:
         hp=self.vitals.get(uid)
         if hp is None or not hp.current:return []
         if not hp.damage(amount):return []
+        if self.streamed and uid not in self.active:return []
         replies = self.life_packets(uid)
-        if not hp.current and self.death_parcel is not None:
-            replies.extend(self.death_parcel(uid))
+        if not hp.current:
+            if self.streamed:self.actors[uid]['retire_at']=time.monotonic()+self.CORPSE_SECONDS
+            if self.death_parcel is not None:replies.extend(self.death_parcel(uid))
         return replies
 
     def spawn(self, population, position, rng):
+        if self.streamed:
+            return self.stream(population,position,rng,time.monotonic())
         if len(self.actors)>=self.count:
             return []
         replies = []
         created=time.monotonic()
         for index in range(self.count):
-            uid = TYPED_ACTOR_UID + 0x1000 + index
+            uid = self.FIRST_UID + index
             if uid in self.actors:continue
             spot = population.choose_spot(position, rng, peer=True)
             if spot is None:
@@ -94,8 +174,7 @@ class BotRoster:
                 spot = (spot[0], spot[1], spot[2] - 25)
             self.actors[uid] = dict(origin=spot, position=spot, sequence=1,created=created,retry=0)
             self.vitals[uid] = Vitals()
-            replies.extend(((0x565, struct.pack('>B3iBQ', 1, *spot, 0, uid)),
-                            (0xbe7, self.profile_for(uid)),self.vitals[uid].packet(uid),peer_motion(uid, spot, 1)))
+            replies.extend(self.announce(uid))
         if replies and self.started is None:self.started=created
         return replies
 
@@ -106,7 +185,7 @@ class BotRoster:
         self.next_tick = now + .5
         replies = []
         retried=False
-        for uid, actor in self.actors.items():
+        for uid, actor in self.active_actors():
             elapsed=max(0,now-actor.get('created',self.started))
             attempt=actor.get('retry',0)
             retry=attempt<3 and elapsed>=(1,3,6)[attempt]
@@ -144,7 +223,7 @@ class BotRoster:
         replies = []
         for index in range(count):
             uid = struct.unpack_from('>Q', body, 8 + index * 8)[0]
-            if uid in self.actors:
+            if self.visible(uid):
                 replies.extend(((0xbe7, self.profile_for(uid)),))
                 replies.extend(self.life_packets(uid))
         return replies

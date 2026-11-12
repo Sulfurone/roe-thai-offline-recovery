@@ -114,7 +114,7 @@ def main():
     parser.add_argument('--control-client-boarding',action='store_true',
                         help='Single-player: trust local selection of loaded generated vehicles for boarding')
     parser.add_argument('--world-bots', type=int, default=0,
-                        help='Experimental local peer count, 0..4; passive unless --world-bot-ai')
+                        help='Local bot count, 0..63; passive unless --world-bot-ai')
     parser.add_argument('--world-bot-profile', type=Path,
                         help='Locally prepared original-codec-validated basic peer profile')
     parser.add_argument('--gameplay-arsenal',action='store_true',
@@ -845,7 +845,7 @@ def main():
                                 response=struct.pack('>IHI',1,response_id,response_id)+response_body
                                 send(connection,0,body=encrypt(response,key))
                                 emit('local_survivor_status_sent',count=survivors.last_count,
-                                     scope='Active local roster only; no match outcome')
+                                     scope='Local player and surviving bots, including those outside client interest')
                         if round_result is not None and state=='transport_ready' and loaded_pushes_sent:
                             if round_result.tick():
                                 emit('local_round_result',result=round_result.state,
