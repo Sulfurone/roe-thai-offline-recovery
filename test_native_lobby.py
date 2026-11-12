@@ -33,6 +33,16 @@ def world_template():
 
 
 class NativeLobbyTests(unittest.TestCase):
+    def test_solo_matching_or_positive_ready_can_start_exactly_once(self):
+        lobby = NativeLobby(team_template())
+        self.assertIsNone(lobby.request_start(0x7037, bytes(4)))
+        self.assertEqual(lobby.request_start(0x7037, struct.pack('>I', 1)), 1)
+        self.assertIsNone(lobby.request_start(0x6e29, struct.pack('>I', 2)))
+        lobby = NativeLobby(team_template())
+        lobby.handle(0x7021, b'\0')
+        self.assertIsNone(lobby.request_start(0x7037, struct.pack('>I', 1)))
+        self.assertEqual(lobby.request_start(0x6e29, struct.pack('>I', 1)), 1)
+
     def test_world_body_carries_only_equipped_clothes_and_keeps_clock_tail(self):
         lobby = NativeLobby(team_template())
         source = world_template()[:-18] + bytes(range(18))

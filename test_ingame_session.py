@@ -140,12 +140,13 @@ class IngameSessionTests(unittest.TestCase):
             if survivors:argv.append('--world-survivor-status')
             if round_result:argv.append('--world-round-result')
             if native_result:
-                team, room = root/'team.bin', root/'room.bin'
+                team, room, ready = root/'team.bin', root/'room.bin', root/'ready.bin'
                 team.write_bytes(struct.pack('>IQIQIIQI',0,1,0,256,0,1,256,5)
                                  + b'Test\0' + struct.pack('>III',1,0,0))
                 room.write_bytes(struct.pack('>QII',17,3,0))
+                ready.write_bytes(struct.pack('>II',1,0))
                 argv.extend(['--world-native-result','--native-lobby','--team-body-file',str(team),
-                             '--room-start-file',str(room)])
+                             '--room-start-file',str(room),'--ready-body-file',str(ready)])
             if population:
                 terrain = root / 'surface.repx'
                 terrain.write_text('<root><PxHeightField><NbRows>2</NbRows><NbColumns>2</NbColumns>'
@@ -327,7 +328,8 @@ class IngameSessionTests(unittest.TestCase):
                         self.assertLess(abs(world_time - time.time()), 3)
                         self.assertEqual(world.read_bytes(), original_world)
                     if native_result:
-                        send(0x6e29, struct.pack('>I',1))
+                        send(0x7037, struct.pack('>I',1))
+                        self.assertEqual(receive(), (0x7038,ready.read_bytes()))
                     send(0x0dcd, bytes(4))
                     if aircraft:
                         send(0x0dcd, bytes(4))

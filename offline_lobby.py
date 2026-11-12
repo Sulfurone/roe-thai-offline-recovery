@@ -164,6 +164,7 @@ class NativeLobby:
         self.inventory_sent = False
         self.start_requested = False
         self.in_team = True
+        self.member_count = struct.unpack_from('>I', team_body, 28)[0]
         if self.state_file and self.state_file.exists():
             self.load()
 
@@ -207,6 +208,20 @@ class NativeLobby:
         temporary = self.state_file.with_suffix(self.state_file.suffix + '.tmp')
         temporary.write_text(json.dumps(state, indent=2), encoding='utf8')
         temporary.replace(self.state_file)
+
+    def request_start(self, message, body):
+        if self.start_requested or message not in (0x6e29, 0x7037) or len(body) != 4:
+            return None
+        mode = struct.unpack('>I', body)[0]
+        if message == 0x7037:
+            # This lobby sometimes presents Ready instead of Matchmaking.
+            # In a one-member offline room there is nobody else to wait for.
+            if mode != 1 or not self.in_team or self.member_count != 1:
+                return None
+        elif mode not in (1, self.mode + 1):
+            return None
+        self.start_requested = True
+        return mode
 
     def handle(self, message, body):
         """Return None for unrelated game traffic, a list for consumed requests."""

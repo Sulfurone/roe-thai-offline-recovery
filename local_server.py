@@ -966,16 +966,13 @@ def main():
                                     send(connection, 0, body=encrypt(response, key))
                                     emit('native_lobby_response_sent', request_id=message_id, message_id=response_id,
                                          body_bytes=len(response_body), mode=lobby.mode)
-                            if (lobby is not None and message_id == 0x6e29 and not lobby.start_requested
-                                    and len(application[26:]) == 4):
-                                match_mode = struct.unpack_from('>I', application, 26)[0]
-                                # The solo start button sends 1 even when the stored team mode is quad.
-                                if match_mode in (1, lobby.mode + 1):
-                                    lobby.start_requested = True
+                            if lobby is not None:
+                                match_mode = lobby.request_start(message_id, application[26:])
+                                if match_mode is not None:
                                     started = time.monotonic()
                                     lobby_pushes = [(started + index * args.push_delay, mid, path)
                                                     for index, (mid, path) in enumerate(push_specs)]
-                                    emit('native_lobby_start_requested', mode=lobby.mode,
+                                    emit('native_lobby_start_requested', mode=lobby.mode, trigger=message_id,
                                          match_mode=match_mode, pushes=len(lobby_pushes))
                             if gameplay is not None and message_id==0x11e9 and combat is None:
                                 hit=character_hit(application[26:])
