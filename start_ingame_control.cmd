@@ -6,14 +6,14 @@ if errorlevel 1 set "ROE_PYTHON=C:\Users\SHI\.cache\codex-runtimes\codex-primary
 "%ROE_PYTHON%" --version >nul 2>&1
 if errorlevel 1 (
   echo Python 3.10+ is required. Set ROE_PYTHON to your Python executable.
-  pause
+  if not defined ROE_DESKTOP_BACKGROUND pause
   exit /b 1
 )
 "%ROE_PYTHON%" "%~dp0tools\disable_console_quick_edit.py"
 tasklist /FI "IMAGENAME eq Europa_Client.exe" /NH | find /I "Europa_Client.exe" >nul
 if not errorlevel 1 (
   echo Close the current game and old local service before starting the menu.
-  pause
+  if not defined ROE_DESKTOP_BACKGROUND pause
   exit /b 1
 )
 echo Thai daytime parachute and in-game overlay: click the small Offline Control entry for weather, equipment and vehicles.
@@ -22,9 +22,9 @@ echo Daytime: synchronize lobby time, then set noon after player readiness.
 echo Motion recovery: self-read position observer, walking receipts and loaded-client vehicle boarding.
 echo Aircraft opening uses the verified west-to-east route. Use the native jump key.
 echo The main menu starts hidden; use its small mouse entry. F6 input remains under diagnosis.
-echo Keep this console open while playing.
+if not defined ROE_DESKTOP_BACKGROUND echo Keep this console open while playing.
 echo Loading map collision data BEFORE the game window opens.
-echo This can take about 1 minute. Please keep this window open and wait.
+echo This can take about one minute.
 echo Streaming population: sixteen weapon/ammo pairs, four of each equipment group and three mixed roadside vehicles per region.
 set ROE_BOT_ARGS=--world-bots 3 --world-bot-profile "%~dp0private\typed-gameplay\bot-basic-profile.bin" --world-bot-combat --world-bot-ai --world-bot-mode patrol --world-survivor-status
 if defined ROE_EXPERIMENTAL_BOTS set ROE_BOT_ARGS=--world-bots 1 --world-bot-profile "%~dp0private\typed-gameplay\bot-basic-profile.bin" --world-bot-combat --world-bot-ai --world-bot-mode patrol --world-survivor-status
@@ -49,4 +49,6 @@ echo Bots: up to three nearby patrols after landing. Use the Bots tab to select 
   --push-delay 3.0 ^
   --push-after-map-load 0x654b:"%~dp0private\typed-gameplay\vehicle-cross-map.bin" ^
   --push-after-player-ready 0x05fb:"%~dp0private\native-roster\inventory-m4a1-candidate.bin"
-pause
+set "ROE_EXIT_CODE=%ERRORLEVEL%"
+if not defined ROE_DESKTOP_BACKGROUND pause
+exit /b %ROE_EXIT_CODE%
