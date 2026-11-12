@@ -73,6 +73,7 @@ class OfflineGameplay:
     jump_allowed: bool = False
     deployment_phase: str = 'ground'
     aircraft_route_end: tuple | None = None
+    aircraft_continue_route: bool = False
     opening_glider_body: bytes | None = None
     opening_glider: object = field(default=None,init=False,repr=False)
     landing_height: object = field(default=None,repr=False)
@@ -122,6 +123,9 @@ class OfflineGameplay:
         if self.aircraft_route_end is not None and (len(self.aircraft_route_end)!=3
                 or any(type(x) is not int or abs(x)>=2000000 for x in self.aircraft_route_end)):
             raise ValueError('Aircraft route endpoint must be three bounded integer coordinates')
+        if self.aircraft_continue_route and (self.vehicle_config!=4 or self.aircraft_route_end is None
+                                             or self.aircraft_route_speed<=0 or self.opening_airdrop):
+            raise ValueError('Continuous aircraft route requires the native opening flight and an endpoint')
         maximum_speed=5000 if self.aircraft_route_end is not None else 2500
         maximum_duration=180 if self.aircraft_route_end is not None else 40
         if self.opening_airdrop and (self.vehicle_config!=4 or not self.auto_board
@@ -408,7 +412,7 @@ class OfflineGameplay:
         self.jump_allowed=False
         if self.opening_airdrop:
             self.deployment_phase='descending'
-        else:
+        elif not self.aircraft_continue_route:
             self.route_started=None
         self.player_position = position
         return [(0x6544,reply),self.owner_sync(0)]
@@ -461,8 +465,15 @@ class OfflineGameplay:
                 self.player_position=glider.player_position
                 self.deployment_phase='descending'
                 return replies
-        if self.route_started is not None and (self.seated or self.opening_airdrop):
+        active_route=(self.route_started is not None and (self.seated or self.opening_airdrop
+                                                          or self.aircraft_continue_route))
+        if active_route:
             self.update_route_position(now)
+        if active_route and self.aircraft_continue_route and self.vehicle_position==self.aircraft_route_end:
+            replies=self.leave(now)
+            replies.append((0x6563,self.aircraft_move(self.vehicle_position,speed=0)))
+            self.route_started=None
+            return replies
         if self.exit_deadline is not None and now>=self.exit_deadline:
             replies=self.leave(now)
             if self.opening_airdrop:
@@ -482,8 +493,7 @@ class OfflineGameplay:
             replies.append((0x6563,self.aircraft_move(self.vehicle_position,speed=0)))
             self.route_started=None
             return replies
-        if (self.route_started is not None and now>=self.route_next
-                and (self.seated or self.opening_airdrop)):
+        if active_route and now>=self.route_next:
             self.route_next=now+.25
             # Native 0x130DAC0 sets the snap threshold to max(8000cm,
             # 3 * speed). Sending the full 4km endpoint exceeds it and the

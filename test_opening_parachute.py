@@ -1,10 +1,14 @@
 """Aircraft-to-glider handoff and terrain-aware release using synthetic state."""
 from array import array
+import math
+import random
 import struct
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 from offline_environment import environment_clock,environment_weather
 from offline_gameplay import OfflineGameplay
+from offline_motion import aircraft_spawn_heading, random_aircraft_route
 from offline_terrain import TerrainSurface
 
 
@@ -13,6 +17,45 @@ def spawn(config=3):
 
 
 class OpeningParachuteTests(unittest.TestCase):
+    def test_random_flights_use_map_edges_and_matching_spawn_heading(self):
+        terrain=SimpleNamespace(height_at=lambda x,y: 9500 if 25000<=x<=385000 and 25000<=y<=385000 else 6000)
+        routes=[random_aircraft_route(random.Random(seed),terrain) for seed in range(16)]
+        self.assertEqual(routes[0],random_aircraft_route(random.Random(0),terrain))
+        self.assertEqual(len({(a,b) for a,b,_ in routes}),16)
+        self.assertGreater(len({(axis,point[axis]) for point,_,_ in routes for axis in (0,1)
+                                if point[axis] in (200,409400)}),2)
+        for start,end,last_jump in routes:
+            self.assertTrue(any(x in (200,409400) for x in start[:2]))
+            self.assertTrue(any(x in (200,409400) for x in end[:2]))
+            self.assertGreater(math.dist(start,end),250000)
+            self.assertTrue(.5<=last_jump<=.9)
+            body=aircraft_spawn_heading(spawn(4)+bytes(20),end,origin=start)
+            self.assertEqual(struct.unpack_from('>3i',body,25),start)
+            qz,qw=struct.unpack_from('>2f',body,46)
+            length=math.dist(start,end)
+            self.assertLess(math.dist((-2*qz*qw,1-2*qz*qz),((end[0]-start[0])/length,(end[1]-start[1])/length)),1e-6)
+
+    def test_aircraft_keeps_flying_after_manual_or_last_dry_point_exit(self):
+        for manual in (False,True):
+            with self.subTest(manual=manual):
+                game=OfflineGameplay(vehicle_config=4,aircraft_route_speed=5000,
+                    aircraft_route_end=(180000,409400,75000),aircraft_continue_route=True,auto_exit_after=55)
+                game.vehicle_position=(180000,200,75000)
+                self.assertIn(0x6565,[mid for mid,_ in game.board(now=100)])
+                if manual:
+                    with patch('offline_gameplay.time.monotonic',return_value=110):
+                        self.assertEqual([mid for mid,_ in game.handle(0x6566,b'\0')],[0x6544,0x656d])
+                else:
+                    self.assertEqual([mid for mid,_ in game.tick(155)],[0x6544,0x656d])
+                    self.assertEqual(game.vehicle_position,(180000,275200,75000))
+                self.assertFalse(game.seated)
+                self.assertEqual([mid for mid,_ in game.tick(160)],[0x6563])
+                [(mid,body)]=game.tick(182)
+                self.assertEqual(mid,0x6563)
+                self.assertEqual(struct.unpack_from('>3i',body,8),game.aircraft_route_end)
+                self.assertEqual(struct.unpack_from('>I',body,33)[0],0)
+                self.assertEqual(game.tick(185),[])
+
     def game(self):
         game=OfflineGameplay(vehicle_config=4,auto_board=True,opening_airdrop=True,
             aircraft_route_speed=5000,auto_exit_after=81.84,

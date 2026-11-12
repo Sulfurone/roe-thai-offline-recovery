@@ -5,8 +5,10 @@ from contextlib import ExitStack
 import datetime
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
+import random
 import select
 import socket
 import struct
@@ -22,7 +24,7 @@ from offline_control import ControlHub, ControlServer
 from control_actions import ControlSession
 from ingame_bridge import IngameMailbox, IngameInstallation
 from ingame_overlay import OverlayProcess
-from offline_motion import actor_motion, aircraft_spawn_heading
+from offline_motion import actor_motion, aircraft_spawn_heading, random_aircraft_route
 from offline_population import WorldPopulation
 from offline_bots import BotRoster
 from offline_hit_reports import character_hit
@@ -159,6 +161,8 @@ def main():
     parser.add_argument('--gameplay-throwables',action='store_true',help='Acknowledge native throws, consume one item and complete original effects')
     parser.add_argument('--world-zone-plan',type=Path,
                         help='Experimental local circle-stage JSON; requires prototype and population terrain, not original match rules')
+    parser.add_argument('--world-random-zones',action='store_true',
+                        help='Generate safe-zone centers per match, using the configured stage sizes and times')
     parser.add_argument('--world-zone-damage',action='store_true',
                         help='Experimental local circle damage; requires a zone plan and vitals')
     parser.add_argument('--gameplay-posture-speeds',action='store_true',
@@ -169,6 +173,8 @@ def main():
                         help='Diagnostic only: force exit after this many seconds seated; zero disables')
     parser.add_argument('--gameplay-aircraft-route-speed',type=int,choices=range(0,5001),default=0,
                         metavar='CM_PER_SECOND',help='Diagnostic helicopter route speed; zero disables')
+    parser.add_argument('--gameplay-random-aircraft-route',action='store_true',
+                        help='Generate a new Thai cross-map route for the native opening aircraft')
     parser.add_argument('--gameplay-empty-start',action='store_true',
                         help='Start a fresh offline inventory with empty hands and no carried items')
     parser.add_argument('--gameplay-starting-magazine',type=int,choices=range(31),default=30,
@@ -259,8 +265,13 @@ def main():
         parser.error('Choose recovered gun durations or a fixed reload duration, not both')
     if args.ingame_menu_collapsed and not args.ingame_overlay:
         parser.error('--ingame-menu-collapsed requires --ingame-overlay')
-    if args.aircraft_align_heading and args.gameplay_aircraft_route_end is None:
+    if args.aircraft_align_heading and not (args.gameplay_aircraft_route_end or args.gameplay_random_aircraft_route):
         parser.error('--aircraft-align-heading requires a route endpoint')
+    if args.gameplay_random_aircraft_route and (not args.world_client_map or not args.world_populate
+            or not args.gameplay_prototype or args.gameplay_vehicle_config!=4 or not args.gameplay_auto_seat
+            or not args.gameplay_aircraft_route_speed or args.gameplay_aircraft_route_end
+            or args.gameplay_opening_airdrop or args.gameplay_auto_exit_seconds):
+        parser.error('A random aircraft route requires the native opening aircraft and Thai client map without a fixed route or exit timer')
     if args.world_time_tail_bytes is not None and args.world_body_file is None:
         parser.error('--world-time-tail-bytes requires --world-body-file')
     if args.environment_hour is not None and args.world_body_file is not None and args.world_time_tail_bytes is None:
@@ -299,6 +310,8 @@ def main():
         parser.error('--environment-once is only valid with --environment-trigger load')
     opening_glider_body=None
     zone_plan=None
+    if args.world_random_zones and not (args.world_zone_plan and args.world_client_map):
+        parser.error('--world-random-zones requires --world-zone-plan and --world-client-map')
     if args.world_zone_damage and (args.world_zone_plan is None or not args.gameplay_vitals):
         parser.error('--world-zone-damage requires --world-zone-plan and --gameplay-vitals')
     if args.world_zone_plan is not None:
@@ -328,9 +341,7 @@ def main():
         if not (args.gameplay_prototype and args.gameplay_ground_loot and (args.world_terrain or args.world_client_ground or args.world_client_map)
                 and args.control_vehicle_template) or args.gameplay_world_file:
             parser.error('Population requires prototype, ground loot, terrain, Jeep template and a nonpersistent world')
-        if args.world_seed is None:
-            args.world_seed=int.from_bytes(os.urandom(4),'big')
-        if not 0 <= args.world_seed < 2**32:
+        if args.world_seed is not None and not 0 <= args.world_seed < 2**32:
             parser.error('World seed must be 0..4294967295')
         if not 1<=args.world_loot_clusters<=16:
             parser.error('Loot density must be 1..16 pairs per region')
@@ -519,6 +530,8 @@ def main():
         except ValueError:
             parser.error(f'invalid --push-after-map-load message id: {spec!r}')
         map_push_specs.append((message_id, Path(path)))
+    if args.gameplay_random_aircraft_route and not any(mid==0x654b for mid,_ in map_push_specs):
+        parser.error('A random aircraft route requires the map-load aircraft spawn')
     player_push_specs = []
     for spec in args.push_after_player_ready:
         message, separator, path = spec.partition(':')
@@ -640,6 +653,22 @@ def main():
                 lobby = profile if args.native_lobby else None
                 wardrobe = profile.inventory if args.world_wardrobe else None
                 lobby_pushes = []
+                world_seed=args.world_seed if args.world_seed is not None else int.from_bytes(os.urandom(4),'big')
+                aircraft_origin=None
+                aircraft_end=tuple(args.gameplay_aircraft_route_end) if args.gameplay_aircraft_route_end else None
+                aircraft_exit_after=args.gameplay_auto_exit_seconds
+                if args.gameplay_random_aircraft_route:
+                    rng=random.Random(f'{world_seed}:aircraft')
+                    aircraft_origin,aircraft_end,last_jump=random_aircraft_route(rng,population_surface)
+                    aircraft_exit_after=math.dist(aircraft_origin,aircraft_end)*last_jump/args.gameplay_aircraft_route_speed
+                    emit('aircraft_route_selected',seed=world_seed,origin=aircraft_origin,endpoint=aircraft_end,
+                         exit_after_seconds=round(aircraft_exit_after,2))
+                match_zones=zone_plan
+                if args.world_random_zones:
+                    match_zones=zone_plan.randomize(random.Random(f'{world_seed}:zones'),population_surface)
+                    emit('zone_plan_selected',seed=world_seed,
+                         targets=[dict(x=stage.target.x,y=stage.target.y,radius=stage.target.radius)
+                                  for stage in match_zones.stages])
                 environment = (EnvironmentSchedule(args.environment_hour,args.environment_ready_delay)
                                if args.environment_hour is not None
                                and args.environment_trigger == 'player-ready' else None)
@@ -660,19 +689,19 @@ def main():
                     world_file=args.gameplay_world_file,
                     opening_airdrop=args.gameplay_opening_airdrop,
                     opening_glider_body=opening_glider_body,landing_height=landing_height,
-                    aircraft_route_end=tuple(args.gameplay_aircraft_route_end) if args.gameplay_aircraft_route_end else None,
+                    aircraft_route_end=aircraft_end,aircraft_continue_route=args.gameplay_random_aircraft_route,
                     vehicle_config=args.gameplay_vehicle_config,
                     actor_uid=TYPED_ACTOR_UID if args.gameplay_typed_uids else ACTOR_UID,
                     vehicle_uid=TYPED_VEHICLE_UID if args.gameplay_typed_uids else JEEP_UID,
                     initialize_vehicle=args.gameplay_initialize_vehicle,
                     aircraft_route_speed=args.gameplay_aircraft_route_speed,
-                    auto_exit_after=args.gameplay_auto_exit_seconds) if args.gameplay_prototype else None
+                    auto_exit_after=aircraft_exit_after) if args.gameplay_prototype else None
                 control_session = ControlSession(gameplay, control_vehicle_body,
                     client_boarding=args.control_client_boarding,
                     exit_visibility=bot_visibility) if control or args.world_populate else None
                 bots=BotRoster(bot_profile,args.world_bots) if bot_profile is not None else None
                 combat=BotCombat(gameplay,bots,bot_visibility) if args.world_bot_combat else None
-                population = WorldPopulation(control_session,population_surface,args.world_seed,bots=bots,
+                population = WorldPopulation(control_session,population_surface,world_seed,bots=bots,
                     clusters=args.world_loot_clusters,vehicle_clusters=args.world_vehicle_clusters,
                     extra_items=args.world_extra_items,bot_start_delay=args.world_bot_start_delay) if args.world_populate else None
                 ai=BotAI(gameplay,bots,population,bot_visibility,mode=args.world_bot_mode) if args.world_bot_ai else None
@@ -681,7 +710,7 @@ def main():
                     bots.death_parcel = parcels.drop
                 if control_session is not None:control_session.bot_ai=ai
                 blast=BlastCombat(gameplay,bots,bot_visibility) if args.world_throwable_combat else None
-                zones=ZoneSchedule(gameplay,population_surface,zone_plan) if zone_plan is not None else None
+                zones=ZoneSchedule(gameplay,population_surface,match_zones) if match_zones is not None else None
                 if control_session is not None:
                     control_session.zones=zones
                 if bots is not None:bots.zones=zones
@@ -711,7 +740,7 @@ def main():
                     emit('world_collision_ready',**bot_visibility.assets.summary,
                          scope='Owned source primitives; unmatched shapes use conservative bounds; dynamic doors pending')
                 if population is not None:
-                    emit('world_population_ready',seed=args.world_seed,door_replies=args.gameplay_doors,
+                    emit('world_population_ready',seed=world_seed,door_replies=args.gameplay_doors,
                          experimental_peers=args.world_bots,scope='Synthetic finite scenario, not original AI/collision')
                 control_ready_after = None
                 posture_delta_sent=False
@@ -1158,8 +1187,8 @@ def main():
                                 map_pushes_sent = True
                                 for push_id, push_path in map_push_specs:
                                     push_body = push_path.read_bytes()
-                                    if args.aircraft_align_heading and push_id == 0x654b:
-                                        push_body = aircraft_spawn_heading(push_body, args.gameplay_aircraft_route_end)
+                                    if push_id == 0x654b and (args.aircraft_align_heading or aircraft_origin is not None):
+                                        push_body = aircraft_spawn_heading(push_body,aircraft_end,origin=aircraft_origin)
                                     if len(push_body) > 65536:
                                         raise ValueError('Map-load candidate exceeds validated wire bound')
                                     response = struct.pack('>IHI', 1, push_id, push_id) + push_body

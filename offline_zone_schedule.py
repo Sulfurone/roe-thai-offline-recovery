@@ -37,6 +37,40 @@ class ZonePlan:
             seconds+=stage.wait+stage.shrink;previous=stage.target
         if seconds>43200:raise ValueError('Local circle plan exceeds a twelve-hour session')
 
+    def randomize(self, rng, terrain):
+        """Keep stage radii/times and sample nested centers on dry Thai land."""
+        final_radius = self.stages[-1].target.radius
+
+        def dry(x, y):
+            height = terrain.height_at(x,y)
+            return height is not None and math.isfinite(height) and height>=6500-1e-6
+
+        for _ in range(64):
+            previous = self.initial
+            stages = []
+            for index,stage in enumerate(self.stages):
+                radius = stage.target.radius
+                limit = max(0,previous.radius-radius-1)
+                for _ in range(32):
+                    angle = rng.uniform(0,math.tau)
+                    distance = limit*math.sqrt(rng.random())
+                    x = round(previous.x+distance*math.cos(angle))
+                    y = round(previous.y+distance*math.sin(angle))
+                    if not (final_radius<=x<=409600-final_radius and final_radius<=y<=409600-final_radius
+                            and dry(x,y)):
+                        continue
+                    if index==len(self.stages)-1 and not all(
+                            dry(x+radius*math.cos(i*math.tau/8),y+radius*math.sin(i*math.tau/8)) for i in range(8)):
+                        continue
+                    previous = Circle(x,y,radius)
+                    stages.append(ZoneStage(previous,stage.wait,stage.shrink))
+                    break
+                else:
+                    break
+            if len(stages)==len(self.stages):
+                return ZonePlan(self.initial,tuple(stages))
+        raise ValueError('Could not find nested Thai safe zones with a dry final circle')
+
     @classmethod
     def read(cls,path):
         path=Path(path)

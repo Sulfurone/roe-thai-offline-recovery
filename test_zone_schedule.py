@@ -2,6 +2,8 @@ import json
 import contextlib
 import io
 from pathlib import Path
+import math
+import random
 import struct
 import tempfile
 from types import SimpleNamespace
@@ -24,6 +26,24 @@ def schedule():
 
 
 class ZoneScheduleTests(unittest.TestCase):
+    def test_random_match_zones_are_repeatable_nested_and_keep_pacing(self):
+        daily=ZonePlan.read(Path(__file__).with_name('examples')/'thai-match-circle-plan.json')
+        terrain=SimpleNamespace(height_at=lambda x,y: 9500 if 85000<=x<=320000 and 85000<=y<=320000 else 6000)
+        first=daily.randomize(random.Random(13),terrain)
+        self.assertEqual(first,daily.randomize(random.Random(13),terrain))
+        self.assertNotEqual(first,daily.randomize(random.Random(14),terrain))
+        self.assertEqual(first.initial,daily.initial)
+        previous=first.initial
+        for stage,template in zip(first.stages,daily.stages):
+            circle=stage.target
+            self.assertEqual((circle.radius,stage.wait,stage.shrink),(template.target.radius,template.wait,template.shrink))
+            self.assertLessEqual(math.hypot(circle.x-previous.x,circle.y-previous.y)+circle.radius,previous.radius)
+            previous=circle
+        for i in range(8):
+            angle=i*math.tau/8
+            self.assertGreaterEqual(terrain.height_at(previous.x+previous.radius*math.cos(angle),
+                                                      previous.y+previous.radius*math.sin(angle)),6500)
+
     def test_daily_plan_covers_the_map_and_gives_four_minutes_before_shrinking(self):
         daily=ZonePlan.read(Path(__file__).with_name('examples')/'thai-match-circle-plan.json')
         self.assertEqual(len(daily.stages),4)

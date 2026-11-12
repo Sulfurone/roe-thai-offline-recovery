@@ -26,6 +26,13 @@ class AircraftLauncherPhaseTests(unittest.TestCase):
                 '--environment-ready-delay 1 --environment-once --gameplay-prototype')
         self.assertEqual(remove_environment_clock(text), 'server --gameplay-prototype')
 
+    def test_daily_launchers_generate_the_aircraft_route_and_zone_centers(self):
+        for name in ('start_ingame_control.cmd','start_native_lobby_recovery.cmd'):
+            launcher=(self.root/name).read_text(encoding='utf-8')
+            self.assertIn('--gameplay-random-aircraft-route',launcher)
+            self.assertIn('--world-random-zones',launcher)
+            self.assertNotIn('--gameplay-aircraft-route-end',launcher)
+
     def test_environment_launchers_keep_stable_parachute_clean_and_weather_isolated(self):
         stable = (self.root / 'start_offline_parachute.cmd').read_text(encoding='utf-8')
         combined = (self.root / 'start_offline_day_weather.cmd').read_text(encoding='utf-8')
