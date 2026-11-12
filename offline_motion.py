@@ -92,3 +92,14 @@ def aircraft_spawn_heading(body, endpoint, *, origin=None):
     struct.pack_into('>3i', updated, start + 12, *origin)
     struct.pack_into('>4f', updated, start + 25, 0., 0., math.sin(yaw / 2), math.cos(yaw / 2))
     return bytes(updated)
+
+
+def aircraft_scene_at_origin(body, origin):
+    """Move the initial actor in the Thai scene-cross-map 0x0DCF fixture."""
+    # The original reader decodes wire offset 1344 to scene DTO +0x65c.
+    offset = 1344
+    original = struct.pack('>3i',200,204800,75000)
+    end = offset + len(original)
+    if len(body)!=1935 or body[offset:end]!=original:
+        raise ValueError('Expected the Thai scene-cross-map starting position')
+    return body[:offset] + struct.pack('>3i',*origin) + body[end:]

@@ -24,7 +24,7 @@ from offline_control import ControlHub, ControlServer
 from control_actions import ControlSession
 from ingame_bridge import IngameMailbox, IngameInstallation
 from ingame_overlay import OverlayProcess
-from offline_motion import actor_motion, aircraft_spawn_heading, random_aircraft_route
+from offline_motion import actor_motion, aircraft_scene_at_origin, aircraft_spawn_heading, random_aircraft_route
 from offline_population import WorldPopulation
 from offline_bots import BotRoster
 from offline_hit_reports import character_hit
@@ -687,6 +687,14 @@ def main():
                     aircraft_exit_after=math.dist(aircraft_origin,aircraft_end)*last_jump/args.gameplay_aircraft_route_speed
                     emit('aircraft_route_selected',seed=world_seed,origin=aircraft_origin,endpoint=aircraft_end,
                          exit_after_seconds=round(aircraft_exit_after,2))
+
+                def scene_push_body(message_id, path):
+                    body = path.read_bytes()
+                    if message_id==0x0dcf and aircraft_origin is not None:
+                        body = aircraft_scene_at_origin(body,aircraft_origin)
+                        emit('aircraft_scene_origin_sent',position=aircraft_origin)
+                    return body
+
                 match_zones=zone_plan
                 if args.world_random_zones:
                     match_zones=zone_plan.randomize(random.Random(f'{world_seed}:zones'),population_surface)
@@ -867,7 +875,7 @@ def main():
                     while time.monotonic() < deadline:
                         if state == 'transport_ready' and lobby_pushes and time.monotonic() >= lobby_pushes[0][0]:
                             _, push_id, push_path = lobby_pushes.pop(0)
-                            push_body = push_path.read_bytes()
+                            push_body = scene_push_body(push_id,push_path)
                             if len(push_body) > 65536:
                                 raise ValueError('Lobby start push exceeds the wire bound')
                             response = struct.pack('>IHI', 1, push_id, push_id) + push_body
@@ -1235,7 +1243,7 @@ def main():
                                     and (lobby is None or lobby.start_requested)):
                                 loaded_pushes_sent = True
                                 for push_id, push_path in loaded_push_specs:
-                                    push_body = push_path.read_bytes()
+                                    push_body = scene_push_body(push_id,push_path)
                                     if len(push_body) > 65536:
                                         raise ValueError('Scene candidate exceeds the validated wire bound')
                                     response = struct.pack('>IHI', 1, push_id, push_id) + push_body
@@ -1259,7 +1267,7 @@ def main():
                                      body_sha256=hashlib.sha256(team_body).hexdigest(),
                                      source=str(args.team_body_file))
                                 for push_id, push_path in push_specs:
-                                    push_body = push_path.read_bytes()
+                                    push_body = scene_push_body(push_id,push_path)
                                     response = struct.pack('>IHI', 1, push_id, push_id) + push_body
                                     send(connection, 0, body=encrypt(response, key))
                                     emit('team_chain_push_sent', message_id=push_id,

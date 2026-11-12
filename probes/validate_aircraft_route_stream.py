@@ -12,8 +12,36 @@ from unicorn import UC_HOOK_CODE
 from unicorn.x86_const import UC_X86_REG_EAX,UC_X86_REG_ESP,UC_X86_REG_EIP
 sys.path.insert(0,str(ROOT))
 from offline_gameplay import OfflineGameplay
+from offline_motion import aircraft_scene_at_origin, aircraft_spawn_heading
 
 c=NativeCodec()
+
+
+def decoded(message,body,size):
+    result = c.decode_server(message,body)
+    if result['code'] or result['consumed']!=result['bytes']:
+        raise ValueError(f'Original reader rejected {message:#x}: {result}')
+    return bytes(c.uc.mem_read(c.ROOT_OBJECT+10,size))
+
+
+fixtures = ROOT/'private/typed-gameplay'
+scene = (fixtures/'scene-cross-map.bin').read_bytes()
+plane = (fixtures/'vehicle-cross-map.bin').read_bytes()
+source = decoded(0x0dcf,scene,0xaa1)
+if struct.unpack_from('<3i',source,0x65c)!=(200,204800,75000):
+    raise ValueError('Unexpected native scene fixture position')
+scene_alignment = []
+for origin,end in (((409400,128896,75000),(200,385251,75000)),
+                   ((220000,200,75000),(123000,409400,75000)),
+                   ((85000,409400,75000),(270000,200,75000))):
+    actor = decoded(0x0dcf,aircraft_scene_at_origin(scene,origin),0xaa1)
+    aircraft = decoded(0x654b,aircraft_spawn_heading(plane,end,origin=origin),0x1259)
+    if (actor!=source[:0x65c]+struct.pack('<3i',*origin)+source[0x668:]
+            or struct.unpack_from('<3i',aircraft,0x94)!=origin):
+        raise ValueError(f'Native scene and aircraft origins disagree for {origin}')
+    scene_alignment.append(origin)
+
+
 unit,vtable,controller=0x10800000,0x10801000,0x10802000
 position,direction,target=0x10803000,0x10803100,0x10803200
 getter,setter,facing=0x10900000,0x10900020,0x10900040
@@ -76,6 +104,7 @@ for frame in range(1635):
 if not 390000<previous[0]<=409400 or max_step>1000:
     raise ValueError(f'Bounded route has unexpected position or jump: {previous}, max_step={max_step}')
 report={'passed':True,'old_far_target_first_step':old,'bounded_samples':samples,
+        'scene_and_aircraft_origins':scene_alignment,
         'max_step_cm':max_step,'frame_seconds':.05,'sync_interval_seconds':.25,
         'initial_snap_threshold_cm':threshold,'scope':'Isolated controller; real rendered flight remains unverified'}
 (OUT/'aircraft-route-stream-validation.json').write_text(json.dumps(report,indent=2),encoding='utf-8')

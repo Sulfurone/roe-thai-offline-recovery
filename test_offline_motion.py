@@ -2,7 +2,7 @@ import math
 import struct
 import unittest
 
-from offline_motion import actor_motion, aircraft_spawn_heading
+from offline_motion import actor_motion, aircraft_scene_at_origin, aircraft_spawn_heading
 
 
 def move_body(sequence, points):
@@ -46,6 +46,19 @@ class MotionTests(unittest.TestCase):
             self.assertAlmostEqual(facing[1], endpoint[1] / length, places=6)
             self.assertEqual(body[:offset], source[:offset])
             self.assertEqual(body[offset + 16:], source[offset + 16:])
+
+    def test_eastern_route_updates_scene_and_aircraft_together(self):
+        west = (200,204800,75000)
+        east = (409400,128896,75000)
+        scene = b'a'*1344 + struct.pack('>3i',*west) + b'b'*579
+        placed = aircraft_scene_at_origin(scene,east)
+        aircraft = aircraft_spawn_heading(plane_body(),(200,385251,75000),origin=east)
+        self.assertEqual(struct.unpack_from('>3i',placed,1344),east)
+        self.assertEqual(struct.unpack_from('>3i',aircraft,12+len(b'Aircraft\0')+12),east)
+        self.assertEqual(placed[:1344]+placed[1356:],scene[:1344]+scene[1356:])
+        self.assertEqual(aircraft_scene_at_origin(scene,west),scene)
+        with self.assertRaises(ValueError):
+            aircraft_scene_at_origin(placed,east)
 
 
 if __name__ == '__main__':
