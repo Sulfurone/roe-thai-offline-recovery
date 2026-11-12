@@ -846,10 +846,12 @@ def main():
                                 send(connection,0,body=encrypt(response,key))
                                 emit('local_survivor_status_sent',count=survivors.last_count,
                                      scope='Local player and surviving bots, including those outside client interest')
-                        if round_result is not None and state=='transport_ready' and loaded_pushes_sent:
-                            if round_result.tick():
-                                emit('local_round_result',result=round_result.state,
-                                     scope='Local overlay only; not original match result')
+                        if (round_result is not None and state=='transport_ready'
+                                and loaded_pushes_sent and round_result.tick()):
+                            emit('local_round_result',result=round_result.state,
+                                 placement=round_result.placement,participants=round_result.size,
+                                 scope='Local overlay')
+                            send_control_commands()
                         # Advance timers even when the client is continuously
                         # sending; boarding/jump/reload must not wait for quiet.
                         # Socket reads

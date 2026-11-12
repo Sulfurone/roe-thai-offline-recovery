@@ -84,6 +84,19 @@ class IngameOverlayTests(unittest.TestCase):
         overlay.root.deiconify.assert_not_called()
         overlay.root.focus_force.assert_not_called()
 
+    def test_death_displays_rank_in_collapsed_entry_without_taking_focus(self):
+        overlay=menu();overlay.tick()
+        overlay.client.state=lambda:{'ready':'0','round_state':'lost','round_placement':'64','round_size':'64'}
+        overlay.tick()
+        result='本地对局结算 · 已淘汰\n第 64 名 / 共 64 人'
+        self.assertEqual(overlay.entry_text.get(),result)
+        self.assertEqual(overlay.status.get(),result)
+        self.assertEqual(overlay.entry.state(),'normal')
+        overlay.entry.geometry.assert_called_with('260x64+1736+145')
+        self.assertFalse(overlay.expanded)
+        overlay.root.deiconify.assert_not_called()
+        overlay.root.focus_force.assert_not_called()
+
     def test_explicit_open_close_hides_window_and_ready_does_not_reopen_it(self):
         overlay=menu();overlay.game=123
         overlay.toggle()

@@ -416,7 +416,10 @@ class Overlay:
                 self.position_text.set('当前位置（米）：' + ' / '.join(f'{int(v) / 100:.1f}' for v in state['position'].split(',')))
             self.vehicle_hint.set(nearby_hint(state,'vehicles','路边车辆'))
             self.peer_hint.set(bot_hint(state))
-            outcome={'won':'本地对局：胜利','lost':'本地对局：失败'}.get(state.get('round_state'))
+            outcome={'won':'本地对局结算 · 胜利','lost':'本地对局结算 · 已淘汰'}.get(state.get('round_state'))
+            placement, size = state.get('round_placement',''), state.get('round_size','')
+            if outcome and placement.isdecimal() and size.isdecimal():
+                outcome += f'\n第 {placement} 名 / 共 {size} 人'
             self.entry_text.set(outcome or '离线控制 · 点击')
             self.status.set(outcome or ('已连接 · 可操作' if ready else '界面预览 · 操作已禁用' if self.args.preview else '等待角色进入地图…'))
             enabled = ready and self.client.pending is None
@@ -436,7 +439,8 @@ class Overlay:
                                and not self.win.user.IsIconic(game) and self.win.active(game))
             if entry_visible:
                 x,y,width,height=bounds
-                entry_geometry=f'140x34{x+max(8,width-164):+d}{y+min(45,max(0,height-34)):+d}'
+                entry_width, entry_height = (260,64) if outcome else (140,34)
+                entry_geometry=f'{entry_width}x{entry_height}{x+max(8,width-entry_width-24):+d}{y+min(45,max(0,height-entry_height)):+d}'
                 if entry_geometry!=self.entry_geometry:
                     self.entry.geometry(entry_geometry);self.entry_geometry=entry_geometry
                 if self.entry.state()=='withdrawn':self.entry.deiconify()

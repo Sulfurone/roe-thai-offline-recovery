@@ -16,6 +16,7 @@ class LocalRoundTests(unittest.TestCase):
         b.actors[2]={};b.vitals[2]=Vitals()
         self.assertFalse(r.tick());self.assertEqual(r.state,'playing')
         b.vitals[2].damage(1000);self.assertTrue(r.tick());self.assertEqual(r.state,'won')
+        self.assertEqual((r.placement,r.size),(1,3))
         self.assertFalse(r.tick());g.vitals.damage(1000);self.assertFalse(r.tick())
     def test_missing_registered_actor_cannot_grant_victory(self):
         g,b,r=self.make();g.actor_ready=True
@@ -28,6 +29,19 @@ class LocalRoundTests(unittest.TestCase):
         g.vitals.damage(1000);self.assertTrue(r.tick());self.assertEqual(r.state,'lost')
         control=ControlSession(g);control.round_result=r
         self.assertEqual(control.snapshot()['round_state'],'lost')
+
+    def test_placement_counts_pending_bots_and_freezes_at_death(self):
+        game=OfflineGameplay();game.actor_ready=True
+        bots=SimpleNamespace(count=63,actors={},vitals={1:Vitals(current=0),2:Vitals()})
+        result=LocalRoundResult(game,bots)
+        game.vitals.damage(1000)
+        self.assertTrue(result.tick())
+        bots.vitals[2].damage(1000)
+        self.assertFalse(result.tick())
+        control=ControlSession(game);control.round_result=result
+        snapshot=control.snapshot()
+        self.assertEqual((snapshot['round_state'],snapshot['round_placement'],snapshot['round_size']),
+                         ('lost',63,64))
     def test_no_player_no_result_and_invalid_roster_rejected(self):
         g,b,r=self.make();g.vitals.damage(1000);self.assertFalse(r.tick())
         with self.assertRaises(ValueError):LocalRoundResult(g,SimpleNamespace(count=0))

@@ -75,6 +75,8 @@ class ControlSession:
                     bots_total=bots.count if bots else 0,
                     bots_alive=sum(hp.current>0 for hp in bots.vitals.values()) if bots else 0,
                     round_state=self.round_result.state if self.round_result else None,
+                    round_placement=self.round_result.placement if self.round_result else None,
+                    round_size=self.round_result.size if self.round_result else None,
                     vehicles=[dict(uid=str(uid), name=LAND_VEHICLES[car.vehicle_config].name, position=list(car.vehicle_position),
                                    seated=car.seated) for uid, car in self.vehicles.items()],
                     peers=[dict(name=f'OfflineBot{uid-TYPED_ACTOR_UID-0x1000+1}',position=list(actor['position']),

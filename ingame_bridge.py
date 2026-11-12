@@ -73,7 +73,8 @@ class IngameMailbox:
         body = f'token={self.token}\nready={int(snapshot["ready"])}\nseq={seq}\nstatus={status}\nmessage={message}\n'
         body+='bots_enabled='+str(int(snapshot.get('bots_enabled',False)))+'\nbot_mode='+str(snapshot.get('bot_mode') or '')+'\n'
         body+='bots_total='+str(snapshot.get('bots_total',0))+'\nbots_alive='+str(snapshot.get('bots_alive',0))+'\n'
-        body+='round_state='+str(snapshot.get('round_state') or '')+'\n'
+        for key in ('round_state','round_placement','round_size'):
+            body+=f'{key}={snapshot.get(key) or ""}\n'
         position = snapshot.get('position')
         if position is not None:
             body += 'position=' + ','.join(map(str, position)) + '\n'

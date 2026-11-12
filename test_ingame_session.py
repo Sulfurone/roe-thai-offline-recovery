@@ -72,7 +72,7 @@ class IngameSessionTests(unittest.TestCase):
         self.run_session('--ingame-overlay',population=True,vitals=True,combat=True)
 
     def test_bot_ai_arms_fires_and_damages_local_player_over_encrypted_connection(self):
-        self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,ai=True)
+        self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,ai=True,round_result=True)
 
     def test_native_throw_completion_applies_self_blast_once_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,throws=True,blast=True)
@@ -572,7 +572,9 @@ class IngameSessionTests(unittest.TestCase):
                                 while time.monotonic()<deadline:
                                     if menu.state().get('round_state')=='won':break
                                     time.sleep(.05)
-                                self.assertEqual(menu.state().get('round_state'),'won')
+                                result=menu.state()
+                                self.assertEqual((result['round_state'],result['round_placement'],result['round_size']),
+                                                 ('won','1','2'))
                     if ai:
                         roster=combats[0].bots
                         roster.actors[bot_uid]['position']=(326000,271700,6500)
@@ -610,6 +612,14 @@ class IngameSessionTests(unittest.TestCase):
                             self.assertEqual(games[0].inventory.items[1,12].durability,0)
                         self.assertEqual(dead,struct.pack('>IQ',0,256))
                         self.assertEqual(ais[0].brains[bot_uid].magazine,27 if armour else 28)
+                        if round_result:
+                            deadline=time.monotonic()+3
+                            result=menu.state()
+                            while result.get('round_state')!='lost' and time.monotonic()<deadline:
+                                time.sleep(.05)
+                                result=menu.state()
+                            self.assertEqual((result['round_state'],result['round_placement'],result['round_size'],result['ready']),
+                                             ('lost','2','2','0'))
                     if zones:
                         limit=time.monotonic()+8
                         final=False
