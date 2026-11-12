@@ -31,6 +31,7 @@ class AircraftLauncherPhaseTests(unittest.TestCase):
             launcher=(self.root/name).read_text(encoding='utf-8')
             self.assertIn('--gameplay-random-aircraft-route',launcher)
             self.assertIn('--world-random-zones',launcher)
+            self.assertIn('--world-supply-drops',launcher)
             self.assertNotIn('--gameplay-aircraft-route-end',launcher)
 
     def test_environment_launchers_keep_stable_parachute_clean_and_weather_isolated(self):

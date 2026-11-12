@@ -61,12 +61,27 @@ class IngameOverlayTests(unittest.TestCase):
         overlay.show_match_hud=MagicMock()
         overlay.client.state=lambda:{'ready':'1','zone_countdown':'2,65'}
         overlay.tick()
-        overlay.show_match_hud.assert_called_once_with('circle','缩圈结束  01:05','158x30+1838+842')
+        overlay.show_match_hud.assert_any_call('circle','缩圈结束  01:05','158x30+1838+842')
         overlay.root.focus_force.assert_not_called()
         self.assertFalse(overlay.expanded)
         overlay.win.active.return_value=False
         overlay.tick()
         overlay.show_match_hud.assert_any_call('circle','',None)
+
+    def test_supply_hud_shows_countdown_and_coordinates_without_stealing_focus(self):
+        overlay=menu()
+        overlay.show_match_hud=MagicMock()
+        overlay.client.state=lambda:{'ready':'1','supply_drop':'incoming,330200,147800,11'}
+        overlay.tick()
+        geometry='278x30+1718+807'
+        overlay.show_match_hud.assert_any_call('supply','空投 11 秒后落地　X 3302　Y 1478',geometry)
+        overlay.client.state=lambda:{'ready':'1','supply_drop':'landed,330200,147800,0'}
+        overlay.tick()
+        overlay.show_match_hud.assert_any_call('supply','空投已落地　X 3302　Y 1478',geometry)
+        overlay.win.active.return_value=False
+        overlay.tick()
+        overlay.show_match_hud.assert_any_call('supply','',None)
+        overlay.root.focus_force.assert_not_called()
     def test_gameplay_starts_hidden_in_both_legacy_launch_modes(self):
         for collapsed in (False,True):
             overlay=menu(collapsed=collapsed)

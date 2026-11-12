@@ -30,7 +30,8 @@ from offline_bots import BotRoster
 from offline_hit_reports import character_hit
 from offline_combat import BotCombat
 from offline_bot_ai import BotAI
-from offline_bot_parcels import BotParcels
+from offline_bot_parcels import BotParcels,WorldParcels
+from offline_supply_drops import SupplyDrops,supply_vehicle
 from offline_blast import BlastCombat
 from offline_visibility import StaticVisibility
 from offline_zone_schedule import ZonePlan,ZoneSchedule
@@ -163,6 +164,8 @@ def main():
                         help='Experimental local circle-stage JSON; requires prototype and population terrain, not original match rules')
     parser.add_argument('--world-random-zones',action='store_true',
                         help='Generate safe-zone centers per match, using the configured stage sizes and times')
+    parser.add_argument('--world-supply-drops',action='store_true',
+                        help='Schedule searchable supply drops inside the next safe zone')
     parser.add_argument('--world-zone-damage',action='store_true',
                         help='Experimental local circle damage; requires a zone plan and vitals')
     parser.add_argument('--gameplay-posture-speeds',action='store_true',
@@ -312,6 +315,8 @@ def main():
     zone_plan=None
     if args.world_random_zones and not (args.world_zone_plan and args.world_client_map):
         parser.error('--world-random-zones requires --world-zone-plan and --world-client-map')
+    if args.world_supply_drops and not (args.world_zone_plan and args.world_client_map):
+        parser.error('--world-supply-drops requires a zone plan and Thai map')
     if args.world_zone_damage and (args.world_zone_plan is None or not args.gameplay_vitals):
         parser.error('--world-zone-damage requires --world-zone-plan and --gameplay-vitals')
     if args.world_zone_plan is not None:
@@ -532,6 +537,25 @@ def main():
         map_push_specs.append((message_id, Path(path)))
     if args.gameplay_random_aircraft_route and not any(mid==0x654b for mid,_ in map_push_specs):
         parser.error('A random aircraft route requires the map-load aircraft spawn')
+    supply_template = None
+    if args.world_supply_drops:
+        try:
+            for mid,path in map_push_specs:
+                if mid!=0x654b:
+                    continue
+                candidate=path.read_bytes()
+                if len(candidate)<16 or len(candidate)>65536:
+                    continue
+                try:
+                    supply_vehicle(candidate,TYPED_VEHICLE_UID,(0,0,0))
+                except ValueError:
+                    continue
+                supply_template=candidate
+                break
+            if supply_template is None:
+                raise ValueError('Expected a config-4 aircraft spawn fixture')
+        except (OSError,ValueError) as error:
+            parser.error(f'Cannot prepare supply aircraft: {error}')
     player_push_specs = []
     for spec in args.push_after_player_ready:
         message, separator, path = spec.partition(':')
@@ -705,14 +729,18 @@ def main():
                     clusters=args.world_loot_clusters,vehicle_clusters=args.world_vehicle_clusters,
                     extra_items=args.world_extra_items,bot_start_delay=args.world_bot_start_delay) if args.world_populate else None
                 ai=BotAI(gameplay,bots,population,bot_visibility,mode=args.world_bot_mode) if args.world_bot_ai else None
-                parcels = BotParcels(gameplay,bots,ai) if ai is not None else None
-                if parcels is not None:
+                parcels = (BotParcels(gameplay,bots,ai) if ai is not None else
+                           WorldParcels(gameplay) if supply_template is not None else None)
+                if ai is not None:
                     bots.death_parcel = parcels.drop
                 if control_session is not None:control_session.bot_ai=ai
                 blast=BlastCombat(gameplay,bots,bot_visibility) if args.world_throwable_combat else None
                 zones=ZoneSchedule(gameplay,population_surface,match_zones) if match_zones is not None else None
+                supplies = (SupplyDrops(gameplay,zones,parcels,supply_template,world_seed,bot_visibility)
+                            if supply_template is not None else None)
                 if control_session is not None:
                     control_session.zones=zones
+                    control_session.supplies=supplies
                 if bots is not None:bots.zones=zones
                 if bots is not None and native_result_name is not None:
                     def native_bot_death(uid,killer,weapon,headshot):
@@ -889,6 +917,10 @@ def main():
                                     send(connection,0,body=encrypt(response,key))
                                 for event in zone_damage.events:
                                     emit('local_zone_damage',**event)
+                            if supplies is not None:
+                                send_application_batch(connection,supplies.tick(time.monotonic()),key)
+                                if supplies.last_event is not None:
+                                    emit('local_supply_drop',**supplies.last_event)
                         if (population is not None and state == 'transport_ready' and loaded_pushes_sent
                                 and world_turn and not pending_world and cadence.due('population')):
                             work_counts['population']+=1

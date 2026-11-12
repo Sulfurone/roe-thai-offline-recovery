@@ -78,6 +78,9 @@ class IngameMailbox:
         countdown=snapshot.get('zone_countdown')
         if countdown is not None:
             body+=f'zone_countdown={countdown[0]},{countdown[1]}\n'
+        supply=snapshot.get('supply_drop')
+        if supply is not None:
+            body+='supply_drop='+','.join(map(str,supply))+'\n'
         position = snapshot.get('position')
         if position is not None:
             body += 'position=' + ','.join(map(str, position)) + '\n'

@@ -424,6 +424,7 @@ class Overlay:
     def update_match_hud(self,state,bounds):
         if not bounds:
             self.show_match_hud('circle','',None)
+            self.show_match_hud('supply','',None)
             return
         x,y,width,height=bounds
         phase,_,remaining=state.get('zone_countdown','').partition(',')
@@ -435,6 +436,15 @@ class Overlay:
         top=max(0,height-round(min(width,height)*.28)-36)
         self.show_match_hud('circle',timer,
             f'{timer_width}x30{x+max(0,width-timer_width-24):+d}{y+top:+d}')
+        supply=''
+        fields=state.get('supply_drop','').split(',')
+        if len(fields)==4 and fields[0] in ('incoming','landed') and all(v.isdecimal() for v in fields[1:]):
+            px,py,seconds=map(int,fields[1:])
+            action=f'空投 {seconds} 秒后落地' if fields[0]=='incoming' else '空投已落地'
+            supply=f'{action}　X {px/100:.0f}　Y {py/100:.0f}'
+        supply_width=min(278,width)
+        self.show_match_hud('supply',supply,
+            f'{supply_width}x30{x+max(0,width-supply_width-24):+d}{y+max(0,top-35):+d}')
 
     def tick(self):
         try:

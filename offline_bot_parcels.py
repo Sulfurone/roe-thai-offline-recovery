@@ -10,31 +10,18 @@ from offline_items import SPAWNABLE_EXTRA_ITEMS
 from offline_weapons import AMMUNITION,WEAPONS,is_weapon
 
 
-class BotParcels:
-    def __init__(self, game, bots, ai):
-        self.game, self.bots, self.ai = game, bots, ai
+class WorldParcels:
+    def __init__(self, game):
+        self.game = game
         self.parcels = {}
-        self.owners = set()
         self.opened = set()
 
-    def drop(self, uid):
+    def add(self, position, loot, name):
         world = self.game.ground_loot
-        if uid in self.owners or uid not in self.bots.actors or world is None:
-            return []
-        if len(self.parcels) >= BotRoster.MAX_COUNT or world.next_entity >= 2**32:
-            return []
-        loadout = self.ai.loadouts[uid]
-        brain = self.ai.brains.get(uid)
-        primary,secondary = WEAPONS[loadout.primary],WEAPONS[loadout.secondary]
-        supplies = dict(loadout.supplies)
-        supplies[primary.ammunition] += brain.reserve if brain is not None else BOT_COMBAT_RESERVE
-        loot = [(loadout.primary, primary.kind, 1, brain.magazine if brain is not None else primary.capacity),
-                (loadout.secondary, secondary.kind, 1, secondary.capacity)]
-        loot.extend((template,3 if template in AMMUNITION else SPAWNABLE_EXTRA_ITEMS[template].kind,count,0)
-                    for template,count in supplies.items())
+        if world is None or world.next_entity >= 2**32:
+            return None
         entity = world.next_entity
         world.next_entity += 1
-        position = self.bots.actors[uid]['position']
         items = {}
         inventory = self.game.inventory
         for template, kind, count, magazine in loot:
@@ -43,14 +30,17 @@ class BotParcels:
             slot = len(items) + 1
             items[slot] = GroundStack(entity, position, item, magazine)
         self.parcels[entity] = (position, items)
-        self.owners.add(uid)
-        name = b'OfflineBotLoot\0'
         body = struct.pack('>IQI', 30201002, entity, len(name)) + name
         body += struct.pack('>I', 1) + b'\0' + struct.pack('>I', 1) + b'\0'
         body += struct.pack('>3iBfI', *position, 0, 0., 1)
         body += struct.pack('>IQB5I', 0, 0, 1, 0, 0, entity, 0, 0)
         body += bytes(4) + struct.pack('>IB', 0, 0)
-        return [(0x821, body)]
+        return entity, (0x821, body)
+
+    def remove(self, entity):
+        del self.parcels[entity]
+        self.opened.discard(entity)
+        return 0x82b, struct.pack('>Q',entity)
 
     def contents(self, entity):
         _, items = self.parcels[entity]
@@ -99,3 +89,28 @@ class BotParcels:
             return [replies[0], (0x3b64, notice), self.contents(entity)]
         finally:
             world.stacks.pop(entity,None)
+
+
+class BotParcels(WorldParcels):
+    def __init__(self, game, bots, ai):
+        super().__init__(game)
+        self.bots, self.ai = bots, ai
+        self.owners = set()
+
+    def drop(self, uid):
+        if uid in self.owners or uid not in self.bots.actors or len(self.owners)>=BotRoster.MAX_COUNT:
+            return []
+        loadout = self.ai.loadouts[uid]
+        brain = self.ai.brains.get(uid)
+        primary,secondary = WEAPONS[loadout.primary],WEAPONS[loadout.secondary]
+        supplies = dict(loadout.supplies)
+        supplies[primary.ammunition] += brain.reserve if brain is not None else BOT_COMBAT_RESERVE
+        loot = [(loadout.primary, primary.kind, 1, brain.magazine if brain is not None else primary.capacity),
+                (loadout.secondary, secondary.kind, 1, secondary.capacity)]
+        loot.extend((template,3 if template in AMMUNITION else SPAWNABLE_EXTRA_ITEMS[template].kind,count,0)
+                    for template,count in supplies.items())
+        result = self.add(self.bots.actors[uid]['position'],loot,b'OfflineBotLoot\0')
+        if result is None:
+            return []
+        self.owners.add(uid)
+        return [result[1]]

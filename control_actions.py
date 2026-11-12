@@ -51,6 +51,7 @@ class ControlSession:
         self.bot_ai=None
         self.round_result=None
         self.zones=None
+        self.supplies=None
         self.active_vehicle = None
         self.client_boarding=client_boarding
         self.last_board_event=None
@@ -88,6 +89,7 @@ class ControlSession:
                     round_placement=self.round_result.placement if self.round_result else None,
                     round_size=self.round_result.size if self.round_result else None,
                     zone_countdown=self.zones.countdown(now) if self.zones else None,
+                    supply_drop=self.supplies.status(now) if self.supplies else None,
                     vehicles=[dict(uid=str(uid), name=LAND_VEHICLES[car.vehicle_config].name, position=list(car.vehicle_position),
                                    seated=car.seated) for uid, car in self.vehicles.items()],
                     peers=[dict(name=BotRoster.name_for(uid),position=list(actor['position']),
