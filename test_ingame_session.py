@@ -603,6 +603,7 @@ class IngameSessionTests(unittest.TestCase):
                                 result=menu.state()
                                 self.assertEqual((result['round_state'],result['round_placement'],result['round_size']),
                                                  ('won','1','2'))
+                                self.assertEqual(json.loads(result['kill_feed']),['你  淘汰了  AI-1'])
                     if ai:
                         roster=combats[0].bots
                         roster.actors[bot_uid]['position']=(326000,271700,6500)

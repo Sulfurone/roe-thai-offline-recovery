@@ -708,7 +708,11 @@ def main():
                          world_profile=str(args.gameplay_world_file) if args.gameplay_world_file else None,
                          ground_stacks=len(gameplay.ground_loot.stacks) if gameplay.ground_loot else None)
                 def send_gameplay_timers():
-                    for response_id,response_body in gameplay.tick():
+                    was_seated=gameplay.seated
+                    replies=gameplay.tick()
+                    if control is not None and gameplay.seated!=was_seated:
+                        control.update(seated=gameplay.seated)
+                    for response_id,response_body in replies:
                         response=struct.pack('>IHI',1,response_id,response_id)+response_body
                         send(connection,0,body=encrypt(response,key))
                         emit('gameplay_timer_response_sent',message_id=response_id,
@@ -1032,6 +1036,7 @@ def main():
                             if gameplay is not None and loaded_pushes_sent and lobby_replies is None:
                                 previous_saves=gameplay.state_save_count
                                 previous_magazine=gameplay.magazine
+                                was_seated=gameplay.seated
                                 bot_replies=bots.handle(message_id,application[26:]) if bots is not None else None
                                 if ai is not None and bot_replies is not None:
                                     for reply_id,reply_body in list(bot_replies):
@@ -1049,6 +1054,8 @@ def main():
                                         emit('vehicle_board_request',**control_session.last_board_event)
                                 gameplay_replies=(gameplay.handle(message_id,application[26:])
                                                   if control_replies is None else control_replies)
+                                if control is not None and gameplay.seated!=was_seated:
+                                    control.update(seated=gameplay.seated)
                                 if (message_id==0x3e80 and application[26:27]==b'\1'
                                         and gameplay.inventory is not None and gameplay.inventory.last_transfer_event):
                                     emit('inventory_transfer',**gameplay.inventory.last_transfer_event)
