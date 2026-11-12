@@ -25,6 +25,16 @@ WEAPONS={ident:WeaponSpec(kind,capacity,ammo,(1,2) if kind==1 else (3,))
 AMMUNITION=frozenset(spec.ammunition for spec in WEAPONS.values())
 AMMO_STACK_MAX=999  # Original ItemTable nPackMax for these ammunition items.
 
+# Thai WeaponParams prefix, centimetres per second. The offline ray
+# approximation uses these to estimate time of flight and vertical drop.
+MUZZLE_VELOCITIES={
+    10101:79000,10102:76000,10103:91000,10104:80000,10105:32000,
+    10201:88000,10202:71500,10203:75000,10204:80000,10205:71500,10207:94000,
+    10301:40000,10302:35000,10303:30000,
+    10401:36000,10402:30000,10403:36000,
+    20001:25000,20002:38000,20003:33000,
+}
+
 def is_weapon(item):
     spec=WEAPONS.get(item.template)
     return spec is not None and item.kind==spec.kind and item.count==1

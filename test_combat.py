@@ -1,5 +1,6 @@
 import struct
 import unittest
+from dataclasses import replace
 from offline_bots import BotRoster,POSITION_MARKER
 from offline_combat import BotCombat,death_packet,hit_feedback
 from offline_gameplay import OfflineGameplay
@@ -20,14 +21,46 @@ def fixture():
     return game,bots,BotCombat(game,bots),uid
 
 
-def shoot(game,combat,now=100,flag=0,serial=0):
-    body=struct.pack('>6fIB',325800,271700,6600,326800,271700,6600,serial,flag)
+def shoot(game,combat,now=100,flag=0,serial=0,z=6600):
+    body=struct.pack('>6fIB',325800,271700,z,326800,271700,z,serial,flag)
     before=game.magazine
     game.handle(0x11d3,body)
     return combat.record_shot(body,before,now)
 
 
 class CombatTests(unittest.TestCase):
+    def test_shotgun_shell_accepts_native_pellet_collision_once(self):
+        game,bots,combat,uid=fixture()
+        game.inventory.items[1,1]=replace(game.inventory.items[1,1],template=10403)
+        game.set_weapon_magazine((1,1),5)
+        bots.actors[uid]['position']=(326225,271700,6500)
+        self.assertTrue(shoot(game,combat,serial=39))
+        report=hit_body(shot_serial=39,target=(326225,271700,6500),impact=(326222,271712,6600))
+        self.assertEqual([mid for mid,_ in combat.handle(report,100.01)],[0x1069,0x11eb])
+        for sequence in range(38,45):
+            self.assertEqual(combat.handle(struct.pack('>I',sequence)+report[4:],100.02),[])
+        self.assertEqual(game.magazine,4)
+        self.assertEqual(bots.vitals[uid].current,BotCombat.DAMAGE)
+
+    def test_long_ray_uses_weapon_drop_and_recently_displayed_body(self):
+        game,bots,combat,uid=fixture()
+        game.inventory.items[1,1]=replace(game.inventory.items[1,1],template=10302)
+        game.set_weapon_magazine((1,1),25)
+        combat.visibility=StaticVisibility(FlatTerrain(),[])
+        actor=bots.actors[uid]
+        actor['position']=(339800,271700,6500)
+        combat.tick(99.8)
+        actor['position']=(339800,271800,6500)
+        # At 140 m the 350 m/s round falls ~79 cm. The straight ray
+        # passes above the model and its current position is 1 m off line.
+        self.assertTrue(shoot(game,combat,serial=3,z=6720))
+        self.assertEqual(combat.tick(100.5),[])
+        self.assertEqual([mid for mid,_ in combat.tick(100.7)],[0x1069,0x11eb])
+        self.assertAlmostEqual(combat.last_event['distance_m'],140,delta=1)
+        self.assertTrue(shoot(game,combat,101,serial=4,z=6720))
+        self.assertEqual(combat.tick(102),[])
+        self.assertEqual(bots.vitals[uid].current,BotCombat.DAMAGE)
+
     def test_missing_client_collision_still_confirms_a_close_or_long_clear_hit(self):
         for distance in (200,14000):
             game,bots,combat,uid=fixture()

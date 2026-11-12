@@ -569,13 +569,20 @@ class IngameSessionTests(unittest.TestCase):
                         roster.actors[bot_uid]['position']=(326000,271700,6500)
                         for sequence,current in enumerate((800,600,400,200,0),start=37):
                             fallback=ray_fallback and current==0
-                            if fallback:roster.actors[bot_uid]['position']=(339800,271700,6500)
+                            if fallback:
+                                roster.actors[bot_uid].update(position=(339800,271700,6500),activation=1)
                             send(0x11d3,struct.pack('>6fIB',325800,271700,6600,327000,271700,6600,0,0)+bytes(8))
                             self.assertEqual(receive_raw()[0],0x3e82)
                             if not fallback:send(0x11e9,struct.pack('>I',sequence)+hit_body()[4:]+bytes(8))
                             self.assertEqual(receive_raw(),(0x1069,struct.pack('>QBBBII',bot_uid,0,1,0,current,1000)))
-                            relative_x=-44 if fallback else 0
-                            self.assertEqual(receive_raw(),(0x11eb,struct.pack('>QQ3iBBIB',256,bot_uid,relative_x,0,100,0,2,200,int(current==0))))
+                            hit_id, hit_payload=receive_raw()
+                            self.assertEqual(hit_id,0x11eb)
+                            shooter,target,x,y,z,_,part,amount,dead=struct.unpack('>QQ3iBBIB',hit_payload)
+                            self.assertEqual((shooter,target,y,part,amount,dead),(256,bot_uid,0,2,200,int(current==0)))
+                            if fallback:
+                                self.assertTrue(-45<=x<0 and 50<=z<=120)
+                            else:
+                                self.assertEqual((x,z),(0,100))
                             if not current:self.assertEqual(receive_raw(),(0x533,struct.pack('>IQ',0,bot_uid)))
                         self.assertEqual(games[0].magazine,25)
                         self.assertEqual(roster.vitals[bot_uid].current,0)
