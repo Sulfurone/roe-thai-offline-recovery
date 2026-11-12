@@ -118,8 +118,9 @@ class BotCombat:
             feet={foot}
             feet.update(position for at,revision,position in self.recent_positions.get(uid,())
                         if 0<=now-at<=self.POSITION_WINDOW and revision==activation)
+            heights=(30,65,95) if actor.get('crouched') else (45,90,135)
             for point in feet:
-                for height in (45,90,135):
+                for height in heights:
                     center=(point[0]-origin[0],point[1]-origin[1],point[2]+height-origin[2])
                     projection=sum(a*b for a,b in zip(center,unit))
                     adjusted=(*center[:2],center[2]+drop*projection**2)
@@ -244,12 +245,15 @@ class BotCombat:
         self.shots.remove(shot)
         hp=self.bots.vitals[uid]
         before=hp.current
-        replies=self.bots.damage(uid,self.DAMAGE,killer=self.game.actor_uid,weapon=shot.weapon,
-                                 headshot=local_region(impact,foot)=='head')
+        headshot=(impact[2]-foot[2]>=105 if self.bots.actors[uid].get('crouched')
+                  else local_region(impact,foot)=='head')
+        damage=before if headshot and shot.weapon//100==101 else self.DAMAGE
+        replies=self.bots.damage(uid,damage,killer=self.game.actor_uid,weapon=shot.weapon,headshot=headshot)
         applied=before-hp.current
         relative=tuple(round(v-p0) for v,p0 in zip(impact,foot))
-        replies.insert(1,hit_feedback(self.game.actor_uid,uid,relative,part,applied,hp.current==0))
+        feedback_part=1 if headshot else 2 if part==1 else part
+        replies.insert(1,hit_feedback(self.game.actor_uid,uid,relative,feedback_part,applied,hp.current==0))
         self.last_event=dict(accepted=True,target_uid=uid,sequence=sequence,source=source,
             damage_applied=True,damage=applied,current=hp.current,weapon=shot.weapon,shot_serial=shot.serial,
-            distance_m=round(math.dist(shot.origin,impact)/100,2),original_damage_formula=False)
+            headshot=headshot,distance_m=round(math.dist(shot.origin,impact)/100,2),original_damage_formula=False)
         return replies

@@ -29,6 +29,31 @@ def shoot(game,combat,now=100,flag=0,serial=0,z=6600):
 
 
 class CombatTests(unittest.TestCase):
+    def test_sniper_headshot_kills_full_health_with_native_and_fallback_hits(self):
+        for weapon,height,crouched,native,kills in (
+                (10102,160,False,True,True), (10102,160,False,False,True),
+                (10103,115,True,False,True), (10102,100,False,True,False),
+                (10201,160,False,True,False)):
+            with self.subTest(weapon=weapon,height=height,crouched=crouched,native=native):
+                game,bots,combat,uid=fixture()
+                game.inventory.items[1,1]=replace(game.inventory.items[1,1],template=weapon)
+                game.set_weapon_magazine((1,1),5)
+                bots.actors[uid]['crouched']=crouched
+                bots.vitals[uid]=Vitals()
+                if not native:combat.visibility=StaticVisibility(FlatTerrain(),[])
+                z=6500+height
+                self.assertTrue(shoot(game,combat,serial=6,z=z))
+                if native:
+                    replies=combat.handle(hit_body(shot_serial=6,muzzle=(325800,271700,z),
+                                                    impact=(326000,271700,z)),100.02)
+                else:
+                    replies=combat.tick(100.4)
+                self.assertEqual(bots.vitals[uid].current,0 if kills else 800)
+                self.assertEqual(combat.last_event['headshot'],height!=100)
+                self.assertEqual([mid for mid,_ in replies],[0x1069,0x11eb,0x533] if kills else [0x1069,0x11eb])
+                self.assertEqual(replies[1][1][29],1 if height!=100 else 2)
+                self.assertEqual(combat.tick(100.5),[])
+
     def test_native_death_broadcast_is_emitted_once_with_consumed_weapon(self):
         from offline_match_status import room_kill_broadcast
 

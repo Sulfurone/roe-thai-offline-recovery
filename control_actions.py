@@ -40,7 +40,9 @@ def vehicle_spawn(template, uid, position, config=101):
 
 
 class ControlSession:
-    def __init__(self, gameplay=None, vehicle_template=None,client_boarding=False):
+    EXIT_RETRY_WINDOW = 2.0
+
+    def __init__(self, gameplay=None, vehicle_template=None,client_boarding=False,exit_visibility=None):
         self.gameplay = gameplay
         self.vehicle_template = vehicle_template
         self.vehicles = {}
@@ -52,6 +54,10 @@ class ControlSession:
         self.active_vehicle = None
         self.client_boarding=client_boarding
         self.last_board_event=None
+        self.exit_visibility=exit_visibility
+        self.entry_side=None
+        self.recent_exit=None
+        self.last_exit_event=None
         self.weather_id = None
         self.placement_map = None
         self.placement_random = random.Random()
@@ -186,14 +192,37 @@ class ControlSession:
         self.next_vehicle_uid+=1
         return [(0x654b, body)] + car.initialize_vehicle_once()
 
+    def find_exit(self,car):
+        visibility=self.exit_visibility
+        if visibility is None:return None
+        x,y,z=car.vehicle_position
+        angle=self.entry_side if self.entry_side is not None else 0.
+        # Check the side used to enter first, then other sides of the parked car.
+        for radius in (270,350):
+            for offset in (0,1,-1,2,-2,3,-3,4):
+                heading=angle+offset*math.pi/4
+                px,py=round(x+radius*math.cos(heading)),round(y+radius*math.sin(heading))
+                floor=visibility.terrain.height_at(px,py)
+                if floor is None or not math.isfinite(floor) or not z-220<=floor<=z+65:continue
+                if visibility.clear((px,py,floor+40),(px,py,floor+165),padding=35):
+                    return px,py,round(floor)+15
+        return None
+
     def handle(self, message, body):
         """Return None to defer to existing gameplay, or replies for a panel car."""
         game = self.gameplay
         self.last_board_event=None
+        self.last_exit_event=None
         if not game:
             return None
         if message==0x6541 and game.vitals_enabled and not game.vitals.current:
             return []
+        if message==0x6543 and not game.seated and len(body) in (1,9) and self.recent_exit:
+            until,uid,replies=self.recent_exit
+            if time.monotonic()<=until:
+                self.last_exit_event=dict(uid=hex(uid),retry=True)
+                return list(replies)
+            self.recent_exit=None
         car = None
         if message in (0x6541, 0x6549) and len(body) >= 8:
             car = self.vehicles.get(struct.unpack_from('>Q', body)[0])
@@ -209,7 +238,8 @@ class ControlSession:
         if message==0x6541 and self.client_boarding and len(body) in (12,20):
             seat=struct.unpack_from('>I',body,8)[0] or 1
             ready=(game.actor_ready and game.deployment_phase in ('ground','landed')
-                   and car.vehicle_ready and 1<=seat<=LAND_VEHICLES[car.vehicle_config].seats)
+                   and car.vehicle_announced and car.vehicle_initialized
+                   and 1<=seat<=LAND_VEHICLES[car.vehicle_config].seats)
             # The original request carries only vehicle UID and seat, no
             # current actor position. In this opt-in single-player policy,
             # accept the local client's selected, loaded generated vehicle.
@@ -218,9 +248,19 @@ class ControlSession:
                 accepted=ready,last_keyframe_distance_cm=round(math.dist(game.player_position,car.vehicle_position)))
             replies=(car.board(seat) if ready else [(0x6542,struct.pack('>QIIQII3iB',
                 car.vehicle_uid,car.vehicle_config,0,game.actor_uid,seat,1,*car.vehicle_position,0))])
+        elif message==0x6543 and car.seated and len(body) in (1,9):
+            position=self.find_exit(car)
+            replies=car.leave(position=position)
+            self.recent_exit=(time.monotonic()+self.EXIT_RETRY_WINDOW,car.vehicle_uid,tuple(replies))
+            self.last_exit_event=dict(uid=hex(car.vehicle_uid),position=car.player_position,
+                                      clear_ground=position is not None,retry=False)
         else:
             replies = car.handle(message, body)
         if car.seated:
+            if message==0x6541:
+                self.recent_exit=None
+                dx,dy=(a-b for a,b in zip(game.player_position[:2],car.vehicle_position[:2]))
+                self.entry_side=math.atan2(dy,dx) if 100<=math.hypot(dx,dy)<=500 else None
             game.pickup_drop_anchor=None
             self.active_vehicle = car.vehicle_uid
             game.seated, game.seat = True, car.seat
@@ -230,4 +270,5 @@ class ControlSession:
             self.active_vehicle = None
             game.seated, game.seat = False, 0
             game.player_position = car.player_position
+            game.self_position,game.self_position_at=None,None
         return replies

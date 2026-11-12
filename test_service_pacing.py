@@ -65,6 +65,15 @@ class ServicePacingTests(unittest.TestCase):
         self.assertEqual(population.tick(), [])
         finder.ready_buildings.assert_not_called()
 
+    def test_pending_client_packets_get_priority_with_a_bounded_world_wait(self):
+        cadence = ServiceCadence()
+        self.assertFalse(cadence.background_ready(True,1.))
+        self.assertFalse(cadence.background_ready(True,1.03))
+        self.assertTrue(cadence.background_ready(True,1.05))
+        self.assertFalse(cadence.background_ready(True,1.06))
+        self.assertTrue(cadence.background_ready(False,1.061))
+        self.assertFalse(cadence.background_ready(True,1.1))
+
     def test_encrypted_flood_keeps_door_pickup_and_reload_responsive(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -140,6 +149,9 @@ class ServicePacingTests(unittest.TestCase):
                     self.assertEqual(receive_until(0x2b,time.monotonic()+2),first_batch_marker)
                     client.sendall(request(0x6f57,struct.pack('>II',17415,1)))
                     self.assertEqual(receive_until(0x6f55,time.monotonic()+2),struct.pack('>5I',17415,1,1,0,0))
+                    pickup=struct.pack('>IIQBHB3iB',0x400001,0,0,0,0,1,325800,271700,6501,0)
+                    client.sendall(request(0x3b63,pickup))
+                    self.assertEqual(struct.unpack('>Q',receive_until(0x82b,time.monotonic()+2))[0],0x400001)
                     self.assertEqual(receive_until(0x2c,time.monotonic()+2),last_batch_marker)
                     flood=request(0x3783,bytes(120))*600
                     started=time.monotonic()
@@ -149,10 +161,9 @@ class ServicePacingTests(unittest.TestCase):
                     self.flood_elapsed=elapsed
                     self.assertLess(elapsed,1.5, 'Background work still runs for every incoming packet')
                     self.assertLess(len(calls),20)
-                    pickup=struct.pack('>IIQBHB3iB',0x400001,0,0,0,0,1,325800,271700,6501,0)
                     started=time.monotonic()
                     client.sendall(flood+request(0x3b63,pickup))
-                    self.assertEqual(struct.unpack('>Q',receive_until(0x82b,started+2))[0],0x400001)
+                    receive_until(0x3b66,started+2)
                     self.assertLess(time.monotonic()-started,1.5)
                     # A finite timed reload still advances with traffic queued.
                     shot=struct.pack('>6fIB',1,2,3,1,102,3,1,0)
@@ -171,8 +182,10 @@ class ServicePacingTests(unittest.TestCase):
             log=next((root/'recovery/logs').glob('*/server.jsonl'))
             rows=[json.loads(line) for line in log.read_text(encoding='utf8').splitlines()]
             first_door=next(i for i,row in enumerate(rows) if row.get('message_id')==0x6f55)
+            first_pickup=next(i for i,row in enumerate(rows) if row.get('message_id')==0x82b)
             first_world=next(i for i,row in enumerate(rows) if row['event']=='world_population_sent')
             self.assertLess(first_door,first_world, 'A door response waited for the entire world update')
+            self.assertLess(first_pickup,first_world, 'A pickup response waited for the entire world update')
             self.assertEqual(sum(x['event']=='application_message' and x.get('message_id')==0x3783 for x in rows),1800)
             self.assertNotIn('"event": "application_message"',output.getvalue())
             self.assertTrue(any(x['event']=='service_loop_statistics' for x in rows))

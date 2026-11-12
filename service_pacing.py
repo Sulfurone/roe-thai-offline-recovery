@@ -12,6 +12,20 @@ class ServiceCadence:
 
     def __init__(self):
         self.next = {name: 0. for name in self.INTERVALS}
+        self.background_wait_until = None
+
+    def background_ready(self, input_ready, now):
+        """Give waiting client packets one interval before optional work."""
+        if not input_ready:
+            self.background_wait_until = None
+            return True
+        if self.background_wait_until is None:
+            self.background_wait_until = now + self.INTERVALS['world_send']
+            return False
+        if now < self.background_wait_until:
+            return False
+        self.background_wait_until = now + self.INTERVALS['world_send']
+        return True
 
     def due(self, name, now=None):
         interval = self.INTERVALS[name]

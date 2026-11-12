@@ -154,13 +154,39 @@ class ExtraItemTests(unittest.TestCase):
             control=ControlSession(game,jeep_template(),client_boarding=True)
             control.spawn_vehicle(game.player_position,102)
             car=next(iter(control.vehicles.values()))
-            car.vehicle_ready=mode!='unloaded'
+            car.vehicle_announced=mode!='unloaded'
             if mode=='airborne':game.deployment_phase='gliding'
             seat=3 if mode=='bad-seat' else 1
             replies=control.handle(0x6541,struct.pack('>QI',car.vehicle_uid,seat))
             self.assertEqual(struct.unpack_from('>I',replies[0][1],28)[0],1)
             self.assertFalse(game.seated)
             self.assertFalse(control.last_board_event['accepted'])
+
+    def test_parked_car_can_board_before_physics_and_exit_around_cover(self):
+        from offline_visibility import StaticVisibility
+        from test_combat import FlatTerrain
+        game=ready_game()
+        game.player_position=(326670,272200,6500)
+        visibility=StaticVisibility(FlatTerrain(),[(326670,272200,6570,70)])
+        control=ControlSession(game,jeep_template(),client_boarding=True,exit_visibility=visibility)
+        control.spawn_vehicle((326400,272200,6600),103)
+        car=next(iter(control.vehicles.values()))
+        self.assertFalse(car.vehicle_ready)
+        self.assertIn(0x6542,[m for m,_ in control.handle(0x6541,struct.pack('>QI',car.vehicle_uid,1))])
+        with patch('control_actions.time.monotonic',return_value=100):
+            replies=control.handle(0x6543,b'\x21')
+            self.assertFalse(game.seated)
+            self.assertIsNone(control.active_vehicle)
+            self.assertTrue(control.last_exit_event['clear_ground'])
+            self.assertEqual(game.player_position,(326591,272391,6515))
+            self.assertEqual(struct.unpack_from('>3i',replies[0][1],28),game.player_position)
+            self.assertEqual(control.handle(0x6543,b'\x21'),replies)
+            self.assertTrue(control.last_exit_event['retry'])
+        with patch('control_actions.time.monotonic',return_value=103):
+            self.assertIsNone(control.handle(0x6543,b'\x21'))
+        self.assertTrue(control.handle(0x6541,struct.pack('>QI',car.vehicle_uid,2)))
+        self.assertEqual(game.seat,2)
+        self.assertIsNone(control.recent_exit)
 
 
 if __name__=='__main__':

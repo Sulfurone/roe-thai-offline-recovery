@@ -391,13 +391,14 @@ class OfflineGameplay:
             return
         self.vehicle_position=self.route_position_at(now-self.route_started)
 
-    def leave(self,now=None):
+    def leave(self,now=None,*,position=None):
         if not self.seated:
             return []
         now=time.monotonic() if now is None else now
         self.update_route_position(now)
-        x,y,z = self.vehicle_position
-        position = (x+180,y,z+120)
+        if position is None:
+            x,y,z = self.vehicle_position
+            position = (x+180,y,z+120)
         reply = struct.pack('>QIQII3iB',self.vehicle_uid,0,self.actor_uid,self.seat,
                             0,*position,0)
         self.seated = False
@@ -625,7 +626,8 @@ class OfflineGameplay:
         if message==0x3b63 and self.ground_loot is not None:
             stack=(self.ground_loot.stacks.get(struct.unpack_from('>I',body)[0])
                    if len(body) in (33,41) else None)
-            replies=self.ground_loot.pickup(body,self.inventory,self.actor_uid,self.player_position,
+            feet=self.self_position if self.has_fresh_self_position() else self.player_position
+            replies=self.ground_loot.pickup(body,self.inventory,self.actor_uid,feet,
                                             self.actor_ready and not self.seated
                                             and not (glider is not None and glider.seated))
             if stack is not None and any(msg==0x3e82 for msg,_ in replies):

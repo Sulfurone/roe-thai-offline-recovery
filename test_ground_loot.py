@@ -94,6 +94,14 @@ class GroundLootTests(unittest.TestCase):
         self.assertEqual(game.player_position,(325300,271700,6488))
         self.assertIsNone(game.ground_loot.last_rejection)
 
+    def test_landing_pickup_uses_fresh_feet_when_keyframe_and_camera_lag(self):
+        game=self.ready()
+        game.accept_self_position((325800,271700,6488))
+        game.handle(0x2a,struct.pack('>I3i',2,325000,271700,7000))
+        self.assertEqual(game.player_position,(325000,271700,7000))
+        self.assertEqual([m for m,_ in game.handle(0x3b63,request(camera=(325000,271700,7100)))],
+                         [0x3e82,0x82b,0x3b64])
+
     def test_actual_client_zero_quantity_drops_the_whole_item(self):
         game=self.ready()
         weapon=game.inventory.items[1,1]
