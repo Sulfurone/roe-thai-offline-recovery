@@ -72,6 +72,9 @@ class IngameSessionTests(unittest.TestCase):
     def test_consumed_shots_damage_peer_and_send_native_death_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,combat=True)
 
+    def test_full_bot_parcel_opens_and_transfers_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,ai=True,parcel=True)
+
     def test_bot_ai_arms_fires_and_damages_local_player_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,ai=True,round_result=True)
 
@@ -111,7 +114,7 @@ class IngameSessionTests(unittest.TestCase):
     def test_circle_damage_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,zones=True,zone_damage=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False,armour=False,throwable_equip=False,zones=False,survivors=False,zone_damage=False,round_result=False,native_result=False,ray_fallback=False):
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False,armour=False,throwable_equip=False,zones=False,survivors=False,zone_damage=False,round_result=False,native_result=False,ray_fallback=False,parcel=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -171,6 +174,7 @@ class IngameSessionTests(unittest.TestCase):
                     '</r>',encoding='utf8')
                 argv.extend(['--world-bot-occlusion',str(occlusion)])
                 if ai:argv.append('--world-bot-ai')
+                if parcel:argv.extend(['--world-bot-mode','target'])
                 if blast:argv.append('--world-throwable-combat')
                 if collision:
                     archive=root/'SFC';archive.mkdir()
@@ -303,6 +307,8 @@ class IngameSessionTests(unittest.TestCase):
                                 self.assertEqual(duration,50)
                                 self.assertGreater(tick,motion_clocks[-1] if motion_clocks else 0)
                                 motion_clocks.append(tick)
+                                continue
+                            if parcel and message==0x547:
                                 continue
                             if survivors and message==0x47d:
                                 count,opaque=struct.unpack('>II',body)
@@ -576,7 +582,7 @@ class IngameSessionTests(unittest.TestCase):
                         with self.assertRaises(socket.timeout):read_frame(client)
                         client.settimeout(4)
                         self.assertEqual((games[0].vitals.current,games[0].magazine),before)
-                    if combat and not ai:
+                    if combat and (not ai or parcel):
                         roster=combats[0].bots
                         roster.actors[bot_uid]['position']=(326000,271700,6500)
                         for sequence,current in enumerate((800,600,400,200,0),start=37):
@@ -598,6 +604,31 @@ class IngameSessionTests(unittest.TestCase):
                             if not current:self.assertEqual(receive_raw(),(0x533,struct.pack('>IQ',0,bot_uid)))
                         self.assertEqual(games[0].magazine,25)
                         self.assertEqual(roster.vitals[bot_uid].current,0)
+                        if parcel:
+                            spawn_id,spawn=receive_raw()
+                            self.assertEqual(spawn_id,0x821)
+                            config,entity=struct.unpack_from('>IQ',spawn)
+                            self.assertEqual(config,30201002)
+                            send(0xbce,struct.pack('>QQ',entity,256))
+                            contents_id,contents=receive_raw()
+                            self.assertEqual(contents_id,0x3b61)
+                            listed_entity,count=struct.unpack_from('>II',contents)
+                            self.assertEqual(listed_entity,entity)
+                            self.assertIn(count,(10,11))
+                            offset=8
+                            for _ in range(count):
+                                slot,kind,template,quantity=struct.unpack_from('>4I',contents,offset)
+                                if template==50001:break
+                                offset+=20 if kind in (1,2) else 16
+                            self.assertEqual((kind,template),(3,50001))
+                            pickup=struct.pack('>IIQBHB3iB',entity,slot,256,0,0,1,325800,271700,6501,0)
+                            send(0x3b63,pickup)
+                            self.assertEqual(receive_raw()[0],0x3e82)
+                            self.assertEqual(receive_raw(),(0x3b64,struct.pack('>IIBII',entity,slot,3,50001,quantity)))
+                            reduced_id,reduced=receive_raw()
+                            self.assertEqual((reduced_id,struct.unpack_from('>II',reduced)),(0x3b61,(entity,count-1)))
+                            send(0x3b63,pickup)
+                            self.assertEqual(receive_raw(),(reduced_id,reduced))
                         if native_result:
                             weapon=games[0].inventory.items[1,1].template
                             self.assertEqual(receive_raw(),room_kill_broadcast(256,b'Test',bot_uid,b'AI-1',weapon,1))
@@ -622,7 +653,7 @@ class IngameSessionTests(unittest.TestCase):
                                 result=menu.state()
                                 self.assertEqual((result['round_state'],result['round_placement'],result['round_size']),
                                                  ('won','1','2'))
-                    if ai:
+                    if ai and not parcel:
                         self.assertTrue(motion_clocks)
                         roster=combats[0].bots
                         roster.actors[bot_uid]['position']=(326000,271700,6500)
@@ -732,12 +763,12 @@ class IngameSessionTests(unittest.TestCase):
                     self.assertEqual([(r['models'],r['shapes'],r['fallback_models']) for r in ready],[(2,4,0)])
                     doors=[r for r in rows if r.get('event')=='world_door_collision_ready']
                     self.assertEqual([(r['doors'],r['unmatched']) for r in doors],[(1,0)])
-            if combat and not ai:
+            if combat and (not ai or parcel):
                 rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
                 changes=[r for r in rows if r.get('event')=='bot_combat']
                 self.assertEqual([r['current'] for r in changes],[800,600,400,200,0])
                 self.assertTrue(all(r['accepted'] and r['damage_applied'] for r in changes))
-            if ai:
+            if ai and not parcel:
                 rows=[json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
                 changes=[r for r in rows if r.get('event')=='bot_ai' and r.get('action')=='player_hit']
                 self.assertEqual([r['current'] for r in changes],[28,10,0] if armour else [20,0])

@@ -205,7 +205,9 @@ class BotRoster:
         if hp is None or not hp.current:return []
         if not hp.damage(amount):return []
         notices=self.death_notice(uid,killer,weapon,headshot) if not hp.current and self.death_notice else []
-        if self.streamed and uid not in self.active:return notices
+        if self.streamed and uid not in self.active:
+            parcel=self.death_parcel(uid) if not hp.current and self.death_parcel is not None else []
+            return parcel+notices
         replies = self.life_packets(uid)
         if not hp.current:
             if self.streamed:self.actors[uid]['retire_at']=time.monotonic()+self.CORPSE_SECONDS

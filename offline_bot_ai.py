@@ -13,6 +13,46 @@ from offline_bots import PEER_TICK_MS,peer_clock,peer_locomotion
 from offline_combat import death_packet,hit_feedback
 from offline_peer_messages import peer_equipment,peer_facing,peer_fire
 from offline_armour import absorb_bullet,local_region
+from offline_inventory import WEAPON_TEMPLATE
+from offline_items import SPAWNABLE_EXTRA_ITEMS
+from offline_weapons import WEAPONS
+
+BOT_COMBAT_RESERVE=120
+
+
+@dataclass(frozen=True)
+class BotLoadout:
+    primary:int
+    secondary:int
+    supplies:tuple
+
+
+def bot_loadouts(bots,seed):
+    rng=random.Random(f'{seed}:bot-loadouts')
+    rifles=tuple(template for template in sorted(WEAPONS) if template//100==102)
+    long_guns=tuple(template for template,spec in sorted(WEAPONS.items()) if spec.kind==1)
+    if bots.streamed:
+        pairs=[(rifle,other) for rifle in rifles for other in long_guns
+               if other not in rifles or rifle<other]
+    else:
+        pairs=[(WEAPON_TEMPLATE,other) for other in long_guns if other!=WEAPON_TEMPLATE]
+    extras=SPAWNABLE_EXTRA_ITEMS
+    gear=[tuple(template for template,spec in extras.items() if spec.slot==slot) for slot in (10,11,12)]
+    medicine=tuple(template for template,spec in extras.items() if spec.kind==7)
+    throwables=tuple(template for template,spec in extras.items() if spec.kind==5)
+    loadouts={}
+    for index,(primary,secondary) in enumerate(rng.sample(pairs,bots.count)):
+        if bots.streamed and secondary in rifles and rng.randrange(2):
+            primary,secondary=secondary,primary
+        first,second=WEAPONS[primary],WEAPONS[secondary]
+        supplies={first.ammunition:rng.randint(24,48)}
+        supplies[second.ammunition]=supplies.get(second.ammunition,0)+second.capacity*rng.randint(2,4)
+        supplies.update((template,rng.randint(1,2)) for template in throwables)
+        for template in rng.sample(medicine,2):
+            supplies[template]=rng.randint(3,8) if template==70001 else rng.randint(1,2)
+        supplies.update((rng.choices(group,weights=(5,3,1))[0],1) for group in gear)
+        loadouts[bots.FIRST_UID+index]=BotLoadout(primary,secondary,tuple(supplies.items()))
+    return loadouts
 
 
 @dataclass
@@ -21,7 +61,7 @@ class Brain:
     created:float
     weapon_uid:int
     magazine:int=30
-    reserve:int=120
+    reserve:int=BOT_COMBAT_RESERVE
     phase:str='preparing'
     deadline:float=0
     target:tuple|None=None
@@ -41,6 +81,7 @@ class Brain:
     activation:int=0
     peer_retry:int=0
     facing_at:float=0
+    weapon:int=WEAPON_TEMPLATE
 
 
 class BotAI:
@@ -72,7 +113,9 @@ class BotAI:
         if mode not in self.MODES:raise ValueError('Unknown bot mode')
         self.game,self.bots,self.population,self.visibility=game,bots,population,visibility
         self.mode=mode
-        self.rng=random.Random(getattr(population,'seed',1))
+        seed=getattr(population,'seed',1)
+        self.rng=random.Random(seed)
+        self.loadouts=bot_loadouts(bots,seed)
         self.brains={}
         self.previous_tick=None
         self.motion_epoch=None
@@ -158,7 +201,8 @@ class BotAI:
 
     def equipment(self,uid):
         brain=self.brains.get(uid)
-        return (peer_equipment(uid,brain.weapon_uid,magazine=brain.magazine,clothing=self.bots.outfits.get(uid,()))
+        return (peer_equipment(uid,brain.weapon_uid,template=brain.weapon,magazine=brain.magazine,
+                               clothing=self.bots.outfits.get(uid,()))
                 if brain else None)
 
     def face_target(self,brain,target,now):
@@ -299,7 +343,12 @@ class BotAI:
         active=fresh
         zone=self.bots.zones.migration_target(now) if self.bots.zones is not None else None
         for uid,actor in self.bots.active_actors():
-            brain=self.brains.setdefault(uid,Brain(uid,now,0x2000000000100+uid-self.bots.FIRST_UID))
+            brain=self.brains.get(uid)
+            if brain is None:
+                template=self.loadouts[uid].primary
+                brain=Brain(uid,now,0x2000000000100+uid-self.bots.FIRST_UID,
+                            magazine=WEAPONS[template].capacity,weapon=template)
+                self.brains[uid]=brain
             activation=actor.get('activation',0)
             if activation!=brain.activation:
                 brain.activation=activation
@@ -325,7 +374,7 @@ class BotAI:
             # Reload progress is independent of whether the target is currently
             # observed; pausing perception must not reset the transfer timer.
             if brain.reload_at and now>=brain.reload_at:
-                amount=min(30-brain.magazine,brain.reserve)
+                amount=min(WEAPONS[brain.weapon].capacity-brain.magazine,brain.reserve)
                 brain.magazine+=amount;brain.reserve-=amount;brain.reload_at=0
                 replies.append(self.equipment(uid))
                 self.events.append(dict(action='reloaded',uid=uid,magazine=brain.magazine,reserve=brain.reserve))
