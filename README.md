@@ -87,6 +87,6 @@ python self_position.py build
 
 泰服离线对局通过游戏原有界面显示淘汰和排名。桌面入口使用原版大厅，点击“开始”或“准备”时带入衣柜已穿的服装。详见[本地对局结算](ROUND_RESULT.md)和[泰服原版大厅](NATIVE_LOBBY.md)。
 
-可选区域调度实验见[MATCH_ZONES.md](MATCH_ZONES.md)：独立入口发送已核对的原生圆状态，默认快捷方式不启用；这不是完整原模式区域、伤害或结算。
+最新验收：弹药扣除/打空/换弹与合并、二楼物资、所测投掷物拿出/抛出/对应效果已获用户确认。当前306项本地、248项公开检查通过；独立区域节奏及剩余人数候选见[MATCH_ZONES.md](MATCH_ZONES.md)和[MATCH_STATUS.md](MATCH_STATUS.md)，未启用到日常跳伞入口。机器人可见、配件实机及完整原模式/胜负仍未完成。
 
 独立反击测试入口已接入原生剩余人数通知，原解码/事件与加密2→1链通过，HUD/原模式结算仍待恢复或验收，见[MATCH_STATUS.md](MATCH_STATUS.md)。

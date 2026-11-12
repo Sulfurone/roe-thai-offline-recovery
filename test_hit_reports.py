@@ -4,24 +4,27 @@ import unittest
 from offline_hit_reports import HIT,character_hit
 
 
-def hit_body():
-    return HIT.pack(37,0x1000000001100,325800,271700,6600,0,1.,0.,0.,
-                    326000,271700,6500,0,326000.,271700.,6600.,2,11,12,13,14,91,2,1,10201,5,125,9)
+def hit_body(*,shot_serial=0,shooter=(325800,271700,6600),muzzle=(325800.,271700.,6600.),
+             target=(326000,271700,6500),impact=(326000.,271700.,6600.)):
+    return HIT.pack(37,0x1000000001100,*shooter,0,*muzzle,
+                    *target,0,*impact,2,11,12,13,14,91,2,1,shot_serial,5,125,9)
 
 
 class HitReportTests(unittest.TestCase):
     def test_proven_fields_and_opaque_tail_stay_distinct(self):
         self.assertEqual(HIT.size,98)
-        h=character_hit(hit_body())
+        body=hit_body(shot_serial=10201)
+        h=character_hit(body)
         self.assertEqual((h.sequence,h.target_uid),(37,0x1000000001100))
-        self.assertEqual(h.ray_origin,(325800,271700,6600))
+        self.assertEqual(h.shooter_position,(325800,271700,6600))
         self.assertEqual(h.impact,(326000.,271700.,6600.))
         self.assertEqual(h.target_position,(326000,271700,6500))
-        self.assertEqual(h.ray_direction,(1.,0.,0.))
+        self.assertEqual(h.muzzle_position,(325800.,271700.,6600.))
         self.assertEqual(h.part,2)
         self.assertEqual(h.state,(11,12,13,14))
         self.assertEqual(h.opaque,(91,2,1,10201,5,125,9))
-        self.assertEqual(character_hit(hit_body()+b'\xff'*8),h)
+        self.assertEqual(h.shot_serial,10201)
+        self.assertEqual(character_hit(body+b'\xff'*8),h)
 
     def test_truncated_invalid_uid_and_nonfinite_positions_are_not_hits(self):
         b=hit_body()

@@ -51,6 +51,20 @@ class ZoneDamageTests(unittest.TestCase):
         packets=z.tick(12);self.assertEqual(g.vitals.current,0)
         self.assertEqual([m for m,_ in packets].count(0x533),1)
         self.assertEqual(z.tick(13),[])
+
+    def test_zone_uses_ground_vehicle_position_when_foot_reports_are_paused(self):
+        g,b,s,_=self.setup_world()
+        g.require_self_position_for_drop=True
+        g.seated=True
+        control=SimpleNamespace(active_vehicle=123)
+        damage=ZoneDamage(s,b,control)
+        damage.tick(10)
+        g.player_position=(2500,1000,7000)
+        damage.tick(11)
+        self.assertEqual(g.vitals.current,990)
+        control.active_vehicle=None
+        damage.tick(12)
+        self.assertEqual(g.vitals.current,990)
     def test_server_rejects_damage_without_plan_and_vitals(self):
         import local_server
         for argv in (["local_server.py","--world-zone-damage"],

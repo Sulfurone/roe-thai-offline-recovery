@@ -673,7 +673,7 @@ def main():
                 zones=ZoneSchedule(gameplay,population_surface,zone_plan) if zone_plan is not None else None
                 if args.world_zone_damage:
                     from offline_zone_damage import ZoneDamage
-                    zone_damage=ZoneDamage(zones,bots)
+                    zone_damage=ZoneDamage(zones,bots,control_session)
                 else:zone_damage=None
                 survivors=SurvivorStatus(gameplay,bots) if args.world_survivor_status else None
                 if args.world_round_result:
@@ -985,7 +985,8 @@ def main():
                                 else:
                                     emit('character_hit_report',sequence=hit.sequence,
                                          target_uid=hit.target_uid,impact=hit.impact,
-                                         ray_origin=hit.ray_origin,part=hit.part,
+                                         ray_origin=hit.shooter_position,muzzle=hit.muzzle_position,
+                                         shot_serial=hit.shot_serial,part=hit.part,
                                          damage_applied=False)
                             if args.gameplay_motion_ack and gameplay is not None and loaded_pushes_sent and message_id == 0x002a:
                                 motion = actor_motion(application[26:])

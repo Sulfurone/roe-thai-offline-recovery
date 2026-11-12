@@ -8,10 +8,11 @@ class ZoneDamage:
     PERIOD=1.0
     DAMAGE=10
 
-    def __init__(self,schedule,bots=None):
+    def __init__(self,schedule,bots=None,control=None):
         self.schedule=schedule
         self.game=schedule.game
         self.bots=bots
+        self.control=control
         self.next_tick=None
         self.events=[]
 
@@ -29,8 +30,9 @@ class ZoneDamage:
         x,y,radius=circle
         def outside(pos):return math.hypot(pos[0]-x,pos[1]-y)>radius
         replies=[];g=self.game
+        in_car=g.seated and self.control is not None and self.control.active_vehicle is not None
         fresh=(g.actor_ready and g.vitals.current and
-               (not g.require_self_position_for_drop or g.has_fresh_self_position(now)))
+               (in_car or not g.require_self_position_for_drop or g.has_fresh_self_position(now)))
         if fresh and outside(g.player_position):
             amount=g.vitals.damage(self.DAMAGE)
             if amount:

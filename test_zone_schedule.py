@@ -24,6 +24,15 @@ def schedule():
 
 
 class ZoneScheduleTests(unittest.TestCase):
+    def test_daily_plan_covers_the_map_and_gives_three_minutes_before_shrinking(self):
+        daily=ZonePlan.read(Path(__file__).with_name('examples')/'thai-match-circle-plan.json')
+        self.assertEqual(len(daily.stages),4)
+        self.assertEqual(daily.stages[0].wait,180)
+        self.assertEqual(daily.stages[-1].target.radius,12000)
+        for x in (0,409600):
+            for y in (0,409600):
+                self.assertLessEqual((x-daily.initial.x)**2+(y-daily.initial.y)**2,daily.initial.radius**2)
+
     def test_ground_readiness_wait_shrink_skip_and_final_snapshot(self):
         pacing=schedule()
         pacing.game.seated=True

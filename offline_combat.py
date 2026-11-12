@@ -35,10 +35,12 @@ class Shot:
     origin: tuple
     aim: tuple
     weapon: int
+    serial: int
 
 
 class BotCombat:
     WINDOW=3.
+    MAX_RANGE=100000  # centimetres; the 11D3 aim point encodes direction
     DAMAGE=200  # Local balance on the 1000-point health scale.
 
     def __init__(self,game,bots):
@@ -62,7 +64,8 @@ class BotCombat:
         if any(not math.isfinite(v) or abs(v)>=2000000 for v in coords):return False
         origin,aim=tuple(coords[:3]),tuple(coords[3:])
         if math.dist(origin,g.player_position)>500 or math.dist(origin,aim)<1:return False
-        self.shots.append(Shot(now,origin,aim,item.template))
+        serial=struct.unpack_from('>I',body,24)[0]
+        self.shots.append(Shot(now,origin,aim,item.template,serial))
         return True
 
     def handle(self,body,now=None):
@@ -82,22 +85,21 @@ class BotCombat:
         hp=self.bots.vitals.get(h.target_uid)
         if actor is None or hp is None or not hp.current or not self.bots.visible(h.target_uid):
             return reject('unknown_or_dead_target',h.target_uid)
-        p=actor['position']
-        if math.dist(h.target_position,p)>250:return reject('target_position',h.target_uid)
+        p=h.target_position
+        if math.dist(p,actor['position'])>250:return reject('target_position',h.target_uid)
         if (math.hypot(h.impact[0]-p[0],h.impact[1]-p[1])>120
                 or not -30<=h.impact[2]-p[2]<=220):return reject('impact_outside_target',h.target_uid)
-        candidate=None
-        for shot in self.shots:
-            if math.dist(h.ray_origin,shot.origin)>200:continue
-            direction=tuple(b-a for a,b in zip(shot.origin,shot.aim))
-            offset=tuple(b-a for a,b in zip(shot.origin,h.impact))
-            length=math.sqrt(sum(v*v for v in direction))
-            distance=sum(a*b for a,b in zip(direction,offset))/length
-            if not 0<=distance<=min(length+200,100000):continue
-            lateral=math.sqrt(max(0,sum(v*v for v in offset)-distance*distance))
-            if lateral>100:continue
-            candidate=shot;break
+        candidate=next((shot for shot in reversed(self.shots) if shot.serial==h.shot_serial
+                        and math.dist(h.muzzle_position,shot.origin)<=2),None)
         if candidate is None:return reject('no_matching_consumed_shot',h.target_uid)
+        if math.dist(h.shooter_position,candidate.origin)>500:
+            return reject('shooter_position',h.target_uid)
+        direction=tuple(b-a for a,b in zip(candidate.origin,candidate.aim))
+        offset=tuple(b-a for a,b in zip(candidate.origin,h.impact))
+        distance=sum(a*b for a,b in zip(direction,offset))/math.hypot(*direction)
+        lateral=math.sqrt(max(0,sum(v*v for v in offset)-distance*distance))
+        if not 0<=distance<=self.MAX_RANGE or lateral>100:
+            return reject('shot_trajectory',h.target_uid)
         self.shots.remove(candidate)
         self.seen[h.sequence]=now
         if len(self.seen)>512:del self.seen[next(iter(self.seen))]
@@ -107,6 +109,6 @@ class BotCombat:
         relative=tuple(round(v-p0) for v,p0 in zip(h.impact,p))
         replies.insert(1,hit_feedback(g.actor_uid,h.target_uid,relative,h.part,applied,hp.current==0))
         self.last_event=dict(accepted=True,target_uid=h.target_uid,sequence=h.sequence,
-            damage_applied=True,damage=applied,current=hp.current,weapon=candidate.weapon,
+            damage_applied=True,damage=applied,current=hp.current,weapon=candidate.weapon,shot_serial=candidate.serial,
             original_damage_formula=False)
         return replies

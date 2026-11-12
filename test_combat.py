@@ -19,14 +19,31 @@ def fixture():
     return game,bots,BotCombat(game,bots),uid
 
 
-def shoot(game,combat,now=100,flag=0):
-    body=struct.pack('>6fIB',325800,271700,6600,327000,271700,6600,0,flag)
+def shoot(game,combat,now=100,flag=0,serial=0):
+    body=struct.pack('>6fIB',325800,271700,6600,326800,271700,6600,serial,flag)
     before=game.magazine
     game.handle(0x11d3,body)
     return combat.record_shot(body,before,now)
 
 
 class CombatTests(unittest.TestCase):
+    def test_close_hip_fire_and_distant_hits_match_serial_and_emit_native_feedback(self):
+        for distance in (40,2469,14000):
+            game,bots,combat,uid=fixture()
+            target=(325800+distance,271700,6500)
+            bots.actors[uid]['position']=(target[0]+130,target[1],target[2])
+            self.assertTrue(shoot(game,combat,serial=11))
+            self.assertTrue(shoot(game,combat,100.05,serial=12))
+            hit=dict(shooter=(325780,271720,6450),target=target,
+                     impact=(target[0],target[1],6600))
+            self.assertEqual(combat.handle(hit_body(shot_serial=13,**hit),100.1),[])
+            self.assertEqual(combat.handle(hit_body(shot_serial=12,muzzle=(325800,271708,6600),**hit),100.1),[])
+            feedback=combat.handle(hit_body(shot_serial=12,**hit),100.1)
+            self.assertEqual([mid for mid,_ in feedback],[0x1069,0x11eb])
+            self.assertEqual(feedback[1],hit_feedback(game.actor_uid,uid,(0,0,100),2,BotCombat.DAMAGE,False))
+            self.assertEqual([shot.serial for shot in combat.shots],[11])
+            self.assertEqual(combat.handle(struct.pack('>I',38)+hit_body(shot_serial=12,**hit)[4:],100.2),[])
+
     def test_two_consumed_bullets_kill_once_and_dead_queries_do_not_revive(self):
         game,bots,combat,uid=fixture()
         self.assertTrue(shoot(game,combat))
