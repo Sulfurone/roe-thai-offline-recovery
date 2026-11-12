@@ -11,7 +11,7 @@ import time
 
 from offline_bots import peer_locomotion
 from offline_combat import death_packet,hit_feedback
-from offline_peer_messages import peer_equipment,peer_fire
+from offline_peer_messages import peer_equipment,peer_facing,peer_fire
 from offline_armour import absorb_bullet,local_region
 
 
@@ -40,6 +40,7 @@ class Brain:
     heard_at:float=-math.inf
     activation:int=0
     peer_retry:int=0
+    facing_at:float=0
 
 
 class BotAI:
@@ -140,7 +141,19 @@ class BotAI:
 
     def equipment(self,uid):
         brain=self.brains.get(uid)
-        return peer_equipment(uid,brain.weapon_uid,magazine=brain.magazine) if brain else None
+        return (peer_equipment(uid,brain.weapon_uid,magazine=brain.magazine,clothing=self.bots.outfits.get(uid,()))
+                if brain else None)
+
+    def face_target(self,brain,target,now):
+        actor=self.bots.actors[brain.uid]
+        x,y,z=actor['position']
+        dx,dy,dz=target[0]-x,target[1]-y,target[2]-z-150
+        heading=math.atan2(dy,dx)
+        length=math.hypot(dx,dy,dz)
+        replies=self.stop_walking(brain.uid)
+        actor['heading']=heading
+        brain.facing_at=now+.1
+        return replies+[peer_facing(brain.uid,heading,dz/length if length else 0)]
 
     def walk_towards(self,uid,destination,seconds,*,speed=None):
         actor=self.bots.actors[uid]
@@ -363,18 +376,24 @@ class BotAI:
                 side=(point[0]+250*math.cos(angle),point[1]+250*math.sin(angle),point[2])
                 replies.extend(self.walk_towards(uid,side,dt))
                 continue
-            replies.extend(self.stop_walking(uid))
-            if not brain.equipped:continue
+            if not brain.equipped:
+                replies.extend(self.stop_walking(uid))
+                continue
             if brain.phase not in ('aim','cooldown'):
                 brain.phase='aim'
                 brain.deadline=now+self.AIM_SECONDS+(.08*(uid%5) if self.bots.streamed else 0)
                 brain.target=self.aim_at(origin,brain.last_known)
+                replies.extend(self.face_target(brain,brain.target,now))
                 continue
-            if now<brain.deadline:continue
+            if now<brain.deadline:
+                if brain.target is not None and (brain.phase=='aim' and now>=brain.facing_at or actor.get('walking')):
+                    replies.extend(self.face_target(brain,brain.target,now))
+                continue
             if brain.phase=='cooldown':
                 brain.phase='aim'
                 brain.deadline=now+self.AIM_SECONDS
                 brain.target=self.aim_at(origin,brain.last_known)
+                replies.extend(self.face_target(brain,brain.target,now))
                 continue
             aim=brain.target
             if aim is None or math.dist(origin,aim)<1 or distance>self.FIRE_DISTANCE or not self.visibility.clear(origin,aim):
@@ -385,6 +404,7 @@ class BotAI:
                 brain.deadline=now+.12
                 continue
             brain.magazine-=1
+            replies.extend(self.face_target(brain,aim,now))
             replies.append(peer_fire(uid,origin,aim))
             brain.firing=(origin,aim);brain.stop_at=now+self.SHOT_SECONDS
             brain.phase='cooldown'

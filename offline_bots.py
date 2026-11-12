@@ -5,10 +5,12 @@ only ground height and slope; they do not navigate buildings or map props.
 """
 from collections import deque
 import math
+import random
 import struct
 import time
 
 from offline_gameplay import TYPED_ACTOR_UID
+from offline_lobby import CLOTHES
 from offline_vitals import Vitals
 POSITION_MARKER = struct.pack('>3i',123456,234567,34567)
 
@@ -71,6 +73,12 @@ class BotRoster:
         self.zones = None
         self.encounter_at = None
         self.encounter_position = None
+        outfit_random = random.Random()
+        self.outfits = {}
+        for index in range(count):
+            base = 0x2000000010000 + index * 32
+            self.outfits[self.FIRST_UID + index] = tuple(
+                (slot, outfit_random.choice(templates), base + slot) for slot, templates in CLOTHES.items())
 
     def visible(self,uid):
         return uid in (self.active if self.streamed else self.actors)
@@ -189,17 +197,17 @@ class BotRoster:
         hp=self.vitals[uid]
         return [hp.packet(uid)]+([death_packet(uid)] if not hp.current else [])
 
-    def damage(self,uid,amount,*,killer=None):
+    def damage(self,uid,amount,*,killer=None,weapon=None,headshot=False):
         hp=self.vitals.get(uid)
         if hp is None or not hp.current:return []
         if not hp.damage(amount):return []
-        if not hp.current and self.death_notice is not None:self.death_notice(uid,killer)
-        if self.streamed and uid not in self.active:return []
+        notices=self.death_notice(uid,killer,weapon,headshot) if not hp.current and self.death_notice else []
+        if self.streamed and uid not in self.active:return notices
         replies = self.life_packets(uid)
         if not hp.current:
             if self.streamed:self.actors[uid]['retire_at']=time.monotonic()+self.CORPSE_SECONDS
             if self.death_parcel is not None:replies.extend(self.death_parcel(uid))
-        return replies
+        return replies+notices
 
     def spawn(self, population, position, rng):
         if self.streamed:

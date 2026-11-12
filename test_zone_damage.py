@@ -8,18 +8,33 @@ from offline_zone_schedule import ZonePlan, ZoneStage, ZoneSchedule
 from offline_zone_damage import ZoneDamage
 from offline_vitals import Vitals
 from offline_combat import death_packet
+from offline_match_status import room_kill_broadcast, survivor_count
+from test_combat import fixture
 
 class Bots:
     def __init__(self):
         self.actors={2:{"position":(2100,1000,7000)},3:{"position":(1000,1000,7000)}}
         self.vitals={2:Vitals(),3:Vitals()}
-    def damage(self,uid,amount):
+    def damage(self,uid,amount,*,weapon=0):
         if not self.vitals[uid].damage(amount):return []
         result=[self.vitals[uid].packet(uid)]
         if not self.vitals[uid].current:result.append(death_packet(uid))
         return result
 
 class ZoneDamageTests(unittest.TestCase):
+    def test_unloaded_bot_still_sends_native_circle_broadcast_once(self):
+        game,bots,_,uid=fixture()
+        bots.streamed=True
+        bots.vitals[uid].current=10
+        x,y,_=game.player_position
+        schedule=SimpleNamespace(game=game,circle_at=lambda now:(x,y,150))
+        bots.death_notice=lambda victim,killer,weapon,headshot: [
+            room_kill_broadcast(killer or 0,b'',victim,b'AI-1',weapon,survivor_count(game,bots))]
+        damage=ZoneDamage(schedule,bots)
+        self.assertEqual(damage.tick(10),[])
+        self.assertEqual(damage.tick(11),[room_kill_broadcast(0,b'',uid,b'AI-1',0,1)])
+        self.assertEqual(damage.tick(12),[])
+
     def setup_world(self):
         game=OfflineGameplay();game.actor_ready=True;game.player_position=(1000,1000,7000)
         plan=ZonePlan(Circle(1000,1000,1000),(ZoneStage(Circle(1000,1000,500),2,4),))

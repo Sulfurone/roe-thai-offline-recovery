@@ -32,7 +32,7 @@ from offline_bot_parcels import BotParcels
 from offline_blast import BlastCombat
 from offline_visibility import StaticVisibility
 from offline_zone_schedule import ZonePlan,ZoneSchedule
-from offline_match_status import SurvivorStatus
+from offline_match_status import SurvivorStatus,room_kill_broadcast,survivor_count
 from offline_posture import posture_speed_delta,CROUCH_CM_PER_SECOND,PRONE_CM_PER_SECOND
 from self_position import PositionInstallation,recover_previous
 from service_pacing import ServiceCadence
@@ -673,8 +673,14 @@ def main():
                 zones=ZoneSchedule(gameplay,population_surface,zone_plan) if zone_plan is not None else None
                 if control_session is not None:
                     control_session.zones=zones
-                    if bots is not None:bots.death_notice=control_session.record_bot_death
                 if bots is not None:bots.zones=zones
+                if bots is not None and native_result_name is not None:
+                    def native_bot_death(uid,killer,weapon,headshot):
+                        if weapon is None:return []
+                        killer_name=native_result_name.rstrip(b'\0') if killer else b''
+                        return [room_kill_broadcast(killer or 0,killer_name,uid,bots.name_for(uid).encode('ascii'),
+                                                    weapon,survivor_count(gameplay,bots),headshot=headshot)]
+                    bots.death_notice=native_bot_death
                 if args.world_zone_damage:
                     from offline_zone_damage import ZoneDamage
                     zone_damage=ZoneDamage(zones,bots,control_session)

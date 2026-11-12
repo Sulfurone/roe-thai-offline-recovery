@@ -76,7 +76,7 @@ class BlastCombat:
             if not amount or not self.exposed(position,feet):continue
             if not own and hasattr(self.bots,'damage'):
                 before=hp.current
-                replies.extend(self.bots.damage(uid,amount,killer=g.actor_uid))
+                replies.extend(self.bots.damage(uid,amount,killer=g.actor_uid,weapon=event['template']))
                 applied=before-hp.current
             else:
                 applied=hp.damage(amount)

@@ -11,6 +11,7 @@ from unicorn import UC_HOOK_CODE
 from unicorn.x86_const import UC_X86_REG_EAX,UC_X86_REG_EDX,UC_X86_REG_ECX,UC_X86_REG_ESP,UC_X86_REG_EIP
 sys.path.insert(0,str(ROOT))
 from offline_peer_messages import peer_equipment,peer_fire
+from offline_lobby import CLOTHES
 
 c=NativeCodec()
 c.uc.mem_map(0,4096)
@@ -20,6 +21,11 @@ inserted=[]
 selected=[]
 fires=[]
 firing_entries=[]
+visual=0x10904000
+visual_vtable=0x10905000
+visual_slots={}
+visual_calls=[]
+visual_active=False
 
 
 def put(a,*v):c.uc.mem_write(a,struct.pack('<'+'I'*len(v),*v))
@@ -60,14 +66,22 @@ def fire():
 put(actor,vt)
 put(vt+0x2d0,0x10908000)
 put(vt+0x1c8,0x10908010)
-c.external_hooks.update((0x10908000,0x10908010))
+put(actor+0x10,visual_vtable)
+put(visual_vtable+0x10c,0x10908020)
+c.external_hooks.update((0x10908000,0x10908010,0x10908020))
 hook(0x10908000,lambda:(selected.append(args(1)[0]),done(cleanup=4)))
 hook(0x10908010,lambda:done(cleanup=4))
+hook(0x10908020,lambda:done(visual))
 hook(0x1130670,lambda:done(own&0xffffffff,own>>32))
 hook(0x1132390,lambda:done(actor))
 hook(0xe51a70,lambda:done(inventory))
 hook(0xf636c0,insert)
-hook(0x113e240,lambda:done(0))
+hook(0x113e240,lambda:done(visual if visual_active else 0))
+hook(0x139d6b0,lambda:(visual_slots.update([args(2)]),done(cleanup=8)))
+hook(0x139d5b0,lambda:done(visual_slots.get(args(1)[0],0),cleanup=4))
+hook(0x401330,lambda:done(c.uc.reg_read(UC_X86_REG_ECX),cleanup=4))
+hook(0x1281a50,lambda:done())
+hook(0x12f9310,lambda:(visual_calls.append(tuple(struct.unpack('<30I',c.uc.mem_read(args(4)[2],120)))),done()))
 hook(0xe6c120,fire)
 hook(0xf60b30,lambda:done(0x10903000))
 hook(0xe6aa10,lambda:(firing_entries.append('begin'),done()))
@@ -81,6 +95,21 @@ if code or repacked!=body:raise ValueError('Original remote equipment writer dif
 c.invoke(0x128d100,0,[c.ROOT_OBJECT+6])
 expected=dict(container=3,slot=1,kind=1,template=10201,uid=hex(weapon),rows=[(7,30001,30)])
 if inserted!=[expected] or selected!=[1]:raise ValueError(f'Original remote equipment consumer differs: {inserted}, {selected}')
+
+visual_active=True
+clothes=tuple((slot,choices[1],weapon+slot) for slot,choices in CLOTHES.items())
+mid,body=peer_equipment(peer,weapon,clothing=clothes)
+result=c.decode_server(mid,body)
+if result['code'] or result['consumed']!=result['bytes']:raise ValueError(result)
+native=bytes(c.uc.mem_read(c.ROOT_OBJECT+10,0x11ff))
+code,repacked=c.pack_type(0xdce7c0,native)
+if code or repacked!=body:raise ValueError('Original outfit writer differs')
+c.invoke(0x128d100,0,[c.ROOT_OBJECT+6])
+if [(row['container'],row['slot'],row['template']) for row in inserted[2:]] != [
+        (1,slot,template) for slot,template,_ in clothes]:
+    raise ValueError('Original remote handler did not equip garments')
+if len(visual_calls)!=1 or any(visual_calls[0][slot]!=template for slot,template,_ in clothes):
+    raise ValueError(f'Original appearance callback did not receive all garment ids: {visual_calls}')
 for stop in (False,True):
     mid,body=peer_fire(peer,(325800,271700,6650),(326000,271700,6600),stop)
     result=c.decode_server(mid,body)
@@ -96,7 +125,7 @@ if firing_entries!=['begin']:raise ValueError('Original firing entry count diffe
 direction=struct.unpack('<3f',c.uc.mem_read(actor+0xa48,12))
 if abs(sum(v*v for v in direction)-1)>1e-5 or direction[0]<=0 or direction[2]>=0:
     raise ValueError('Original normalized shot direction differs')
-report=dict(passed=True,equipment=inserted,selected=selected,fires=fires,
+report=dict(passed=True,equipment=inserted,selected=selected,fires=fires,appearance_slots=visual_slots,
     original_actor_fire=True,direction=direction,
     limitation='Synthetic remote inventory/selection/firing dependencies; no live model, firing animation or damage proof')
 (ROOT/'private/typed-gameplay/peer-weapon-validation.json').write_text(json.dumps(report,indent=2),encoding='utf8')

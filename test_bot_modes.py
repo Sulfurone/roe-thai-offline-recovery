@@ -103,12 +103,30 @@ class BotModeTests(unittest.TestCase):
         self.assertIn(0x25,[m for m,b in packets])
         self.assertNotIn(0x11d4,[m for m,b in packets])
 
+    def test_stationary_facing_matches_the_locked_shot_direction(self):
+        game,bots,ai,uid=setup()
+        actor=bots.actors[uid]
+        x,y,z=actor['position']
+        actor.update(heading=-math.pi/2,walking=True)
+        game.accept_self_position((x,y+500,z),100)
+        aim=ai.tick(100)
+        game.accept_self_position((x,y+500,z),100.8)
+        shot=ai.tick(100.8)
+        for packets in (aim,shot):
+            facing=next(body for message,body in packets if message==0x30)
+            actor_uid,azimuth,elevation=struct.unpack('>QHH',facing)
+            self.assertEqual(actor_uid,uid)
+            self.assertAlmostEqual((2*azimuth/65535-1)*math.pi,math.pi/2,places=4)
+            self.assertAlmostEqual(2*elevation/65535-1,-60/math.hypot(500,60),places=4)
+        self.assertEqual(actor['position'],(x,y,z))
+        self.assertLess([mid for mid,_ in shot].index(0x30),[mid for mid,_ in shot].index(0x11d4))
+
     def test_switching_to_combat_requires_new_reaction_and_dead_bot_stays_dead(self):
         g,bots,ai,uid=setup()
         ai.set_mode('target');ai.tick(100)
         ai.set_mode('combat')
         g.accept_self_position(g.player_position,101)
-        self.assertEqual(ai.tick(101),[])
+        self.assertEqual([mid for mid,_ in ai.tick(101)],[0x30])
         g.accept_self_position(g.player_position,101.8)
         self.assertIn(0x11d4,[m for m,b in ai.tick(101.8)])
         bots.vitals[uid].current=0

@@ -29,18 +29,20 @@ def shoot(game,combat,now=100,flag=0,serial=0,z=6600):
 
 
 class CombatTests(unittest.TestCase):
-    def test_death_feed_is_once_per_bot_and_reports_player_or_circle(self):
-        from control_actions import ControlSession
+    def test_native_death_broadcast_is_emitted_once_with_consumed_weapon(self):
+        from offline_match_status import room_kill_broadcast
 
-        game,bots,_,uid=fixture()
-        other=uid+1
-        bots.vitals[other]=Vitals()
-        control=ControlSession(game)
-        bots.death_notice=control.record_bot_death
-        bots.damage(uid,1000,killer=game.actor_uid)
-        bots.damage(uid,1000,killer=game.actor_uid)
-        bots.damage(other,1000)
-        self.assertEqual(control.snapshot()['kill_feed'],['AI-2  被安全区淘汰','你  淘汰了  AI-1'])
+        game,bots,combat,uid=fixture()
+        weapon=game.inventory.items[1,1].template
+        bots.death_notice=lambda victim,killer,item,head: [
+            room_kill_broadcast(killer,b'RoeTest',victim,b'AI-1',item,1,headshot=head)]
+        for shot in (0,1):
+            self.assertTrue(shoot(game,combat,100+shot,serial=shot))
+            body=struct.pack('>I',37+shot)+hit_body(shot_serial=shot)[4:]
+            replies=combat.handle(body,100.01+shot)
+            if shot==0:self.assertNotIn(0x480,[mid for mid,_ in replies])
+        self.assertEqual(replies[-1],room_kill_broadcast(game.actor_uid,b'RoeTest',uid,b'AI-1',weapon,1))
+        self.assertEqual(combat.handle(struct.pack('>I',39)+hit_body(shot_serial=1)[4:],101.02),[])
 
     def test_shotgun_shell_accepts_native_pellet_collision_once(self):
         game,bots,combat,uid=fixture()

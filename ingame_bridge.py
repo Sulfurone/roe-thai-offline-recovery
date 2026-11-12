@@ -81,7 +81,7 @@ class IngameMailbox:
         position = snapshot.get('position')
         if position is not None:
             body += 'position=' + ','.join(map(str, position)) + '\n'
-        for key,limit in (('vehicles',16),('peers',4),('kill_feed',4)):
+        for key,limit in (('vehicles',16),('peers',4)):
             body+=key+'='+json.dumps(snapshot.get(key,[])[:limit],ensure_ascii=False,separators=(',',':'))+'\n'
         if body != self.last_status:
             pending = self.status_path.with_suffix('.tmp')

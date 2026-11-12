@@ -43,6 +43,20 @@ class PeerMessageTests(unittest.TestCase):
         with self.assertRaises(ValueError):peer_equipment(256,300,magazine=31)
         with self.assertRaises(ValueError):peer_fire(256,(math.nan,2,3),(10,20,30))
 
+    def test_roster_outfits_are_distinct_and_stay_assigned_when_equipped(self):
+        from offline_lobby import CLOTHES
+
+        game,bots,ai,uid=setup()
+        roster=BotRoster(bots.profile,63)
+        self.assertGreater(len({tuple(item[1] for item in outfit) for outfit in roster.outfits.values()}),1)
+        self.assertEqual(len({item[2] for outfit in roster.outfits.values() for item in outfit}),63*5)
+        first=next(body for mid,body in ai.tick(100) if mid==0x547)
+        self.assertEqual(struct.unpack_from('>I',first,8)[0],6)
+        for index,(slot,template,item_uid) in enumerate(bots.outfits[uid]):
+            self.assertIn(template,CLOTHES[slot])
+            self.assertEqual(struct.unpack_from('>IQI',first,81+57*index),(template,item_uid,slot))
+        self.assertEqual(ai.equipment(uid),(0x547,first))
+
 
 class VisibilityTests(unittest.TestCase):
     def test_static_spheres_block_crossing_inside_and_cross_cell_segments(self):
@@ -112,10 +126,10 @@ class BotAITests(unittest.TestCase):
         game,bots,ai,uid=setup()
         game.vitals.current=20
         game.medicine.pending=dict(uid=999,template=70001,deadline=104)
-        self.assertEqual([m for m,b in ai.tick(100)],[0x547])
+        self.assertEqual([m for m,b in ai.tick(100)],[0x547,0x30])
         game.accept_self_position(game.player_position,100.8)
         packets=ai.tick(100.8)
-        self.assertEqual([m for m,b in packets],[0x11d4,0x1069,0x11eb,0x533])
+        self.assertEqual([m for m,b in packets],[0x30,0x11d4,0x1069,0x11eb,0x533])
         self.assertEqual(game.vitals.current,0)
         self.assertIsNone(game.medicine.pending)
         self.assertEqual(ai.brains[uid].magazine,29)
@@ -138,18 +152,18 @@ class BotAITests(unittest.TestCase):
             ai.tick(100)
             game.accept_self_position((325800 if lateral else 325950,271900 if lateral else 271700,6505),100.8)
             packets=ai.tick(100.8)
-            self.assertEqual(packets[0][0],0x11d4)
-            self.assertEqual(packets[0][1][-1],0)
+            self.assertEqual(packets[1][0],0x11d4)
+            self.assertEqual(packets[1][1][-1],0)
             self.assertEqual(game.vitals.current,1000 if lateral else 980)
 
     def test_rooftop_target_is_not_immune_because_terrain_is_below_the_floor(self):
         game,bots,ai,uid=setup()
         point=(325800,271700,7305)
         game.accept_self_position(point,100)
-        self.assertEqual([m for m,b in ai.tick(100)],[0x547])
+        self.assertEqual([m for m,b in ai.tick(100)],[0x547,0x30])
         game.accept_self_position(point,100.8)
         packets=ai.tick(100.8)
-        self.assertEqual([m for m,b in packets],[0x11d4,0x1069,0x11eb])
+        self.assertEqual([m for m,b in packets],[0x30,0x11d4,0x1069,0x11eb])
         self.assertEqual(game.vitals.current,980)
 
     def test_stale_distant_air_seated_dead_targets_and_obstruction_prevent_attacks(self):
@@ -176,7 +190,7 @@ class BotAITests(unittest.TestCase):
         game.accept_self_position(game.player_position,103)
         self.assertEqual(ai.tick(103),[])
         game.accept_self_position(game.player_position,103.1)
-        self.assertEqual([m for m,b in ai.tick(103.1)],[0x547])
+        self.assertEqual([m for m,b in ai.tick(103.1)],[0x547,0x30])
         self.assertEqual((brain.magazine,brain.reserve),(2,0))
         bots.vitals[uid].current=0
         self.assertEqual(ai.tick(103.2),[])

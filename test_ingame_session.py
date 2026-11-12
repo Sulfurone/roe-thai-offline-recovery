@@ -28,6 +28,7 @@ from test_control_panel import jeep_template
 from offline_bots import POSITION_MARKER,BotRoster
 from offline_combat import BotCombat
 from offline_bot_ai import BotAI
+from offline_match_status import room_kill_broadcast
 from tpdu import decrypt, encrypt, frame, read_frame
 
 
@@ -101,6 +102,10 @@ class IngameSessionTests(unittest.TestCase):
 
     def test_original_thai_elimination_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,ai=True,
+                         round_result=True,native_result=True)
+
+    def test_original_thai_bot_kill_broadcast_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,survivors=True,
                          round_result=True,native_result=True)
 
     def test_circle_damage_over_encrypted_connection(self):
@@ -586,6 +591,13 @@ class IngameSessionTests(unittest.TestCase):
                             if not current:self.assertEqual(receive_raw(),(0x533,struct.pack('>IQ',0,bot_uid)))
                         self.assertEqual(games[0].magazine,25)
                         self.assertEqual(roster.vitals[bot_uid].current,0)
+                        if native_result:
+                            weapon=games[0].inventory.items[1,1].template
+                            self.assertEqual(receive_raw(),room_kill_broadcast(256,b'Test',bot_uid,b'AI-1',weapon,1))
+                            self.assertEqual(receive_raw(),(0xd77,struct.pack('>IQ',0,17)+bytes(28)))
+                            result_id,result_body=receive_raw()
+                            self.assertEqual(result_id,0xd62)
+                            self.assertEqual(struct.unpack_from('>4I',result_body,25),(1,2,1,2))
                         if survivors:
                             # The next request drains the asynchronous HUD update
                             # after the death broadcast, on the same AES stream.
@@ -595,7 +607,7 @@ class IngameSessionTests(unittest.TestCase):
                             # cadence-limited first bot spawn. Keep the actual
                             # roster semantics: optional 1, then 2, then death 1.
                             self.assertIn(survivor_counts,([2,1],[1,2,1]))
-                            if round_result:
+                            if round_result and not native_result:
                                 deadline=time.monotonic()+3
                                 while time.monotonic()<deadline:
                                     if menu.state().get('round_state')=='won':break
@@ -603,7 +615,6 @@ class IngameSessionTests(unittest.TestCase):
                                 result=menu.state()
                                 self.assertEqual((result['round_state'],result['round_placement'],result['round_size']),
                                                  ('won','1','2'))
-                                self.assertEqual(json.loads(result['kill_feed']),['你  淘汰了  AI-1'])
                     if ai:
                         roster=combats[0].bots
                         roster.actors[bot_uid]['position']=(326000,271700,6500)
@@ -633,7 +644,7 @@ class IngameSessionTests(unittest.TestCase):
                             elif armour and mid==0x3e82:
                                 self.assertEqual(struct.unpack_from('>BHB',body),(1,12,1))
                                 conditions.append(struct.unpack_from('>I',body,34)[0])
-                            else:self.assertEqual(mid,0x547)
+                            else:self.assertIn(mid,(0x547,0x25,0x30))
                         client.settimeout(4)
                         self.assertEqual(hp,[28,10,0] if armour else [20,0])
                         self.assertEqual(firing,[0,1]*(3 if armour else 2))

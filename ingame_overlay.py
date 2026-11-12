@@ -4,7 +4,6 @@ from contextlib import AbstractContextManager
 import ctypes
 from ctypes import wintypes as wt
 import hashlib
-import json
 import os
 from pathlib import Path
 import subprocess
@@ -424,14 +423,9 @@ class Overlay:
 
     def update_match_hud(self,state,bounds):
         if not bounds:
-            self.show_match_hud('kills','',None)
             self.show_match_hud('circle','',None)
             return
         x,y,width,height=bounds
-        feed=json.loads(state.get('kill_feed','[]'))[:4]
-        feed_width=min(230,width)
-        self.show_match_hud('kills','\n'.join(feed),
-            f'{feed_width}x{8+20*len(feed)}{x+max(0,width-feed_width-24):+d}{y+86:+d}')
         phase,_,remaining=state.get('zone_countdown','').partition(',')
         timer=''
         if phase in ('0','2') and remaining.isdecimal():

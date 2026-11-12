@@ -11,6 +11,7 @@ from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_EIP, UC_X86_REG_ESP
 sys.path.insert(0,str(ROOT))
 from offline_bots import peer_locomotion, peer_motion
 from offline_bot_ai import BotAI
+from offline_peer_messages import peer_facing
 
 
 def main():
@@ -110,6 +111,19 @@ def main():
         raise ValueError(f'Wrong idle animation parameters: {animation}')
     idle_parameters=animation.copy()
 
+    turned=[]
+
+    def rotation(uc,*_):
+        vector=codec.read32(uc.reg_read(UC_X86_REG_ESP)+4)
+        turned.append(struct.unpack('<3f',uc.mem_read(vector,12)))
+        uc.reg_write(UC_X86_REG_EIP,codec.RETURN)
+
+    uc.hook_add(UC_HOOK_CODE,dependency,begin=0x10f37b0,end=0x10f37b0)
+    uc.hook_add(UC_HOOK_CODE,rotation,begin=0x12b1d30,end=0x12b1d30)
+    deliver(0x1278400,*peer_facing(uid,-math.pi/2,.6))
+    if len(turned)!=1 or math.dist(turned[0],(0,-.8,.6))>.001:
+        raise ValueError(f'Original turn direction differs: {turned}')
+
     # The live offline match reported zero for the world's tick duration.
     # Advance the real queue at 60 FPS with a 20 Hz stream under that clock.
     put(clock+0x74,0)
@@ -137,7 +151,7 @@ def main():
                     raise ValueError(f'Movement input {speed} dropped at frame {frames}: {forward}')
                 frames+=1
         steady_frames[speed]=frames-startup_frames
-    report=dict(passed=True,waypoints=points,facing=facing,walking_parameters=walking_parameters,
+    report=dict(passed=True,waypoints=points,facing=facing,stationary_aim_facing=turned[0],walking_parameters=walking_parameters,
                 idle_parameters=idle_parameters,zero_clock_steady_walking_frames=steady_frames[BotAI.WALK_SPEED],
                 zero_clock_steady_running_frames=steady_frames[BotAI.RUN_SPEED],running_speed=BotAI.RUN_SPEED,
                 position_only_queue_reset=True,

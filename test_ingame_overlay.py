@@ -56,18 +56,16 @@ class IngameOverlayTests(unittest.TestCase):
             self.assertEqual(client.state()['ready'],'1')
         self.assertEqual(read.call_count,2)
 
-    def test_match_hud_places_kill_feed_and_shrink_countdown_without_opening_menu(self):
+    def test_match_hud_places_shrink_countdown_without_opening_menu(self):
         overlay=menu()
         overlay.show_match_hud=MagicMock()
-        overlay.client.state=lambda:{'ready':'1','kill_feed':'["AI-3  被安全区淘汰"]','zone_countdown':'2,65'}
+        overlay.client.state=lambda:{'ready':'1','zone_countdown':'2,65'}
         overlay.tick()
-        overlay.show_match_hud.assert_any_call('kills','AI-3  被安全区淘汰','230x28+1766+186')
-        overlay.show_match_hud.assert_any_call('circle','缩圈结束  01:05','158x30+1838+842')
+        overlay.show_match_hud.assert_called_once_with('circle','缩圈结束  01:05','158x30+1838+842')
         overlay.root.focus_force.assert_not_called()
         self.assertFalse(overlay.expanded)
         overlay.win.active.return_value=False
         overlay.tick()
-        overlay.show_match_hud.assert_any_call('kills','',None)
         overlay.show_match_hud.assert_any_call('circle','',None)
     def test_gameplay_starts_hidden_in_both_legacy_launch_modes(self):
         for collapsed in (False,True):

@@ -45,7 +45,7 @@ class ZoneDamage:
             for uid,actor in self.bots.actors.items():
                 if self.bots.vitals[uid].current and outside(actor['position']):
                     before=self.bots.vitals[uid].current
-                    replies.extend(self.bots.damage(uid,self.DAMAGE))
+                    replies.extend(self.bots.damage(uid,self.DAMAGE,weapon=0))
                     self.events.append(dict(uid=uid,damage=before-self.bots.vitals[uid].current,
                                             current=self.bots.vitals[uid].current))
         return replies
