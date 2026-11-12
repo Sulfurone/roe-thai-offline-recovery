@@ -68,13 +68,19 @@ class BotModeTests(unittest.TestCase):
         actor=bots.actors[uid]
         positions=[]
         speeds=set()
+        last_tick=None
         for frame in range(1,401):
             now=100+frame*.05
             game.accept_self_position(game.player_position,now)
             movement=[body for message,body in ai.tick(now) if message==0x25]
             self.assertEqual(len(movement),1)
-            self.assertEqual(movement[0][41],1)
-            speeds.add(struct.unpack_from('>H',movement[0],8)[0])
+            speed=struct.unpack_from('>H',movement[0],8)[0]
+            self.assertEqual(movement[0][41],0x21 if speed==ai.RUN_SPEED else 1)
+            start_tick,end_tick=(struct.unpack_from('>I',movement[0],offset)[0] for offset in (24,37))
+            self.assertGreater(end_tick,start_tick)
+            if last_tick is not None:self.assertEqual(last_tick,start_tick)
+            last_tick=end_tick
+            speeds.add(speed)
             positions.append(actor['position'])
         self.assertEqual(len(set(positions)),len(positions))
         self.assertNotEqual(ai.brains[uid].patrol_waypoint,0)
@@ -146,6 +152,22 @@ class BotModeTests(unittest.TestCase):
         self.assertEqual((brain.magazine,brain.reserve),(7,0))
         ai.tick(110)
         self.assertEqual((brain.magazine,brain.reserve),(7,0))
+
+    def test_streamed_bot_crouches_for_reload_and_stands_afterward(self):
+        game,bots,ai,uid=setup()
+        bots.streamed=True
+        bots.active.add(uid)
+        ai.tick(100)
+        ai.brains[uid].magazine=0
+        game.accept_self_position(game.player_position,100.1)
+        start=ai.tick(100.1)
+        self.assertEqual([body[22] for mid,body in start if mid==0x25],[2])
+        game.accept_self_position(game.player_position,101)
+        self.assertEqual(ai.tick(101),[])
+        game.accept_self_position(game.player_position,103.2)
+        end=ai.tick(103.2)
+        self.assertEqual([body[22] for mid,body in end if mid==0x25],[1])
+        self.assertFalse(bots.actors[uid]['crouched'])
 
     def test_lost_target_search_uses_last_observation_and_expires(self):
         g,bots,ai,uid=setup();ai.tick(100)

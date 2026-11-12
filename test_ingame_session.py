@@ -291,12 +291,19 @@ class IngameSessionTests(unittest.TestCase):
                     life_packets=[]
                     zone_packets=[]
                     survivor_counts=[]
+                    motion_clocks=[]
 
                     def receive_raw():
                         while True:
                             _, _, cipher, *_ = read_frame(client)
                             packet = decrypt(cipher, bytes(16))
                             message,body=struct.unpack_from('>H', packet, 4)[0],packet[10:]
+                            if ai and message==0x1f57:
+                                tick,_,duration,_=struct.unpack('>4I',body)
+                                self.assertEqual(duration,50)
+                                self.assertGreater(tick,motion_clocks[-1] if motion_clocks else 0)
+                                motion_clocks.append(tick)
+                                continue
                             if survivors and message==0x47d:
                                 count,opaque=struct.unpack('>II',body)
                                 self.assertEqual(opaque,0)
@@ -616,6 +623,7 @@ class IngameSessionTests(unittest.TestCase):
                                 self.assertEqual((result['round_state'],result['round_placement'],result['round_size']),
                                                  ('won','1','2'))
                     if ai:
+                        self.assertTrue(motion_clocks)
                         roster=combats[0].bots
                         roster.actors[bot_uid]['position']=(326000,271700,6500)
                         games[0].vitals.current=40

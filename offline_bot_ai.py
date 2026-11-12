@@ -9,7 +9,7 @@ import math
 import random
 import time
 
-from offline_bots import peer_locomotion
+from offline_bots import PEER_TICK_MS,peer_clock,peer_locomotion
 from offline_combat import death_packet,hit_feedback
 from offline_peer_messages import peer_equipment,peer_facing,peer_fire
 from offline_armour import absorb_bullet,local_region
@@ -75,18 +75,35 @@ class BotAI:
         self.rng=random.Random(getattr(population,'seed',1))
         self.brains={}
         self.previous_tick=None
+        self.motion_epoch=None
+        self.next_clock=0
         self.last_retries=0
         self.events=[]
         self.last_shot=None
         bots.external_motion=True
+        bots.motion_tick=self.motion_tick
         population.peer_visibility=visibility
 
-    def stop_walking(self,uid):
+    def motion_tick(self,now):
+        if self.motion_epoch is None:self.motion_epoch=now
+        return 1+max(0,math.floor((now-self.motion_epoch)*1000/PEER_TICK_MS+1e-8))
+
+    def sync_motion_clock(self,now):
+        if now<self.next_clock:return None
+        self.next_clock=now+5
+        return peer_clock(self.motion_tick(now))
+
+    def stop_walking(self,uid,*,crouch=False):
         actor=self.bots.actors.get(uid)
-        if actor is not None and actor.pop('walking',False):
+        if actor is None:return []
+        walking=actor.pop('walking',False)
+        if walking or actor.get('crouched',False)!=crouch:
+            actor['crouched']=crouch
             actor['sequence']=(actor['sequence']+1)&0xffffffff
             point=actor['position']
-            return [peer_locomotion(uid,point,point,actor['sequence'],0,actor['heading'])]
+            tick=self.motion_tick(self.previous_tick)
+            return [peer_locomotion(uid,point,point,actor['sequence'],0,actor.get('heading',0),
+                                    tick,tick+1,action=2 if crouch else 1)]
         return []
 
     def stop(self,brain):
@@ -171,13 +188,19 @@ class BotAI:
             end=(point[0]+step*math.cos(angle+adjustment),point[1]+step*math.sin(angle+adjustment),point[2])
             accepted=self.visibility.walk(point,end)
             if accepted is None or accepted==point:continue
+            replies=self.stop_walking(uid) if actor.get('crouched') else []
+            tick=self.motion_tick(self.previous_tick)
+            first=actor.get('motion_end',tick) if actor.get('walking') else tick
+            last=max(first+1,tick+1)
             actor['position']=accepted
             actor['sequence']=(actor['sequence']+1)&0xffffffff
             heading=math.atan2(accepted[1]-point[1],accepted[0]-point[0])
             actor['walking']=True
+            actor['motion_end']=last
             actor['heading']=heading
             if adjustment:actor['detour']=1 if adjustment>0 else -1
-            return [peer_locomotion(uid,point,accepted,actor['sequence'],speed,heading)]
+            return replies+[peer_locomotion(uid,point,accepted,actor['sequence'],speed,heading,first,last,
+                                           running=speed==self.RUN_SPEED)]
         return self.stop_walking(uid)
 
     def search(self,uid,brain,dt):
@@ -307,6 +330,7 @@ class BotAI:
                 replies.append(self.equipment(uid))
                 self.events.append(dict(action='reloaded',uid=uid,magazine=brain.magazine,reserve=brain.reserve))
                 brain.phase='search'
+                replies.extend(self.stop_walking(uid))
             if not active or not g.vitals.current or now-brain.created<self.WARMUP:
                 replies.extend(self.stop_walking(uid))
                 brain.phase='waiting'
@@ -324,6 +348,7 @@ class BotAI:
                 if brain.reserve:
                     brain.phase='reload'
                     brain.reload_at=now+self.RELOAD_SECONDS
+                    if self.bots.streamed:replies.extend(self.stop_walking(uid,crouch=True))
                 else:brain.phase='empty'
                 continue
             point=actor['position']

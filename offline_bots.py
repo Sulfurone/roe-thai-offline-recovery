@@ -13,6 +13,12 @@ from offline_gameplay import TYPED_ACTOR_UID
 from offline_lobby import CLOTHES
 from offline_vitals import Vitals
 POSITION_MARKER = struct.pack('>3i',123456,234567,34567)
+PEER_TICK_MS = 50
+
+
+def peer_clock(tick):
+    # The Thai transport applies the first and third DWORDs to its world clock.
+    return 0x1f57,struct.pack('>4I',tick,tick*PEER_TICK_MS,PEER_TICK_MS,0)
 
 
 def peer_motion(uid, point, sequence):
@@ -21,18 +27,13 @@ def peer_motion(uid, point, sequence):
     return 0x27, struct.pack('>Q3iBBBffIB', uid, *point, 0, 3, 0, 0., 0., sequence, 0)
 
 
-def peer_locomotion(uid, start, end, sequence, speed, heading):
-    # The native interpolator reads the base point and a relative keyframe.
-    # Forward intent is separate from the keyframe action, which is an event.
-    intent = int(speed > 0)
-    first_tick = (sequence - intent) & 0xffffffff
+def peer_locomotion(uid, start, end, sequence, speed, heading, first_tick, last_tick, *, running=False, action=0):
+    # Positions use the same ticks as 0x1F57. The zero-speed single-node
+    # path commits stance actions immediately through the native controller.
+    intent = (0x21 if running else 1) if speed else 0
     displacement = (b-a for a,b in zip(start,end))
-    body = struct.pack('>QH3iBBIB', uid, round(speed), *start, 0, 0, first_tick, 1)
-    # The offline client's world tick duration is zero. A 50 ms keyframe
-    # offset gives the animation queue a playback interval even in that
-    # state. The native action reader ignores 50, outside its 1..34 range.
-    keyframe_ms = 50 if intent else 0
-    body += struct.pack('>3hBBI', *displacement, 0, keyframe_ms, sequence)
+    body = struct.pack('>QH3iBBIB', uid, round(speed), *start, action, 0, first_tick, 1)
+    body += struct.pack('>3hBBI', *displacement, 0, 0, last_tick)
     azimuth = round((heading / math.pi + 1) * 65535 / 2)
     body += struct.pack('>bHHI', intent, azimuth, 32768, sequence)
     return 0x25, body
@@ -68,6 +69,7 @@ class BotRoster:
         self.started = None
         self.retries = 0
         self.external_motion=False
+        self.motion_tick=None
         self.death_parcel = None
         self.death_notice = None
         self.zones = None
@@ -103,9 +105,10 @@ class BotRoster:
 
     def announce(self,uid):
         actor=self.actors[uid]
+        tick=self.motion_tick(actor['created']) if self.motion_tick is not None else actor['sequence']
         return [(0x565,struct.pack('>B3iBQ',1,*actor['position'],0,uid)),
                 (0xbe7,self.profile_for(uid)),self.vitals[uid].packet(uid),
-                peer_motion(uid,actor['position'],actor['sequence'])]
+                peer_motion(uid,actor['position'],tick)]
 
     def move_unseen(self,population,position,rng,now):
         """Reposition only surviving participants who have never loaded in view."""

@@ -870,10 +870,13 @@ def main():
                                      peers=len(bots.actors) if bots is not None else 0,
                                      active_peers=sum(1 for _ in bots.active_actors()) if bots is not None else 0)
                             phase_max['world_send']=max(phase_max['world_send'],time.monotonic()-phase_started)
-                        if (ai is not None and state=='transport_ready' and loaded_pushes_sent and not pending_world
+                        if (ai is not None and state=='transport_ready' and loaded_pushes_sent
                                 and cadence.due('ai')):
                             phase_started=time.monotonic()
-                            for response_id,response_body in ai.tick():
+                            clock_packet=ai.sync_motion_clock(phase_started)
+                            replies=[clock_packet] if clock_packet is not None else []
+                            if not pending_world:replies.extend(ai.tick(phase_started))
+                            for response_id,response_body in replies:
                                 response=struct.pack('>IHI',1,response_id,response_id)+response_body
                                 send(connection,0,body=encrypt(response,key))
                                 emit('bot_ai_response_sent',message_id=response_id,body_bytes=len(response_body))
