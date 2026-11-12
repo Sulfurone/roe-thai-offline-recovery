@@ -182,6 +182,12 @@ class NativeLobbyTests(unittest.TestCase):
                 NativeLobby(body)
 
     def test_encrypted_lobby_waits_for_start_and_keeps_clothing_separate(self):
+        self.check_encrypted_wardrobe(native_lobby=True)
+
+    def test_automatic_entry_carries_the_same_saved_clothes(self):
+        self.check_encrypted_wardrobe(native_lobby=False)
+
+    def check_encrypted_wardrobe(self, *, native_lobby):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             team = root / 'team.bin'
@@ -191,15 +197,21 @@ class NativeLobbyTests(unittest.TestCase):
             world = root / 'world.bin'
             world.write_bytes(world_template())
             profile = root / 'profile.json'
+            if not native_lobby:
+                saved = NativeLobby(team_template(), profile)
+                saved.handle(0x3e80, transfer())
+            initial_profile = profile.read_bytes() if profile.exists() else None
             with socket.socket() as reserved:
                 reserved.bind(('127.0.0.1', 0))
                 port = reserved.getsockname()[1]
             argv = ['local_server.py', '--seconds', '8', '--port', str(port), '--single-session',
-                    '--native-lobby', '--team-body-file', str(team), '--lobby-profile-file', str(profile),
+                    '--team-body-file', str(team), '--lobby-profile-file', str(profile),
                     '--world-body-file', str(world), '--world-wardrobe', '--gameplay-prototype',
                     '--gameplay-inventory', '--gameplay-empty-start', '--push-after-player-ready', f'0x5fb:{push}',
                     '--push-after-team', f'0x1234:{push}', '--push-after-team', f'0x1235:{push}', '--push-delay', '.1',
                     '--push-after-load-success', f'0x1236:{push}']
+            if native_lobby:
+                argv.append('--native-lobby')
             errors = queue.Queue()
             def serve():
                 try:
@@ -238,22 +250,23 @@ class NativeLobbyTests(unittest.TestCase):
                             return struct.unpack_from('>H', packet, 4)[0], packet[10:]
                         send(0x02e4, b'')
                         self.assertEqual(receive(), (0x02ef, world_with_wardrobe(
-                            world.read_bytes(), NativeLobby(team_template()).inventory.worn_clothes())))
+                            world.read_bytes(), NativeLobby(team_template(), profile).inventory.worn_clothes())))
                         send(0x702f, b'\0')
                         self.assertEqual(receive()[0], 0x7030)
-                        self.assertEqual(receive()[0], 0x5fb)
-                        for _ in range(4):
+                        if native_lobby:
+                            self.assertEqual(receive()[0], 0x5fb)
+                            for _ in range(4):
+                                self.assertEqual(receive()[0], 0x3e82)
+                            # Lobby scene readiness is not a gameplay load event.
+                            send(0x0dcd, bytes(4))
+                            # A subsequent request is answered before the scene push.
+                            send(0x702b, struct.pack('>I', 2))
+                            self.assertEqual(receive(), (0x702c, struct.pack('>II', 0, 2)))
+                            send(0x3e80, transfer())
                             self.assertEqual(receive()[0], 0x3e82)
-                        # Lobby scene readiness is not a gameplay load event.
-                        send(0x0dcd, bytes(4))
-                        # A subsequent request must be answered before any scene push.
-                        send(0x702b, struct.pack('>I', 2))
-                        self.assertEqual(receive(), (0x702c, struct.pack('>II', 0, 2)))
-                        send(0x3e80, transfer())
-                        self.assertEqual(receive()[0], 0x3e82)
-                        self.assertEqual(receive()[0], 0x3e81)
-                        self.assertTrue(profile.exists())
-                        send(0x6e29, struct.pack('>I', 3))
+                            self.assertEqual(receive()[0], 0x3e81)
+                            self.assertTrue(profile.exists())
+                            send(0x6e29, struct.pack('>I', 3))
                         self.assertEqual(receive(), (0x1234, push.read_bytes()))
                         self.assertEqual(receive(), (0x1235, push.read_bytes()))
                         send(0x0dcd, bytes(4))
@@ -264,6 +277,8 @@ class NativeLobbyTests(unittest.TestCase):
                             bytes(key) + lobby_item_wire(item) for key, item in clothes) + bytes(8) + b'\1'
                         self.assertEqual(receive(), (0x05fb, expected))
                         self.assertIn(CLOTHES[15][1], [item.template for _, item in clothes])
+                        if not native_lobby:
+                            self.assertEqual(profile.read_bytes(), initial_profile)
                         client.sendall(frame(13))
                 finally:
                     thread.join(4)

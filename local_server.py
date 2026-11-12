@@ -58,7 +58,7 @@ def main():
     parser.add_argument('--native-lobby', action='store_true',
                         help='Original lobby mode/wardrobe; defer the team push chain until explicit Start')
     parser.add_argument('--lobby-profile-file', type=Path,
-                        help='Separate native lobby mode/clothing profile; requires --native-lobby')
+                        help='Native lobby mode/clothing profile for --native-lobby or --world-wardrobe')
     parser.add_argument('--world-wardrobe', action='store_true',
                         help='Carry the selected native lobby outfit into the Thai match')
     parser.add_argument('--control-ui-port', type=int, metavar='PORT',
@@ -440,15 +440,15 @@ def main():
     world_body = None
     enter_body = args.enter_body_file.read_bytes() if args.enter_body_file else None
     team_body = args.team_body_file.read_bytes() if args.team_body_file else None
-    if args.lobby_profile_file and not args.native_lobby:
-        parser.error('--lobby-profile-file requires --native-lobby')
-    if args.native_lobby:
+    if args.lobby_profile_file and not (args.native_lobby or args.world_wardrobe):
+        parser.error('--lobby-profile-file requires --native-lobby or --world-wardrobe')
+    if args.native_lobby or args.world_wardrobe:
         try:
             if team_body is None:
                 raise ValueError('A native team template is required')
             NativeLobby(team_body, args.lobby_profile_file)
         except (OSError, ValueError, TypeError) as error:
-            parser.error(f'Cannot prepare native lobby (profile preserved): {error}')
+            parser.error(f'Cannot prepare native lobby or wardrobe (profile preserved): {error}')
     ready_body = args.ready_body_file.read_bytes() if args.ready_body_file else None
     match_body = args.match_body_file.read_bytes() if args.match_body_file else None
     team_sync_body = args.team_sync_file.read_bytes() if args.team_sync_file else None
@@ -469,8 +469,8 @@ def main():
         if len(world_body) < 26:
             parser.error('world body file is too short for an application envelope')
     if args.world_wardrobe:
-        if not (args.native_lobby and args.gameplay_prototype and args.gameplay_inventory and world_body):
-            parser.error('--world-wardrobe requires native lobby, world body and gameplay inventory')
+        if not (args.gameplay_prototype and args.gameplay_inventory and world_body):
+            parser.error('--world-wardrobe requires a world body and gameplay inventory')
         try:
             world_with_wardrobe(world_body, ())
         except ValueError as error:
@@ -628,7 +628,10 @@ def main():
                 map_load_count = 0
                 map_pushes_sent = False
                 player_pushes_sent = False
-                lobby = NativeLobby(team_body, args.lobby_profile_file) if args.native_lobby else None
+                profile = (NativeLobby(team_body, args.lobby_profile_file)
+                           if args.native_lobby or args.world_wardrobe else None)
+                lobby = profile if args.native_lobby else None
+                wardrobe = profile.inventory if args.world_wardrobe else None
                 lobby_pushes = []
                 environment = (EnvironmentSchedule(args.environment_hour,args.environment_ready_delay)
                                if args.environment_hour is not None
@@ -1024,9 +1027,9 @@ def main():
                                 for push_id,push_path in player_push_specs:
                                     push_body=push_path.read_bytes()
                                     if gameplay is not None and gameplay.inventory is not None and push_id==0x05fb:
-                                        clothes = lobby.inventory.worn_clothes() if args.world_wardrobe else ()
+                                        clothes = wardrobe.worn_clothes() if wardrobe is not None else ()
                                         push_body=gameplay.inventory.full_body(clothes)
-                                        if args.world_wardrobe:
+                                        if wardrobe is not None:
                                             emit('world_wardrobe_sent', slots={slot:item.template for (_,slot),item in clothes})
                                     if gameplay is not None and push_id==0x04a0:
                                         push_body=gameplay.ammo_sync()[1]
@@ -1073,6 +1076,8 @@ def main():
                                     for event in blast.events:emit('throwable_combat',**event)
                                 if message_id==0x2a and gameplay.last_medicine_cancel:
                                     emit('medicine_cancelled',source='native_movement_action',action=20)
+                                if combat is not None and message_id==0x002f:
+                                    combat.record_facing(application[26:])
                                 if combat is not None and message_id==0x11d3:
                                     if combat.record_shot(application[26:],previous_magazine) and ai is not None:
                                         shot=combat.shots[-1]
@@ -1313,8 +1318,8 @@ def main():
                                          body_bytes=len(body),
                                          body_sha256=hashlib.sha256(body).hexdigest())
                             if world_body is not None and message_id == 0x02E4:
-                                reply_world_body = (world_with_wardrobe(world_body, lobby.inventory.worn_clothes())
-                                                    if args.world_wardrobe else world_body)
+                                reply_world_body = (world_with_wardrobe(world_body, wardrobe.worn_clothes())
+                                                    if wardrobe is not None else world_body)
                                 if args.world_time_tail_bytes is not None:
                                     reply_world_body = synchronize_lobby_clock(reply_world_body, args.world_time_tail_bytes)
                                     emit('world_time_synchronized',

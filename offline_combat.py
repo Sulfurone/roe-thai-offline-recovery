@@ -47,6 +47,8 @@ class BotCombat:
     REPORT_GRACE=.25
     GRAVITY=981.  # local ballistic approximation, centimetres per second squared
     POSITION_WINDOW=.25
+    FACING_WINDOW=.75
+    REVERSED_ALIGNMENT=-.98
     DAMAGE=200  # Local balance on the 1000-point health scale.
 
     def __init__(self,game,bots,visibility=None):
@@ -57,6 +59,30 @@ class BotCombat:
         self.last_event=None
         self.recent_positions={}
         self.shot_check=None
+        self.facing=None
+
+    def record_facing(self,body,now=None):
+        """Remember the client's original 0x002F horizontal facing vector."""
+        if len(body) not in (12,20):return
+        x,y,z=struct.unpack_from('>3f',body)
+        length=math.hypot(x,y)
+        if not .98<=length<=1.02 or not math.isfinite(z) or abs(z)>.02:return
+        self.facing=(time.monotonic() if now is None else now,(x/length,y/length))
+
+    def fallback_aim(self,shot):
+        """Correct a backwards 10 m reference when the gun is still in front."""
+        if self.facing is None or not self.game.has_fresh_self_position(shot.time):return shot.aim
+        at,heading=self.facing
+        if not 0<=shot.time-at<=self.FACING_WINDOW:return shot.aim
+        direction=tuple(b-a for a,b in zip(shot.origin,shot.aim))
+        if not 990<=math.hypot(*direction)<=1010:return shot.aim
+        horizontal=math.hypot(*direction[:2])
+        if horizontal<500:return shot.aim
+        alignment=sum(a*b for a,b in zip(direction,heading))/horizontal
+        if alignment>self.REVERSED_ALIGNMENT:return shot.aim
+        muzzle_offset=tuple(a-b for a,b in zip(shot.origin,self.game.self_position))
+        if not 15<=sum(a*b for a,b in zip(muzzle_offset,heading))<=85:return shot.aim
+        return tuple(a-b for a,b in zip(shot.origin,direction))
 
     def record_positions(self,now):
         current={}
@@ -75,10 +101,10 @@ class BotCombat:
             current[uid]=positions
         self.recent_positions=current
 
-    def ray_hit(self,shot,now):
+    def ray_hit(self,shot,now,aim):
         """Intersect the muzzle trajectory with current or recently displayed bodies."""
         origin=shot.origin
-        direction=tuple(b-a for a,b in zip(origin,shot.aim))
+        direction=tuple(b-a for a,b in zip(origin,aim))
         length=math.hypot(*direction)
         unit=tuple(value/length for value in direction)
         speed=MUZZLE_VELOCITIES[shot.weapon]
@@ -141,8 +167,10 @@ class BotCombat:
         serial=struct.unpack_from('>I',body,24)[0]
         shot=Shot(now,origin,aim,item.template,serial)
         if self.visibility is not None:
-            shot.fallback,reason=self.ray_hit(shot,now)
+            fallback_aim=self.fallback_aim(shot)
+            shot.fallback,reason=self.ray_hit(shot,now,fallback_aim)
             self.shot_check=dict(shot_serial=serial,weapon=item.template,result=reason,
+                                 reversed_reference=fallback_aim!=shot.aim,
                                  distance_m=round(shot.fallback[3]/100,2) if shot.fallback else None)
         self.shots.append(shot)
         return True

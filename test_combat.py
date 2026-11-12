@@ -92,6 +92,27 @@ class CombatTests(unittest.TestCase):
             self.assertEqual(combat.tick(101.02),[])
             self.assertEqual(bots.vitals[uid].current,BotCombat.DAMAGE)
 
+    def test_reversed_live_hip_fire_reference_can_hit_the_forward_body(self):
+        # Captured second round of a continuous burst after its first hit.
+        for situation in ('clear','blocked','stale_facing','stale_position','turned'):
+            with self.subTest(situation=situation):
+                game,bots,combat,uid=fixture()
+                foot=(33878,180660,9658)
+                game.accept_self_position(foot,98 if situation=='stale_position' else 99.96)
+                bots.actors[uid]['position']=(33839,181640,9662)
+                bounds=[(33865,181200,9800,60)] if situation=='blocked' else []
+                combat.visibility=StaticVisibility(FlatTerrain(),bounds)
+                x,y=(-.08648084,.99625355) if situation!='turned' else (.08648084,-.99625355)
+                combat.record_facing(struct.pack('>3f',x,y,0),99 if situation=='stale_facing' else 99.89)
+                fire=struct.pack('>6fIB',33890,180700,9808,33954.16,179702.22,9825.38,2,0)
+                before=game.magazine
+                game.handle(0x11d3,fire)
+                self.assertTrue(combat.record_shot(fire,before,100))
+                self.assertEqual(combat.shot_check['reversed_reference'],situation in ('clear','blocked'))
+                self.assertEqual(combat.tick(100.24),[])
+                replies=combat.tick(100.4)
+                self.assertEqual([mid for mid,_ in replies],[0x1069,0x11eb] if situation=='clear' else [])
+
     def test_fallback_rejects_misses_blocked_rays_and_unloaded_bots(self):
         for reason in ('miss','blocked','unloaded'):
             game,bots,combat,uid=fixture()
