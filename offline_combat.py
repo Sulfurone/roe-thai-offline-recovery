@@ -1,8 +1,7 @@
 """Bounded offline bot damage candidate using the Thai life/death messages.
 
-The stock client's collision reports are cross-checked against consumed
-shots and known bot positions. Original full damage/armor rules and server
-map collision are not recovered; this remains an explicit experimental mode.
+Cross-check native collisions against consumed shots, with a terrain-aware
+fallback for loaded bots when the client omits a character collision.
 """
 from collections import deque
 from dataclasses import dataclass
@@ -36,18 +35,48 @@ class Shot:
     aim: tuple
     weapon: int
     serial: int
+    fallback: tuple | None = None
 
 
 class BotCombat:
     WINDOW=3.
     MAX_RANGE=100000  # centimetres; the 11D3 aim point encodes direction
+    REPORT_GRACE=.25
+    PROJECTILE_SPEED=30000  # local fallback timing, centimetres per second
     DAMAGE=200  # Local balance on the 1000-point health scale.
 
-    def __init__(self,game,bots):
+    def __init__(self,game,bots,visibility=None):
         self.game,self.bots=game,bots
+        self.visibility=visibility
         self.shots=deque(maxlen=64)
         self.seen={}
         self.last_event=None
+
+    def ray_hit(self,origin,aim):
+        """Nearest loaded bot body intersected by the reported muzzle ray."""
+        direction=tuple(b-a for a,b in zip(origin,aim))
+        length=math.hypot(*direction)
+        unit=tuple(value/length for value in direction)
+        closest=self.MAX_RANGE
+        hit=None
+        for uid,actor in self.bots.active_actors():
+            if not self.bots.vitals[uid].current:continue
+            foot=actor['position']
+            for height in (45,90,135):
+                center=(foot[0]-origin[0],foot[1]-origin[1],foot[2]+height-origin[2])
+                projection=sum(a*b for a,b in zip(center,unit))
+                radial_sq=sum(v*v for v in center)-projection**2
+                radius=45
+                if radial_sq>radius**2:continue
+                half=math.sqrt(radius**2-radial_sq)
+                entry=max(0,projection-half)
+                if projection+half<=0 or entry>=closest:continue
+                closest=entry
+                impact=tuple(a+entry*b for a,b in zip(origin,unit))
+                hit=(uid,foot,impact,closest,actor.get('activation',0))
+        if hit is not None and self.visibility.clear(origin,hit[2]):
+            return hit
+        return None
 
     def record_shot(self,body,previous_magazine,now=None):
         now=time.monotonic() if now is None else now
@@ -65,8 +94,26 @@ class BotCombat:
         origin,aim=tuple(coords[:3]),tuple(coords[3:])
         if math.dist(origin,g.player_position)>500 or math.dist(origin,aim)<1:return False
         serial=struct.unpack_from('>I',body,24)[0]
-        self.shots.append(Shot(now,origin,aim,item.template,serial))
+        hit=self.ray_hit(origin,aim) if self.visibility is not None else None
+        self.shots.append(Shot(now,origin,aim,item.template,serial,hit))
         return True
+
+    def tick(self,now=None):
+        """Give the native report priority, then resolve only confirmed rays."""
+        now=time.monotonic() if now is None else now
+        self.last_event=None
+        self.shots=deque((s for s in self.shots if 0<=now-s.time<=self.WINDOW),maxlen=64)
+        if not self.game.vitals.current or self.game.seated:return []
+        for shot in self.shots:
+            if shot.fallback is None:continue
+            uid,foot,impact,distance,activation=shot.fallback
+            if now-shot.time<self.REPORT_GRACE+distance/self.PROJECTILE_SPEED:continue
+            shot.fallback=None
+            actor=self.bots.actors.get(uid)
+            if (actor is None or not self.bots.visible(uid) or not self.bots.vitals[uid].current
+                    or actor.get('activation',0)!=activation):continue
+            return self.apply_hit(shot,uid,foot,impact,2,source='local_ray')
+        return []
 
     def handle(self,body,now=None):
         now=time.monotonic() if now is None else now
@@ -100,15 +147,19 @@ class BotCombat:
         lateral=math.sqrt(max(0,sum(v*v for v in offset)-distance*distance))
         if not 0<=distance<=self.MAX_RANGE or lateral>100:
             return reject('shot_trajectory',h.target_uid)
-        self.shots.remove(candidate)
         self.seen[h.sequence]=now
         if len(self.seen)>512:del self.seen[next(iter(self.seen))]
+        return self.apply_hit(candidate,h.target_uid,p,h.impact,h.part,source='client_collision',sequence=h.sequence)
+
+    def apply_hit(self,shot,uid,foot,impact,part,*,source,sequence=None):
+        self.shots.remove(shot)
+        hp=self.bots.vitals[uid]
         before=hp.current
-        replies=self.bots.damage(h.target_uid,self.DAMAGE)
+        replies=self.bots.damage(uid,self.DAMAGE)
         applied=before-hp.current
-        relative=tuple(round(v-p0) for v,p0 in zip(h.impact,p))
-        replies.insert(1,hit_feedback(g.actor_uid,h.target_uid,relative,h.part,applied,hp.current==0))
-        self.last_event=dict(accepted=True,target_uid=h.target_uid,sequence=h.sequence,
-            damage_applied=True,damage=applied,current=hp.current,weapon=candidate.weapon,shot_serial=candidate.serial,
-            original_damage_formula=False)
+        relative=tuple(round(v-p0) for v,p0 in zip(impact,foot))
+        replies.insert(1,hit_feedback(self.game.actor_uid,uid,relative,part,applied,hp.current==0))
+        self.last_event=dict(accepted=True,target_uid=uid,sequence=sequence,source=source,
+            damage_applied=True,damage=applied,current=hp.current,weapon=shot.weapon,shot_serial=shot.serial,
+            distance_m=round(math.dist(shot.origin,impact)/100,2),original_damage_formula=False)
         return replies

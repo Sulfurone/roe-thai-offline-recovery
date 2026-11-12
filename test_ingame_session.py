@@ -96,7 +96,8 @@ class IngameSessionTests(unittest.TestCase):
         self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,ai=True,armour=True)
 
     def test_local_outcome_over_encrypted_connection_and_mailbox(self):
-        self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,survivors=True,round_result=True)
+        self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,survivors=True,
+                         round_result=True,ray_fallback=True)
 
     def test_original_thai_elimination_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,ai=True,
@@ -105,7 +106,7 @@ class IngameSessionTests(unittest.TestCase):
     def test_circle_damage_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,zones=True,zone_damage=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False,armour=False,throwable_equip=False,zones=False,survivors=False,zone_damage=False,round_result=False,native_result=False):
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False,armour=False,throwable_equip=False,zones=False,survivors=False,zone_damage=False,round_result=False,native_result=False,ray_fallback=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -221,8 +222,10 @@ class IngameSessionTests(unittest.TestCase):
                 result.AIM_ERROR_DEGREES=0
                 ais.append(result)
                 return result
-            def construct_combat(game,bots):
-                result=BotCombat(game,bots)
+            def construct_combat(game,bots,visibility):
+                if ray_fallback:
+                    visibility=StaticVisibility(SimpleNamespace(height_at=lambda x,y:6500),[])
+                result=BotCombat(game,bots,visibility)
                 combats.append(result)
                 return result
             def construct_game(**kwargs):
@@ -565,11 +568,14 @@ class IngameSessionTests(unittest.TestCase):
                         roster=combats[0].bots
                         roster.actors[bot_uid]['position']=(326000,271700,6500)
                         for sequence,current in enumerate((800,600,400,200,0),start=37):
+                            fallback=ray_fallback and current==0
+                            if fallback:roster.actors[bot_uid]['position']=(339800,271700,6500)
                             send(0x11d3,struct.pack('>6fIB',325800,271700,6600,327000,271700,6600,0,0)+bytes(8))
                             self.assertEqual(receive_raw()[0],0x3e82)
-                            send(0x11e9,struct.pack('>I',sequence)+hit_body()[4:]+bytes(8))
+                            if not fallback:send(0x11e9,struct.pack('>I',sequence)+hit_body()[4:]+bytes(8))
                             self.assertEqual(receive_raw(),(0x1069,struct.pack('>QBBBII',bot_uid,0,1,0,current,1000)))
-                            self.assertEqual(receive_raw(),(0x11eb,struct.pack('>QQ3iBBIB',256,bot_uid,0,0,100,0,2,200,int(current==0))))
+                            relative_x=-44 if fallback else 0
+                            self.assertEqual(receive_raw(),(0x11eb,struct.pack('>QQ3iBBIB',256,bot_uid,relative_x,0,100,0,2,200,int(current==0))))
                             if not current:self.assertEqual(receive_raw(),(0x533,struct.pack('>IQ',0,bot_uid)))
                         self.assertEqual(games[0].magazine,25)
                         self.assertEqual(roster.vitals[bot_uid].current,0)

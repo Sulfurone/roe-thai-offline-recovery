@@ -7,7 +7,7 @@ import time
 
 
 class ServiceCadence:
-    INTERVALS = dict(position=.05, control=.1, population=.2, world_send=.04, ai=.05,
+    INTERVALS = dict(position=.05, control=.1, population=.2, world_send=.04, ai=.05, combat=.05,
                      zones=.1, capture_flush=1., statistics=5.)
 
     def __init__(self):

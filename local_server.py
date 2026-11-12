@@ -660,7 +660,7 @@ def main():
                 control_session = ControlSession(gameplay, control_vehicle_body,
                     client_boarding=args.control_client_boarding) if control or args.world_populate else None
                 bots=BotRoster(bot_profile,args.world_bots) if bot_profile is not None else None
-                combat=BotCombat(gameplay,bots) if args.world_bot_combat else None
+                combat=BotCombat(gameplay,bots,bot_visibility) if args.world_bot_combat else None
                 population = WorldPopulation(control_session,population_surface,args.world_seed,bots=bots,
                     clusters=args.world_loot_clusters,vehicle_clusters=args.world_vehicle_clusters,
                     extra_items=args.world_extra_items,bot_start_delay=args.world_bot_start_delay) if args.world_populate else None
@@ -865,6 +865,12 @@ def main():
                             for event in ai.events:
                                 emit('bot_ai',**event)
                             phase_max['ai']=max(phase_max['ai'],time.monotonic()-phase_started)
+                        if combat is not None and state=='transport_ready' and loaded_pushes_sent and cadence.due('combat'):
+                            for response_id,response_body in combat.tick():
+                                response=struct.pack('>IHI',1,response_id,response_id)+response_body
+                                send(connection,0,body=encrypt(response,key))
+                            if combat.last_event is not None:
+                                emit('bot_combat',**combat.last_event)
                         if survivors is not None and state=='transport_ready' and loaded_pushes_sent and not pending_world:
                             for response_id,response_body in survivors.tick():
                                 response=struct.pack('>IHI',1,response_id,response_id)+response_body

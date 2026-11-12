@@ -4,6 +4,7 @@ from offline_bots import BotRoster,POSITION_MARKER
 from offline_combat import BotCombat,death_packet,hit_feedback
 from offline_gameplay import OfflineGameplay
 from offline_vitals import Vitals
+from offline_visibility import StaticVisibility
 from test_hit_reports import hit_body
 
 
@@ -27,6 +28,41 @@ def shoot(game,combat,now=100,flag=0,serial=0):
 
 
 class CombatTests(unittest.TestCase):
+    def test_missing_client_collision_still_confirms_a_close_or_long_clear_hit(self):
+        for distance in (200,14000):
+            game,bots,combat,uid=fixture()
+            target=(325800+distance,271700,6500)
+            bots.actors[uid]['position']=target
+            combat.visibility=StaticVisibility(FlatTerrain(),[])
+            self.assertTrue(shoot(game,combat,serial=12))
+            self.assertEqual(combat.tick(100.24),[])
+            replies=combat.tick(101)
+            self.assertEqual([mid for mid,_ in replies],[0x1069,0x11eb])
+            self.assertEqual(combat.last_event['source'],'local_ray')
+            report=hit_body(shot_serial=12,target=target,impact=(*target[:2],6600))
+            self.assertEqual(combat.handle(report,101.01),[])
+            self.assertEqual(combat.tick(101.02),[])
+            self.assertEqual(bots.vitals[uid].current,BotCombat.DAMAGE)
+
+    def test_fallback_rejects_misses_blocked_rays_and_unloaded_bots(self):
+        for reason in ('miss','blocked','unloaded'):
+            game,bots,combat,uid=fixture()
+            bots.actors[uid]['position']=(331800,271800 if reason=='miss' else 271700,6500)
+            bounds=[(330000,271700,6600,50)] if reason=='blocked' else []
+            combat.visibility=StaticVisibility(FlatTerrain(),bounds)
+            if reason=='unloaded':bots.streamed=True
+            self.assertTrue(shoot(game,combat,serial=12))
+            self.assertEqual(combat.tick(101),[])
+            self.assertEqual(bots.vitals[uid].current,2*BotCombat.DAMAGE)
+
+    def test_native_report_wins_before_delayed_fallback(self):
+        game,bots,combat,uid=fixture()
+        combat.visibility=StaticVisibility(FlatTerrain(),[])
+        self.assertTrue(shoot(game,combat))
+        self.assertEqual([mid for mid,_ in combat.handle(hit_body(),100.1)],[0x1069,0x11eb])
+        self.assertEqual(combat.last_event['source'],'client_collision')
+        self.assertEqual(combat.tick(101),[])
+
     def test_close_hip_fire_and_distant_hits_match_serial_and_emit_native_feedback(self):
         for distance in (40,2469,14000):
             game,bots,combat,uid=fixture()
@@ -112,6 +148,10 @@ class CombatTests(unittest.TestCase):
         for values in ((0,uid,(0,0,0),1,20,False),(256,uid,(0,0,0),1,-1,False),
                        (256,uid,(0,0,0),1,20,1),(256,uid,(0.,0,0),1,20,False)):
             with self.assertRaises(ValueError):hit_feedback(*values)
+
+
+class FlatTerrain:
+    def height_at(self,x,y):return 6500
 
 
 if __name__=='__main__':unittest.main()
