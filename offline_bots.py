@@ -67,6 +67,10 @@ class BotRoster:
         self.retries = 0
         self.external_motion=False
         self.death_parcel = None
+        self.death_notice = None
+        self.zones = None
+        self.encounter_at = None
+        self.encounter_position = None
 
     def visible(self,uid):
         return uid in (self.active if self.streamed else self.actors)
@@ -76,14 +80,17 @@ class BotRoster:
             return ((uid,self.actors[uid]) for uid in sorted(self.active))
         return self.actors.items()
 
+    @classmethod
+    def name_for(cls,uid):
+        return f'AI-{uid-cls.FIRST_UID+1}'
+
     def profile_for(self, uid):
         profile = bytearray(self.profile)
         struct.pack_into('>Q', profile, 8, uid)
         struct.pack_into('>3i',profile,self.position_offset,*self.actors[uid]['position'])
-        if self.streamed or profile[20:20+self.name_size] == b'OfflineBot1\0':
-            name = f'OfflineBot{uid-self.FIRST_UID+1}\0'.encode('ascii')
-            struct.pack_into('>I',profile,16,len(name))
-            profile[20:20+self.name_size] = name
+        name=(self.name_for(uid)+'\0').encode('ascii')
+        struct.pack_into('>I',profile,16,len(name))
+        profile[20:20+self.name_size] = name
         return bytes(profile)
 
     def announce(self,uid):
@@ -91,6 +98,40 @@ class BotRoster:
         return [(0x565,struct.pack('>B3iBQ',1,*actor['position'],0,uid)),
                 (0xbe7,self.profile_for(uid)),self.vitals[uid].packet(uid),
                 peer_motion(uid,actor['position'],actor['sequence'])]
+
+    def move_unseen(self,population,position,rng,now):
+        """Reposition only surviving participants who have never loaded in view."""
+        reserve=[actor for uid,actor in self.actors.items() if self.vitals[uid].current
+                 and not actor.get('activation')
+                 and math.dist(actor['position'][:2],position[:2])>self.LEAVE_RANGE]
+        if not reserve:return
+        target=self.zones.migration_target(now) if self.zones is not None else None
+        if target is not None:
+            outside=next((actor for actor in reserve if math.hypot(actor['position'][0]-target.x,
+                          actor['position'][1]-target.y)>target.radius),None)
+            if outside is not None:
+                angle=rng.uniform(0,math.tau)
+                radius=target.radius*rng.uniform(.35,.8)
+                anchor=(target.x+round(radius*math.cos(angle)),target.y+round(radius*math.sin(angle)),position[2])
+                spot=population.choose_spot(anchor,rng,peer=True,accept=lambda p:
+                    math.hypot(p[0]-target.x,p[1]-target.y)<target.radius and
+                    math.dist(p[:2],position[:2])>=7000)
+                if spot is not None:outside.update(position=spot,origin=spot)
+        if now<self.encounter_at:return
+        self.encounter_at=now+15
+        near=sum(self.vitals[uid].current>0 and math.dist(actor['position'][:2],position[:2])<=self.ENTER_RANGE
+                 for uid,actor in self.actors.items())
+        if near>=2:return
+        current=self.zones.circle_at(now) if self.zones is not None else None
+        if current and math.hypot(position[0]-current[0],position[1]-current[1])>current[2]:return
+        angle=rng.uniform(0,math.tau)
+        anchor=(position[0]+round(9500*math.cos(angle)),position[1]+round(9500*math.sin(angle)),position[2])
+        spot=population.choose_spot(anchor,rng,peer=True,accept=lambda p:
+            6500<=math.dist(p[:2],position[:2])<=13000 and
+            (not current or math.hypot(p[0]-current[0],p[1]-current[1])<current[2]))
+        if spot is not None:
+            reserve[-1].update(position=spot,origin=spot)
+            self.encounter_at=now+55
 
     def stream(self,population,position,rng,now):
         if self.placement_anchors is None:
@@ -104,6 +145,7 @@ class BotRoster:
             self.placement_anchors.extend(sectors[i//3%len(sectors)] if sectors else position
                                           for i in range(self.count-len(self.placement_anchors)))
             self.pending_placements=deque(range(self.count))
+            self.encounter_at=now+90
         for _ in range(min(3,len(self.pending_placements))):
             index=self.pending_placements.popleft()
             uid=self.FIRST_UID+index
@@ -121,6 +163,7 @@ class BotRoster:
                 spot=(*spot[:2],spot[2]-25)
             self.actors[uid]=dict(origin=spot,position=spot,sequence=1,created=now,retry=3)
 
+        self.move_unseen(population,position,rng,now)
         distances={uid:math.dist(actor['position'][:2],position[:2]) for uid,actor in self.actors.items()}
         removed=sorted(uid for uid in self.active if distances[uid]>self.LEAVE_RANGE
                        or now>=self.actors[uid].get('retire_at',math.inf))
@@ -146,10 +189,11 @@ class BotRoster:
         hp=self.vitals[uid]
         return [hp.packet(uid)]+([death_packet(uid)] if not hp.current else [])
 
-    def damage(self,uid,amount):
+    def damage(self,uid,amount,*,killer=None):
         hp=self.vitals.get(uid)
         if hp is None or not hp.current:return []
         if not hp.damage(amount):return []
+        if not hp.current and self.death_notice is not None:self.death_notice(uid,killer)
         if self.streamed and uid not in self.active:return []
         replies = self.life_packets(uid)
         if not hp.current:

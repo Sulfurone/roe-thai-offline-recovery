@@ -215,7 +215,7 @@ class BotCombat:
         self.shots.remove(shot)
         hp=self.bots.vitals[uid]
         before=hp.current
-        replies=self.bots.damage(uid,self.DAMAGE)
+        replies=self.bots.damage(uid,self.DAMAGE,killer=self.game.actor_uid)
         applied=before-hp.current
         relative=tuple(round(v-p0) for v,p0 in zip(impact,foot))
         replies.insert(1,hit_feedback(self.game.actor_uid,uid,relative,part,applied,hp.current==0))

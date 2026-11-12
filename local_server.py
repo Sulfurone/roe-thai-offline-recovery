@@ -671,6 +671,10 @@ def main():
                 if control_session is not None:control_session.bot_ai=ai
                 blast=BlastCombat(gameplay,bots,bot_visibility) if args.world_throwable_combat else None
                 zones=ZoneSchedule(gameplay,population_surface,zone_plan) if zone_plan is not None else None
+                if control_session is not None:
+                    control_session.zones=zones
+                    if bots is not None:bots.death_notice=control_session.record_bot_death
+                if bots is not None:bots.zones=zones
                 if args.world_zone_damage:
                     from offline_zone_damage import ZoneDamage
                     zone_damage=ZoneDamage(zones,bots,control_session)
@@ -853,7 +857,8 @@ def main():
                                 emit('world_population_sent',messages=world_batch_total,
                                      actor_position=gameplay.player_position,cells=len(population.visited),
                                      ground_items=len(gameplay.ground_loot.stacks),vehicles=population.auto_vehicles,
-                                     peers=len(bots.actors) if bots is not None else 0)
+                                     peers=len(bots.actors) if bots is not None else 0,
+                                     active_peers=sum(1 for _ in bots.active_actors()) if bots is not None else 0)
                             phase_max['world_send']=max(phase_max['world_send'],time.monotonic()-phase_started)
                         if (ai is not None and state=='transport_ready' and loaded_pushes_sent and not pending_world
                                 and cadence.due('ai')):

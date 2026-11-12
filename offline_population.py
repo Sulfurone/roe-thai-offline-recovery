@@ -67,13 +67,14 @@ class WorldPopulation:
             return None
         return round(heights[0])
 
-    def choose_spot(self, position, rng, vehicle=False, peer=False, loot_placer=None):
+    def choose_spot(self, position, rng, vehicle=False, peer=False, loot_placer=None, accept=None):
         if hasattr(self.terrain, 'spawn_spot'):
             for _ in range(12 if peer and self.peer_visibility else 1):
                 spot = (loot_placer(rng,self.spots) if loot_placer is not None else
                         self.terrain.spawn_spot(position,rng,
                             'vehicle' if vehicle else 'peer' if peer else 'loot',self.spots))
                 if spot is None:return None
+                if accept is not None and not accept(spot):continue
                 if peer and self.peer_visibility and self.peer_visibility.walk(spot,spot) is None:continue
                 self.spots.append(spot[:2])
                 return spot
@@ -91,8 +92,10 @@ class WorldPopulation:
                 continue
             if peer and self.peer_visibility and self.peer_visibility.walk((px,py,height+5),(px,py,height+5)) is None:
                 continue
+            spot=px,py,height+(100 if vehicle else 30)
+            if accept is not None and not accept(spot):continue
             self.spots.append((px, py))
-            return px, py, height + (100 if vehicle else 30)
+            return spot
         return None
 
     def try_peers(self,position,rng=None):

@@ -82,16 +82,31 @@ class ZoneSchedule:
         # 6500 cm sample. Allow only numerical noise at the dry-land cutoff.
         return ground is not None and math.isfinite(ground) and ground>=6500-1e-6 and -100<=z-ground<=250
 
+    def stage_at(self,now):
+        elapsed=max(0,now-self.started);current=self.plan.initial
+        for index,stage in enumerate(self.plan.stages):
+            if elapsed<stage.wait:return index,current,stage.target,0,elapsed,stage.wait
+            if elapsed<stage.wait+stage.shrink:return index,current,stage.target,2,elapsed-stage.wait,stage.shrink
+            elapsed-=stage.wait+stage.shrink;current=stage.target
+        return len(self.plan.stages),current,current,0,0,1
+
     def circle_at(self,now):
         """Current local boundary, including after the final snapshot."""
         if self.started is None:return None
-        elapsed=max(0,now-self.started);current=self.plan.initial
-        for stage in self.plan.stages:
-            if elapsed<stage.wait:return (current.x,current.y,current.radius)
-            if elapsed<stage.wait+stage.shrink:
-                return interpolated_circle(elapsed-stage.wait,stage.shrink,current,stage.target)
-            elapsed-=stage.wait+stage.shrink;current=stage.target
-        return (current.x,current.y,current.radius)
+        _,current,target,phase,elapsed,total=self.stage_at(now)
+        if phase==2:return interpolated_circle(elapsed,total,current,target)
+        return current.x,current.y,current.radius
+
+    def countdown(self,now):
+        if self.started is None:return None
+        index,_,_,phase,elapsed,total=self.stage_at(now)
+        if index==len(self.plan.stages):return None
+        return phase,math.ceil(total-elapsed)
+
+    def migration_target(self,now):
+        if self.started is None:return None
+        _,current,target,phase,elapsed,total=self.stage_at(now)
+        return target if phase==2 or total-elapsed<=60 else current
 
     def tick(self,now=None):
         now=time.monotonic() if now is None else now
@@ -106,20 +121,7 @@ class ZoneSchedule:
             self.started=now
         if now<self.next_send:return []
         self.next_send=now+self.PERIOD
-        elapsed=max(0,now-self.started)
-        current=self.plan.initial
-        for index,stage in enumerate(self.plan.stages):
-            if elapsed<stage.wait:
-                phase,offset,total=0,elapsed,stage.wait
-            elif elapsed<stage.wait+stage.shrink:
-                phase,offset,total=2,elapsed-stage.wait,stage.shrink
-            else:
-                elapsed-=stage.wait+stage.shrink;current=stage.target
-                continue
-            self.last_event=dict(stage=index,phase=phase,elapsed=offset,total=total,finished=False)
-            return [zone_state(phase,offset,total,current,stage.target)]
-        self.finished=True
-        self.last_event=dict(stage=len(self.plan.stages),phase=0,elapsed=0,total=1,finished=True)
-        # Freeze the final circle once. Completion of pacing is not a victory
-        # or a match result; those native protocols remain separate work.
-        return [zone_state(0,0,1,current,current)]
+        index,current,target,phase,offset,total=self.stage_at(now)
+        self.finished=index==len(self.plan.stages)
+        self.last_event=dict(stage=index,phase=phase,elapsed=offset,total=total,finished=self.finished)
+        return [zone_state(phase,offset,total,current,target)]

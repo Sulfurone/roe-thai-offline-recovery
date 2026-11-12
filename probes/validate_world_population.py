@@ -61,7 +61,7 @@ def runtime(uc,address,size,_):
 codec.uc.hook_add(UC_HOOK_CODE,runtime,begin=0x1284c90,end=0x1284c90)
 codec.uc.mem_write(codec.OBJECT, struct.pack('<I', 0xbe7) + profile_native)
 codec.invoke(0x1285290, 0, [codec.OBJECT])
-if created != [dict(uid=hex(TYPED_ACTOR_UID+0x1000), name='OfflineBot1',position=next(iter(bots.actors.values()))['position'])]:
+if created != [dict(uid=hex(TYPED_ACTOR_UID+0x1000), name='AI-1',position=next(iter(bots.actors.values()))['position'])]:
     raise ValueError('Native basic-profile callback did not forward the intended peer')
 if runtime_received != [hex(TYPED_ACTOR_UID+0x1000)]:
     raise ValueError('Full peer data did not reach the runtime-state callback')

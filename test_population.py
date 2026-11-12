@@ -19,6 +19,45 @@ class Surface:
 
 
 class PopulationTests(unittest.TestCase):
+    def test_later_encounter_uses_unseen_survivor_without_moving_seen_bots(self):
+        profile=struct.pack('>IIQI',3,1,1,12)+b'OfflineBot1\0'+POSITION_MARKER
+        bots=BotRoster(profile,63)
+        population=WorldPopulation(ControlSession(ready_game()),Surface(),bots=bots)
+        rng=random.Random(5)
+        start=(100000,200000,7005)
+        for at in range(30):bots.stream(population,start,rng,now=at)
+        seen={uid:actor['position'] for uid,actor in bots.actors.items() if actor.get('activation')}
+        for uid in seen:bots.damage(uid,1000)
+        # An exploration area with no visible bots, well away from the landing group.
+        later=(10000,10000,7005)
+        replies=bots.stream(population,later,rng,now=92)
+        self.assertIn(0x565,[mid for mid,_ in replies])
+        self.assertEqual(len(bots.actors),63)
+        for uid,point in seen.items():
+            self.assertEqual(bots.vitals[uid].current,0)
+            self.assertEqual(bots.actors[uid]['position'],point)
+        self.assertTrue(any(uid not in seen and bots.vitals[uid].current for uid in bots.active))
+
+    def test_offscreen_group_moves_to_safe_zone_before_taking_damage(self):
+        from offline_zones import Circle
+        from types import SimpleNamespace
+
+        profile=struct.pack('>IIQI',3,1,1,12)+b'OfflineBot1\0'+POSITION_MARKER
+        bots=BotRoster(profile,63)
+        population=WorldPopulation(ControlSession(ready_game()),Surface(),bots=bots)
+        rng=random.Random(11)
+        start=(100000,200000,7005)
+        for at in range(30):bots.stream(population,start,rng,now=at)
+        target=Circle(240000,215000,50000)
+        bots.zones=SimpleNamespace(migration_target=lambda _:target)
+        prior={uid:actor['position'] for uid,actor in bots.actors.items()}
+        bots.stream(population,start,rng,now=31)
+        moved=[uid for uid,actor in bots.actors.items() if actor['position']!=prior[uid]]
+        self.assertEqual(len(moved),1)
+        x,y,_=bots.actors[moved[0]]['position']
+        self.assertLess((x-target.x)**2+(y-target.y)**2,target.radius**2)
+        self.assertEqual(bots.vitals[moved[0]].current,1000)
+
     def test_bots_wait_after_landing_while_loot_spawns_immediately(self):
         profile = struct.pack('>IIQI', 3, 1, 1, 12) + b'OfflineBot1\0' + POSITION_MARKER
         bots = BotRoster(profile, 63)
@@ -64,8 +103,8 @@ class PopulationTests(unittest.TestCase):
         self.assertEqual(len(bots.actors),63)
         self.assertGreater(len(set(actor['origin'][:2] for actor in bots.actors.values())),50)
         last=bots.profile_for(bots.FIRST_UID+62)
-        self.assertEqual(last[20:33],b'OfflineBot63\0')
-        self.assertEqual(struct.unpack_from('>I',last,16)[0],13)
+        self.assertEqual(last[20:26],b'AI-63\0')
+        self.assertEqual(struct.unpack_from('>I',last,16)[0],6)
 
         uid,dead=sorted(bots.active)[:2]
         bots.damage(uid,125)
@@ -166,7 +205,9 @@ class PopulationTests(unittest.TestCase):
             reply = bots.handle(0xbe6, struct.pack('>IIQ', 2, 1, uid))
             self.assertEqual(struct.unpack_from('>II',reply[0][1]),(3,1))
             self.assertEqual(struct.unpack_from('>Q', reply[0][1], 8)[0], uid)
-            self.assertEqual(struct.unpack_from('>3i',reply[0][1],bots.position_offset),bots.actors[uid]['position'])
+            name_size=struct.unpack_from('>I',reply[0][1],16)[0]
+            position_offset=bots.position_offset-bots.name_size+name_size
+            self.assertEqual(struct.unpack_from('>3i',reply[0][1],position_offset),bots.actors[uid]['position'])
         moved = bots.tick(population, bots.started + 1)
         motion = [body for message, body in moved if message == 0x27]
         self.assertEqual([len(body) for body in motion], [36, 36])

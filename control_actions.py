@@ -3,10 +3,13 @@ import json
 import struct
 import math
 import random
+import time
+from collections import deque
 
 from offline_control import WEATHER_NAMES, WEAPON_NAMES, BOT_MODE_NAMES, validate_command
 from offline_environment import environment_weather
-from offline_gameplay import OfflineGameplay, TYPED_VEHICLE_UID, TYPED_ACTOR_UID
+from offline_gameplay import OfflineGameplay, TYPED_VEHICLE_UID
+from offline_bots import BotRoster
 from offline_ground_loot import MAX_GROUND_STACKS
 from offline_inventory import Item
 from offline_weapons import WEAPONS
@@ -46,6 +49,8 @@ class ControlSession:
         self.peer_positions = {}
         self.bot_ai=None
         self.round_result=None
+        self.zones=None
+        self.kill_feed=deque(maxlen=4)
         self.active_vehicle = None
         self.client_boarding=client_boarding
         self.last_board_event=None
@@ -55,8 +60,14 @@ class ControlSession:
         if vehicle_template is not None:
             vehicle_spawn(vehicle_template, TYPED_VEHICLE_UID, (0, 0, 0))
 
+    def record_bot_death(self,uid,killer):
+        name=BotRoster.name_for(uid)
+        line=f'你  淘汰了  {name}' if killer==self.gameplay.actor_uid else f'{name}  被安全区淘汰'
+        self.kill_feed.append((time.monotonic(),line))
+
     def snapshot(self):
         game = self.gameplay
+        now=time.monotonic()
         bots=self.bot_ai.bots if self.bot_ai else None
         peers=list(bots.active_actors() if bots else self.peer_positions.items())
         if game is not None and bots and bots.streamed:
@@ -77,9 +88,11 @@ class ControlSession:
                     round_state=self.round_result.state if self.round_result else None,
                     round_placement=self.round_result.placement if self.round_result else None,
                     round_size=self.round_result.size if self.round_result else None,
+                    zone_countdown=self.zones.countdown(now) if self.zones else None,
+                    kill_feed=[line for at,line in reversed(self.kill_feed) if now-at<8],
                     vehicles=[dict(uid=str(uid), name=LAND_VEHICLES[car.vehicle_config].name, position=list(car.vehicle_position),
                                    seated=car.seated) for uid, car in self.vehicles.items()],
-                    peers=[dict(name=f'OfflineBot{uid-TYPED_ACTOR_UID-0x1000+1}',position=list(actor['position']),
+                    peers=[dict(name=BotRoster.name_for(uid),position=list(actor['position']),
                                 hp=self.bot_ai.bots.vitals[uid].current if self.bot_ai else None,
                                 phase=self.bot_ai.brains[uid].phase if self.bot_ai and uid in self.bot_ai.brains else 'preparing')
                            for uid,actor in peers[:4]])

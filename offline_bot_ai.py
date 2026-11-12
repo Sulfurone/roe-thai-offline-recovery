@@ -261,6 +261,7 @@ class BotAI:
         # Airborne distance and occlusion are handled by the actual aim ray;
         # seated aircraft/vehicles, dead/unready and stale targets stay paused.
         active=fresh
+        zone=self.bots.zones.migration_target(now) if self.bots.zones is not None else None
         for uid,actor in self.bots.active_actors():
             brain=self.brains.setdefault(uid,Brain(uid,now,0x2000000000100+uid-self.bots.FIRST_UID))
             activation=actor.get('activation',0)
@@ -313,6 +314,11 @@ class BotAI:
                 else:brain.phase='empty'
                 continue
             point=actor['position']
+            if zone is not None and math.hypot(point[0]-zone.x,point[1]-zone.y)>zone.radius:
+                brain.phase='zone_run'
+                brain.target=None
+                replies.extend(self.walk_towards(uid,(zone.x,zone.y,point[2]),dt,speed=self.RUN_SPEED))
+                continue
             origin=(point[0],point[1],point[2]+150)
             # Local torso aim, consistent with the coarse body capsule and
             # armour region. Exact pose-dependent bones remain pending.

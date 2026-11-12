@@ -2,9 +2,9 @@
   "version": 1,
   "initial": {"x": 204800, "y": 204800, "radius": 300000},
   "stages": [
-    {"target": {"x": 226000, "y": 207000, "radius": 180000}, "wait": 180, "shrink": 120},
-    {"target": {"x": 245000, "y": 215000, "radius": 95000}, "wait": 90, "shrink": 105},
-    {"target": {"x": 240000, "y": 215000, "radius": 45000}, "wait": 60, "shrink": 80},
-    {"target": {"x": 240000, "y": 215000, "radius": 12000}, "wait": 45, "shrink": 55}
+    {"target": {"x": 226000, "y": 207000, "radius": 180000}, "wait": 240, "shrink": 180},
+    {"target": {"x": 245000, "y": 215000, "radius": 95000}, "wait": 120, "shrink": 150},
+    {"target": {"x": 240000, "y": 215000, "radius": 45000}, "wait": 90, "shrink": 120},
+    {"target": {"x": 240000, "y": 215000, "radius": 12000}, "wait": 60, "shrink": 90}
   ]
 }

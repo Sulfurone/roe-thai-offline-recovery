@@ -29,6 +29,19 @@ def shoot(game,combat,now=100,flag=0,serial=0,z=6600):
 
 
 class CombatTests(unittest.TestCase):
+    def test_death_feed_is_once_per_bot_and_reports_player_or_circle(self):
+        from control_actions import ControlSession
+
+        game,bots,_,uid=fixture()
+        other=uid+1
+        bots.vitals[other]=Vitals()
+        control=ControlSession(game)
+        bots.death_notice=control.record_bot_death
+        bots.damage(uid,1000,killer=game.actor_uid)
+        bots.damage(uid,1000,killer=game.actor_uid)
+        bots.damage(other,1000)
+        self.assertEqual(control.snapshot()['kill_feed'],['AI-2  被安全区淘汰','你  淘汰了  AI-1'])
+
     def test_shotgun_shell_accepts_native_pellet_collision_once(self):
         game,bots,combat,uid=fixture()
         game.inventory.items[1,1]=replace(game.inventory.items[1,1],template=10403)

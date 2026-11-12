@@ -4,6 +4,7 @@ import math
 import struct
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from test_bot_ai import setup
@@ -14,6 +15,22 @@ from ingame_client import MailboxClient,bot_hint
 
 
 class BotModeTests(unittest.TestCase):
+    def test_active_combat_bot_runs_toward_next_circle(self):
+        game,bots,ai,uid=setup()
+        actor=bots.actors[uid]
+        x,y,z=actor['position']
+        zone=SimpleNamespace(x=x+9000,y=y,radius=4500)
+        bots.zones=SimpleNamespace(migration_target=lambda now:zone)
+        ai.tick(100)
+        game.accept_self_position(game.player_position,100.2)
+        replies=ai.tick(100.2)
+        self.assertEqual(ai.brains[uid].phase,'zone_run')
+        self.assertGreater(actor['position'][0],x)
+        self.assertEqual(actor['position'][1],y)
+        movement=next(body for message,body in replies if message==0x25)
+        self.assertEqual(struct.unpack_from('>H',movement,8)[0],ai.RUN_SPEED)
+        self.assertNotIn(0x11d4,[message for message,_ in replies])
+
     def test_streamed_bot_runs_to_a_visible_target_and_sweeps_last_observation(self):
         game,bots,ai,uid=setup()
         bots.streamed=True
@@ -167,7 +184,7 @@ class BotModeTests(unittest.TestCase):
                 replies,message=control.execute(cmd);hub.finish(cmd['id'],'sent',message)
                 hub.update(**control.snapshot());mailbox.publish(hub.snapshot());state=client.state()
                 self.assertEqual(state['bot_mode'],ai.MODES[mode])
-                self.assertIn('OfflineBot1',bot_hint(state))
+                self.assertIn('AI-1',bot_hint(state))
                 self.assertIn(f'HP {bots.vitals[uid].current}',bot_hint(state))
             self.assertEqual(json.loads(state['peers'])[0]['hp'],bots.vitals[uid].current)
         for command in ({'action':'bots','mode':3},{'action':'bots','mode':True},{'action':'bots','mode':1,'count':100}):

@@ -4,6 +4,7 @@ from contextlib import AbstractContextManager
 import ctypes
 from ctypes import wintypes as wt
 import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -119,13 +120,15 @@ class Windows:
                 or foreground_pid.value == os.getpid()
                 or bool(game_pid.value and foreground_pid.value==game_pid.value))
 
-    def no_activate(self,window_id):
+    def no_activate(self,window_id,click_through=False):
         """A compact mouse entry must never become the keyboard foreground."""
         hwnd=self.user.GetAncestor(window_id,2)
         if not hwnd:raise OSError('Menu entry window is unavailable')
         style=self.user.GetWindowLongW(hwnd,-20)
         ctypes.set_last_error(0)
-        previous=self.user.SetWindowLongW(hwnd,-20,style|0x08000000|0x80)
+        flags=0x08000000|0x80
+        if click_through:flags|=0x80000|0x20  # WS_EX_LAYERED | WS_EX_TRANSPARENT
+        previous=self.user.SetWindowLongW(hwnd,-20,style|flags)
         if not previous and ctypes.get_last_error():raise ctypes.WinError(ctypes.get_last_error())
 
 
@@ -279,6 +282,7 @@ class Overlay:
         self.entry.update_idletasks()
         self.win.no_activate(self.entry.winfo_id())
         self.entry_geometry=None
+        self.match_hud={}
 
     def combo(self, parent, label, variable, values):
         self.ttk.Label(parent, text=label).pack(anchor='w', pady=(0, 5))
@@ -392,6 +396,52 @@ class Overlay:
         self.f6_down = down
         self.root.after(40, self.poll_f6)
 
+    def show_match_hud(self, key, text, geometry):
+        hud=self.match_hud.get(key)
+        if not text:
+            if hud is not None and hud[0].state()!='withdrawn':hud[0].withdraw()
+            return
+        if hud is None:
+            window=self.tk.Toplevel(self.root)
+            window.withdraw()
+            window.overrideredirect(True)
+            window.attributes('-topmost',True)
+            window.attributes('-toolwindow',True)
+            window.attributes('-alpha',.92)
+            label=self.tk.StringVar(value=text)
+            self.ttk.Label(window,textvariable=label,anchor='e',justify='right',
+                           padding=(10,3)).pack(fill='both',expand=True)
+            window.update_idletasks()
+            self.win.no_activate(window.winfo_id(),click_through=True)
+            hud=[window,label,None]
+            self.match_hud[key]=hud
+        window,label,previous=hud
+        if label.get()!=text:label.set(text)
+        if geometry!=previous:
+            window.geometry(geometry)
+            hud[2]=geometry
+        if window.state()=='withdrawn':window.deiconify()
+
+    def update_match_hud(self,state,bounds):
+        if not bounds:
+            self.show_match_hud('kills','',None)
+            self.show_match_hud('circle','',None)
+            return
+        x,y,width,height=bounds
+        feed=json.loads(state.get('kill_feed','[]'))[:4]
+        feed_width=min(230,width)
+        self.show_match_hud('kills','\n'.join(feed),
+            f'{feed_width}x{8+20*len(feed)}{x+max(0,width-feed_width-24):+d}{y+86:+d}')
+        phase,_,remaining=state.get('zone_countdown','').partition(',')
+        timer=''
+        if phase in ('0','2') and remaining.isdecimal():
+            minutes,seconds=divmod(int(remaining),60)
+            timer=f'{"开始缩圈" if phase=="0" else "缩圈结束"}  {minutes:02d}:{seconds:02d}'
+        timer_width=min(158,width)
+        top=max(0,height-round(min(width,height)*.28)-36)
+        self.show_match_hud('circle',timer,
+            f'{timer_width}x30{x+max(0,width-timer_width-24):+d}{y+top:+d}')
+
     def tick(self):
         try:
             if self.parent and self.win.kernel.WaitForSingleObject(self.parent, 0) == 0:
@@ -445,6 +495,7 @@ class Overlay:
                     self.entry.geometry(entry_geometry);self.entry_geometry=entry_geometry
                 if self.entry.state()=='withdrawn':self.entry.deiconify()
             elif self.entry.state()!='withdrawn':self.entry.withdraw()
+            self.update_match_hud(state,bounds if entry_visible and ready else None)
             if self.dropdown_open():
                 # Keep a posted combobox's focus and geometry untouched. In
                 # particular, wm deiconify on an already visible Tk window

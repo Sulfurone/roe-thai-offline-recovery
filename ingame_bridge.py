@@ -75,10 +75,13 @@ class IngameMailbox:
         body+='bots_total='+str(snapshot.get('bots_total',0))+'\nbots_alive='+str(snapshot.get('bots_alive',0))+'\n'
         for key in ('round_state','round_placement','round_size'):
             body+=f'{key}={snapshot.get(key) or ""}\n'
+        countdown=snapshot.get('zone_countdown')
+        if countdown is not None:
+            body+=f'zone_countdown={countdown[0]},{countdown[1]}\n'
         position = snapshot.get('position')
         if position is not None:
             body += 'position=' + ','.join(map(str, position)) + '\n'
-        for key,limit in (('vehicles',16),('peers',4)):
+        for key,limit in (('vehicles',16),('peers',4),('kill_feed',4)):
             body+=key+'='+json.dumps(snapshot.get(key,[])[:limit],ensure_ascii=False,separators=(',',':'))+'\n'
         if body != self.last_status:
             pending = self.status_path.with_suffix('.tmp')

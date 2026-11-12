@@ -24,10 +24,10 @@ def schedule():
 
 
 class ZoneScheduleTests(unittest.TestCase):
-    def test_daily_plan_covers_the_map_and_gives_three_minutes_before_shrinking(self):
+    def test_daily_plan_covers_the_map_and_gives_four_minutes_before_shrinking(self):
         daily=ZonePlan.read(Path(__file__).with_name('examples')/'thai-match-circle-plan.json')
         self.assertEqual(len(daily.stages),4)
-        self.assertEqual(daily.stages[0].wait,180)
+        self.assertEqual(daily.stages[0].wait,240)
         self.assertEqual(daily.stages[-1].target.radius,12000)
         for x in (0,409600):
             for y in (0,409600):
@@ -47,9 +47,11 @@ class ZoneScheduleTests(unittest.TestCase):
             self.assertEqual([m for m,_ in packets],[0x47b])
             return struct.unpack('>IfIiifiif',packets[0][1])
         self.assertEqual(state(5)[:3],(0,0.,10))
+        self.assertEqual(pacing.countdown(7.2),(0,8))
         self.assertEqual(pacing.tick(5.5),[])
         self.assertEqual(state(15)[:3],(2,0.,20))
         self.assertEqual(state(25)[:3],(2,10.,20))
+        self.assertEqual(pacing.countdown(25),(2,10))
         # A delayed loop sends the current state, not obsolete phase packets.
         self.assertEqual(state(42)[:3],(2,2.,10))
         self.assertEqual(pacing.last_event['stage'],1)
@@ -58,6 +60,7 @@ class ZoneScheduleTests(unittest.TestCase):
         self.assertEqual(final[3:6],final[6:9])
         self.assertEqual(pacing.tick(60),[])
         self.assertTrue(pacing.finished)
+        self.assertIsNone(pacing.countdown(60))
 
     def test_stale_water_dead_and_interrupted_ground_readiness_do_not_arm(self):
         pacing=schedule();game=pacing.game
