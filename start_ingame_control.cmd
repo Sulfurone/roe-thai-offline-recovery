@@ -9,6 +9,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+"%ROE_PYTHON%" "%~dp0tools\disable_console_quick_edit.py"
 tasklist /FI "IMAGENAME eq Europa_Client.exe" /NH | find /I "Europa_Client.exe" >nul
 if not errorlevel 1 (
   echo Close the current game and old local service before starting the menu.
