@@ -39,7 +39,7 @@ from service_pacing import ServiceCadence
 from service_log import ServiceLog, CaptureFile
 from service_position import BufferedPositionFeed
 from service_mailbox import BufferedMailbox
-from offline_lobby import NativeLobby
+from offline_lobby import NativeLobby, world_with_wardrobe
 
 
 WORLD_SEND_BATCH = 12
@@ -59,6 +59,8 @@ def main():
                         help='Original lobby mode/wardrobe; defer the team push chain until explicit Start')
     parser.add_argument('--lobby-profile-file', type=Path,
                         help='Separate native lobby mode/clothing profile; requires --native-lobby')
+    parser.add_argument('--world-wardrobe', action='store_true',
+                        help='Carry the selected native lobby outfit into the Thai match')
     parser.add_argument('--control-ui-port', type=int, metavar='PORT',
                         help='Enable the local weather/weapon/vehicle control panel (e.g. 8765)')
     parser.add_argument('--ingame-control', action='store_true',
@@ -140,6 +142,8 @@ def main():
                         help='Experimental original HUD event for the active local roster; no victory or round result')
     parser.add_argument('--world-round-result',action='store_true',
                         help='Experimental local last-survivor outcome in the overlay; not the original result screen')
+    parser.add_argument('--world-native-result',action='store_true',
+                        help='Send the original Thai outcome messages with the local match result')
     parser.add_argument('--world-bot-ai',action='store_true',
                         help='Experimental local perception/chase/fire; requires explicit combat and static bounds')
     parser.add_argument('--world-bot-mode',choices=('target','patrol','combat'),default='combat',
@@ -446,11 +450,27 @@ def main():
     team_sync_body = args.team_sync_file.read_bytes() if args.team_sync_file else None
     match_push_body = args.match_push_file.read_bytes() if args.match_push_file else None
     room_start_body = args.room_start_file.read_bytes() if args.room_start_file else None
+    native_result_room = native_result_name = None
+    if args.world_native_result:
+        if not (args.world_round_result and args.native_lobby and room_start_body and len(room_start_body) == 16):
+            parser.error('--world-native-result requires the native lobby, round result and Thai room-start template')
+        native_result_room = struct.unpack_from('>Q', room_start_body)[0]
+        name_size = struct.unpack_from('>I', team_body, 40)[0]
+        native_result_name = team_body[44:44 + name_size]
+        if not native_result_room:
+            parser.error('Native result needs a nonzero match room id')
     match_sync_body = args.match_sync_file.read_bytes() if args.match_sync_file else None
     if args.world_body_file:
         world_body = args.world_body_file.read_bytes()
         if len(world_body) < 26:
             parser.error('world body file is too short for an application envelope')
+    if args.world_wardrobe:
+        if not (args.native_lobby and args.gameplay_prototype and args.gameplay_inventory and world_body):
+            parser.error('--world-wardrobe requires native lobby, world body and gameplay inventory')
+        try:
+            world_with_wardrobe(world_body, ())
+        except ValueError as error:
+            parser.error(str(error))
     roster = None
     if args.roster_file:
         roster = args.roster_file.read_bytes()
@@ -655,7 +675,8 @@ def main():
                 if args.world_round_result:
                     from offline_round_result import LocalRoundResult
                     round_result=LocalRoundResult(gameplay,bots)
-                    if control_session is not None:control_session.round_result=round_result
+                    if control_session is not None and not args.world_native_result:
+                        control_session.round_result=round_result
                 else:round_result=None
                 if bot_visibility is not None and bot_visibility.doors is not None:
                     bot_visibility.doors.states=gameplay.doors.states
@@ -848,9 +869,22 @@ def main():
                                      scope='Local player and surviving bots, including those outside client interest')
                         if (round_result is not None and state=='transport_ready'
                                 and loaded_pushes_sent and round_result.tick()):
+                            if args.world_native_result:
+                                killer = next((event['shooter_uid'] for event in ai.events
+                                               if event.get('action') == 'player_hit' and event.get('current') == 0), 0) if ai else 0
+                                killer_name = b''
+                                if killer in bots.actors:
+                                    profile = bots.profile_for(killer)
+                                    name_size = struct.unpack_from('>I', profile, 16)[0]
+                                    killer_name = profile[20:20 + name_size - 1]
+                                for response_id, response_body in round_result.native_messages(
+                                        native_result_room, native_result_name, killer_uid=killer, killer_name=killer_name):
+                                    response = struct.pack('>IHI',1,response_id,response_id)+response_body
+                                    send(connection,0,body=encrypt(response,key))
+                                    emit('native_round_result_sent',message_id=response_id,body_bytes=len(response_body))
                             emit('local_round_result',result=round_result.state,
                                  placement=round_result.placement,participants=round_result.size,
-                                 scope='Local overlay')
+                                 scope='Native Thai outcome' if args.world_native_result else 'Local overlay')
                             send_control_commands()
                         # Advance timers even when the client is continuously
                         # sending; boarding/jump/reload must not wait for quiet.
@@ -933,13 +967,16 @@ def main():
                                     emit('native_lobby_response_sent', request_id=message_id, message_id=response_id,
                                          body_bytes=len(response_body), mode=lobby.mode)
                             if (lobby is not None and message_id == 0x6e29 and not lobby.start_requested
-                                    and len(application[26:]) == 4
-                                    and struct.unpack('>I', application[26:])[0] == lobby.mode + 1):
-                                lobby.start_requested = True
-                                started = time.monotonic()
-                                lobby_pushes = [(started + index * args.push_delay, mid, path)
-                                                for index, (mid, path) in enumerate(push_specs)]
-                                emit('native_lobby_start_requested', mode=lobby.mode, pushes=len(lobby_pushes))
+                                    and len(application[26:]) == 4):
+                                match_mode = struct.unpack_from('>I', application, 26)[0]
+                                # The solo start button sends 1 even when the stored team mode is quad.
+                                if match_mode in (1, lobby.mode + 1):
+                                    lobby.start_requested = True
+                                    started = time.monotonic()
+                                    lobby_pushes = [(started + index * args.push_delay, mid, path)
+                                                    for index, (mid, path) in enumerate(push_specs)]
+                                    emit('native_lobby_start_requested', mode=lobby.mode,
+                                         match_mode=match_mode, pushes=len(lobby_pushes))
                             if gameplay is not None and message_id==0x11e9 and combat is None:
                                 hit=character_hit(application[26:])
                                 if hit is None:
@@ -961,7 +998,10 @@ def main():
                                 for push_id,push_path in player_push_specs:
                                     push_body=push_path.read_bytes()
                                     if gameplay is not None and gameplay.inventory is not None and push_id==0x05fb:
-                                        push_body=gameplay.inventory.full_body()
+                                        clothes = lobby.inventory.worn_clothes() if args.world_wardrobe else ()
+                                        push_body=gameplay.inventory.full_body(clothes)
+                                        if args.world_wardrobe:
+                                            emit('world_wardrobe_sent', slots={slot:item.template for (_,slot),item in clothes})
                                     if gameplay is not None and push_id==0x04a0:
                                         push_body=gameplay.ammo_sync()[1]
                                     if len(push_body)>65536:
@@ -1240,9 +1280,10 @@ def main():
                                          body_bytes=len(body),
                                          body_sha256=hashlib.sha256(body).hexdigest())
                             if world_body is not None and message_id == 0x02E4:
-                                reply_world_body = world_body
+                                reply_world_body = (world_with_wardrobe(world_body, lobby.inventory.worn_clothes())
+                                                    if args.world_wardrobe else world_body)
                                 if args.world_time_tail_bytes is not None:
-                                    reply_world_body = synchronize_lobby_clock(world_body, args.world_time_tail_bytes)
+                                    reply_world_body = synchronize_lobby_clock(reply_world_body, args.world_time_tail_bytes)
                                     emit('world_time_synchronized',
                                          timestamp=struct.unpack_from('>I', reply_world_body, len(reply_world_body) - args.world_time_tail_bytes)[0],
                                          field_offset=len(reply_world_body) - args.world_time_tail_bytes)

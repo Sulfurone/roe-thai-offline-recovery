@@ -30,9 +30,7 @@ def lobby_item_wire(item):
     # OBJECT_INFO native +0x0E / wire +14 is the expiration timestamp,
     # not the item quantity. FE8200 treats zero as permanent. Quantity is
     # encoded by the item union and has already been written by Item.wire.
-    body = bytearray(item.wire())
-    struct.pack_into('>I', body, 14, 0)
-    return bytes(body)
+    return item.wire(expiration=0)
 
 
 def validate_team(body):
@@ -73,6 +71,10 @@ class LobbyInventory:
             self.items[4, slot] = Item(8, template, uid, 3)
             uid += 1
         self.unlock_all()
+
+    def worn_clothes(self):
+        return tuple((key, item) for key, item in sorted(self.items.items())
+                     if key[0] == 1 and POSITIONS.get(item.template) == key[1])
 
     def unlock_all(self):
         owned = {item.template for item in self.items.values()}
@@ -233,3 +235,23 @@ class NativeLobby:
                     self.save()
                 return replies
         return None
+
+
+def world_with_wardrobe(body, clothes):
+    """Project equipped wardrobe slots into the Thai single-actor world record."""
+    # The 32838 fixture uses 24-byte empty equipment slots. The occupancy
+    # byte is followed by three big-endian item fields only when nonzero.
+    record_offset = 12
+    first_wearable = record_offset + 1564
+    if (len(body) != 2022 or body[:12] != struct.pack('>III', 0, 1, 1)
+            or body[record_offset + 1] not in (0, 1)
+            or any(body[first_wearable + (slot - 13) * 24] for slot in set(POSITIONS.values()))):
+        raise ValueError('Wardrobe needs the Thai 32838 one-player world template with empty clothing slots')
+    result = bytearray(body)
+    result[record_offset + 1] = 0  # original self actor variant
+    for (container, slot), item in reversed(clothes):
+        if container != 1 or POSITIONS.get(item.template) != slot:
+            raise ValueError('Invalid equipped wardrobe slot')
+        offset = first_wearable + (slot - 13) * 24
+        result[offset:offset + 1] = struct.pack('>BIII', 1, item.template, 1, 0)
+    return bytes(result)

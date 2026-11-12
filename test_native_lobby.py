@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 import local_server
-from offline_lobby import CLOTHES, POSITIONS, LobbyInventory, NativeLobby, lobby_item_wire
+from offline_lobby import CLOTHES, POSITIONS, LobbyInventory, NativeLobby, lobby_item_wire, world_with_wardrobe
 from tpdu import decrypt, encrypt, frame, read_frame
 
 
@@ -25,7 +25,28 @@ def transfer(src=2, source=0, dst=1, target=15, quantity=1, owner=0):
     return struct.pack('>BBHBHHB', 1, src, source, dst, target, quantity, owner)
 
 
+def world_template():
+    body = bytearray(2022)
+    struct.pack_into('>III', body, 0, 0, 1, 1)
+    body[13] = 1
+    return bytes(body)
+
+
 class NativeLobbyTests(unittest.TestCase):
+    def test_world_body_carries_only_equipped_clothes_and_keeps_clock_tail(self):
+        lobby = NativeLobby(team_template())
+        source = world_template()[:-18] + bytes(range(18))
+        clothes = lobby.inventory.worn_clothes()
+        body = world_with_wardrobe(source, clothes)
+        self.assertEqual(body[13], 0)
+        self.assertEqual(body[-18:], source[-18:])
+        self.assertEqual(len(body), len(source) + len(clothes) * 12)
+        for (_, slot), item in clothes:
+            self.assertIn(struct.pack('>BIII', 1, item.template, 1, 0), body)
+        self.assertNotIn(struct.pack('>I', CLOTHES[15][1]), body)
+        with self.assertRaises(ValueError):
+            world_with_wardrobe(source[:-1], clothes)
+
     def test_lobby_items_are_permanent_without_changing_quantity(self):
         inventory = LobbyInventory()
         for item in inventory.items.values():
@@ -157,12 +178,16 @@ class NativeLobbyTests(unittest.TestCase):
             team.write_bytes(team_template())
             push = root / 'start.bin'
             push.write_bytes(b'explicit start only')
+            world = root / 'world.bin'
+            world.write_bytes(world_template())
             profile = root / 'profile.json'
             with socket.socket() as reserved:
                 reserved.bind(('127.0.0.1', 0))
                 port = reserved.getsockname()[1]
             argv = ['local_server.py', '--seconds', '8', '--port', str(port), '--single-session',
                     '--native-lobby', '--team-body-file', str(team), '--lobby-profile-file', str(profile),
+                    '--world-body-file', str(world), '--world-wardrobe', '--gameplay-prototype',
+                    '--gameplay-inventory', '--gameplay-empty-start', '--push-after-player-ready', f'0x5fb:{push}',
                     '--push-after-team', f'0x1234:{push}', '--push-after-team', f'0x1235:{push}', '--push-delay', '.1',
                     '--push-after-load-success', f'0x1236:{push}']
             errors = queue.Queue()
@@ -201,6 +226,9 @@ class NativeLobbyTests(unittest.TestCase):
                             _, _, cipher, *_ = read_frame(client)
                             packet = decrypt(cipher, bytes(16))
                             return struct.unpack_from('>H', packet, 4)[0], packet[10:]
+                        send(0x02e4, b'')
+                        self.assertEqual(receive(), (0x02ef, world_with_wardrobe(
+                            world.read_bytes(), NativeLobby(team_template()).inventory.worn_clothes())))
                         send(0x702f, b'\0')
                         self.assertEqual(receive()[0], 0x7030)
                         self.assertEqual(receive()[0], 0x5fb)
@@ -220,6 +248,12 @@ class NativeLobbyTests(unittest.TestCase):
                         self.assertEqual(receive(), (0x1235, push.read_bytes()))
                         send(0x0dcd, bytes(4))
                         self.assertEqual(receive(), (0x1236, push.read_bytes()))
+                        send(0x002a, struct.pack('>I3i', 1, 325800, 271700, 6501))
+                        clothes = NativeLobby(team_template(), profile).inventory.worn_clothes()
+                        expected = struct.pack('>I', len(clothes)) + b''.join(
+                            bytes(key) + lobby_item_wire(item) for key, item in clothes) + bytes(8) + b'\1'
+                        self.assertEqual(receive(), (0x05fb, expected))
+                        self.assertIn(CLOTHES[15][1], [item.template for _, item in clothes])
                         client.sendall(frame(13))
                 finally:
                     thread.join(4)

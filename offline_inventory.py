@@ -40,14 +40,14 @@ class Item:
     parts: tuple = ()
     durability: int | None = None
 
-    def wire(self,magazine=0):
+    def wire(self,magazine=0, *, expiration=None):
         spec=EXTRA_ITEMS.get(self.template)
         # OBJECT_INFO has only empty / unique / stack union branches. These
         # are unrelated to ItemTable.mCategory (ammo=3, parts=4, etc.).
         weapon=is_weapon(self)
         wire_kind=0 if self.kind==0 else 1 if weapon or self.kind==20 else 2
         base=struct.pack('>BBIQIIBBIH',wire_kind,0,self.template,self.uid,
-                         self.count,0,0,0,0,0)
+                         self.count if expiration is None else expiration,0,0,0,0,0)
         if wire_kind==1:
             # Native F61EC0 reads attachments from the bounded 12-byte rows,
             # NOT the preceding seven opaque DWORDs. Row 7 carries ammo type
@@ -149,10 +149,12 @@ class OfflineInventory:
         return next((slot for (container,slot),item in self.items.items()
                      if container==1 and is_weapon(item)),None)
 
-    def full_body(self):
-        body=struct.pack('>I',len(self.items))
+    def full_body(self, equipped_clothes=()):
+        body=struct.pack('>I',len(self.items)+len(equipped_clothes))
         for (container,slot),item in sorted(self.items.items()):
             body+=bytes((container,slot))+self.item_wire(item)
+        for (container,slot),item in equipped_clothes:
+            body+=bytes((container,slot))+item.wire(expiration=0)
         return body+bytes(8)+b'\1'
 
     def item_wire(self,item):

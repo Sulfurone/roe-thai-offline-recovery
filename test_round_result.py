@@ -1,4 +1,5 @@
 import unittest
+import struct
 from types import SimpleNamespace
 from offline_gameplay import OfflineGameplay
 from offline_vitals import Vitals
@@ -45,5 +46,21 @@ class LocalRoundTests(unittest.TestCase):
     def test_no_player_no_result_and_invalid_roster_rejected(self):
         g,b,r=self.make();g.vitals.damage(1000);self.assertFalse(r.tick())
         with self.assertRaises(ValueError):LocalRoundResult(g,SimpleNamespace(count=0))
+
+    def test_thai_outcome_messages_carry_matching_room_and_placement(self):
+        game,bots,result=self.make()
+        self.assertEqual(result.native_messages(1,b'Test\0'),[])
+        game.actor_ready=True
+        game.vitals.damage(1000)
+        self.assertTrue(result.tick())
+        name=b'Test\0'
+        messages=result.native_messages(17,name,killer_uid=34,killer_name=b'OfflineBot2')
+        self.assertEqual([mid for mid,_ in messages],[0xd77,0x106e,0xd62])
+        self.assertEqual(struct.unpack_from('>IQ',messages[0][1]),(0,17))
+        self.assertEqual(struct.unpack_from('>QI',messages[1][1]),(34,12))
+        outcome=messages[-1][1]
+        self.assertEqual(struct.unpack_from('>QQI',outcome),(17,game.actor_uid,len(name)))
+        self.assertEqual(struct.unpack_from('>4I',outcome,20+len(name)),(3,3,3,3))
+        self.assertEqual(outcome[-1],0)
 
 if __name__=='__main__':unittest.main()

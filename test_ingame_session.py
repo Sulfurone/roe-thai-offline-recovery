@@ -98,10 +98,14 @@ class IngameSessionTests(unittest.TestCase):
     def test_local_outcome_over_encrypted_connection_and_mailbox(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,survivors=True,round_result=True)
 
+    def test_original_thai_elimination_over_encrypted_connection(self):
+        self.run_session('--ingame-overlay',population=True,vitals=True,combat=True,ai=True,
+                         round_result=True,native_result=True)
+
     def test_circle_damage_over_encrypted_connection(self):
         self.run_session('--ingame-overlay',population=True,vitals=True,zones=True,zone_damage=True)
 
-    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False,armour=False,throwable_equip=False,zones=False,survivors=False,zone_damage=False,round_result=False):
+    def run_session(self, interface, aircraft=False, population=False,posture=False,vitals=False,throws=False,medicine=False,hit_reports=False,combat=False,ai=False,cancel_medicine=False,blast=False,collision=False,timed_reload=False,original_reload=False,attachments=False,extensions=False,armour=False,throwable_equip=False,zones=False,survivors=False,zone_damage=False,round_result=False,native_result=False):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             game = root / '32838'
@@ -135,6 +139,13 @@ class IngameSessionTests(unittest.TestCase):
                 argv.append('--world-bot-combat')
             if survivors:argv.append('--world-survivor-status')
             if round_result:argv.append('--world-round-result')
+            if native_result:
+                team, room = root/'team.bin', root/'room.bin'
+                team.write_bytes(struct.pack('>IQIQIIQI',0,1,0,256,0,1,256,5)
+                                 + b'Test\0' + struct.pack('>III',1,0,0))
+                room.write_bytes(struct.pack('>QII',17,3,0))
+                argv.extend(['--world-native-result','--native-lobby','--team-body-file',str(team),
+                             '--room-start-file',str(room)])
             if population:
                 terrain = root / 'surface.repx'
                 terrain.write_text('<root><PxHeightField><NbRows>2</NbRows><NbColumns>2</NbColumns>'
@@ -315,6 +326,8 @@ class IngameSessionTests(unittest.TestCase):
                         world_time = struct.unpack_from('>I', world_body, len(world_body) - 18)[0]
                         self.assertLess(abs(world_time - time.time()), 3)
                         self.assertEqual(world.read_bytes(), original_world)
+                    if native_result:
+                        send(0x6e29, struct.pack('>I',1))
                     send(0x0dcd, bytes(4))
                     if aircraft:
                         send(0x0dcd, bytes(4))
@@ -582,7 +595,7 @@ class IngameSessionTests(unittest.TestCase):
                         if armour:
                             games[0].inventory.items[1,12]=Item(20,201002,0x100120,1,durability=10)
                             games[0].inventory.next_uid=max(games[0].inventory.next_uid,0x100121)
-                        hp=[];firing=[];feedback=[];dead=None;conditions=[]
+                        hp=[];firing=[];feedback=[];dead=None;conditions=[];native_messages=[]
                         deadline=time.monotonic()+5
                         client.settimeout(.5)
                         while time.monotonic()<deadline and (dead is None or firing and firing[-1]==0):
@@ -599,6 +612,8 @@ class IngameSessionTests(unittest.TestCase):
                                 self.assertEqual(struct.unpack_from('>QQ',body),(bot_uid,256))
                                 feedback.append(body)
                             elif mid==0x533:dead=body
+                            elif native_result and mid in (0xd77,0x106e,0xd62):
+                                native_messages.append((mid,body))
                             elif armour and mid==0x3e82:
                                 self.assertEqual(struct.unpack_from('>BHB',body),(1,12,1))
                                 conditions.append(struct.unpack_from('>I',body,34)[0])
@@ -612,7 +627,19 @@ class IngameSessionTests(unittest.TestCase):
                             self.assertEqual(games[0].inventory.items[1,12].durability,0)
                         self.assertEqual(dead,struct.pack('>IQ',0,256))
                         self.assertEqual(ais[0].brains[bot_uid].magazine,27 if armour else 28)
-                        if round_result:
+                        if native_result:
+                            while len(native_messages)<3:
+                                native_messages.append(receive_raw())
+                            self.assertEqual(native_messages[0], (0xd77,struct.pack('>IQ',0,17)+bytes(28)))
+                            message, terminal = native_messages[1]
+                            self.assertEqual(message,0x106e)
+                            self.assertEqual(struct.unpack_from('>Q',terminal)[0],bot_uid)
+                            message, outcome = native_messages[2]
+                            self.assertEqual(message,0xd62)
+                            self.assertEqual(struct.unpack_from('>QQI',outcome),(17,256,5))
+                            self.assertEqual(struct.unpack_from('>4I',outcome,25),(2,2,2,2))
+                            self.assertEqual(menu.state()['round_state'],'')
+                        elif round_result:
                             deadline=time.monotonic()+3
                             result=menu.state()
                             while result.get('round_state')!='lost' and time.monotonic()<deadline:
