@@ -3,13 +3,28 @@ import struct
 import unittest
 from pathlib import Path
 
-from tpdu import auth_info, decrypt, encrypt, frame, read_frame
+from tpdu import FrameReader, auth_info, decrypt, encrypt, frame, read_frame
 
 
 ROOT = Path(__file__).resolve().parent
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_buffered_reader_preserves_order_across_fragmented_and_joined_frames(self):
+        from unittest.mock import Mock
+        first, second, third = frame(3,b'auth'), frame(0,body=bytes(32)), frame(13)
+        connection = Mock()
+        connection.recv.side_effect = [first[:5], first[5:]+second+third[:7], third[7:]]
+        reader = FrameReader(connection)
+        self.assertFalse(reader.pending)
+        self.assertEqual(reader.read(),(3,b'auth',b'',0,first))
+        self.assertTrue(reader.pending)
+        self.assertEqual(reader.read(),(0,b'',bytes(32),0,second))
+        self.assertEqual(connection.recv.call_count,2)
+        self.assertTrue(reader.pending)
+        self.assertEqual(reader.read(),(13,b'',b'',0,third))
+        self.assertFalse(reader.pending)
+
     def test_captured_authentication_frame(self):
         original = (ROOT / 'logs/20261026-102842/connection-1.bin').read_bytes()
         sender, receiver = socket.socketpair()

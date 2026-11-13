@@ -28,6 +28,10 @@ def read_frame(connection):
             data.extend(part)
         return bytes(data)
 
+    return _read_packet(exact)
+
+
+def _read_packet(exact):
     header = exact(12)
     magic, version, command, encrypted_length, head_length, body_length = HEADER.unpack(header)
     if magic != 85 or version != 14:
@@ -39,6 +43,37 @@ def read_frame(connection):
     extension = exact(head_length - 12)
     body = exact(body_length)
     return command, extension, body, encrypted_length, header + extension + body
+
+
+class FrameReader:
+    """Keep contiguous TCP frames in a bounded buffer, preserving wire order."""
+    CHUNK = 65536
+
+    def __init__(self, connection):
+        self.connection = connection
+        self.buffer = bytearray()
+        self.cursor = 0
+
+    @property
+    def pending(self):
+        return self.cursor < len(self.buffer)
+
+    def _exact(self, size):
+        if len(self.buffer) - self.cursor < size:
+            del self.buffer[:self.cursor]
+            self.cursor = 0
+            while len(self.buffer) < size:
+                data = self.connection.recv(self.CHUNK)
+                if not data:
+                    raise EOFError('Connection ended')
+                self.buffer.extend(data)
+        end = self.cursor + size
+        data = bytes(self.buffer[self.cursor:end])
+        self.cursor = end
+        return data
+
+    def read(self):
+        return _read_packet(self._exact)
 
 
 def encrypt(data, key):

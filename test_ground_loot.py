@@ -1,6 +1,7 @@
 from pathlib import Path
 import struct
 import unittest
+from unittest.mock import patch
 from offline_gameplay import OfflineGameplay,TYPED_ACTOR_UID
 from offline_inventory import Item,AMMO_TEMPLATE
 from offline_ground_loot import GroundStack
@@ -41,10 +42,16 @@ class GroundLootTests(unittest.TestCase):
         self.assertEqual(stack.position,game.player_position)
         self.assertEqual(stack.item.count,20)
         self.assertNotEqual(stack.item.uid,game.inventory.items[2,0].uid)
-        game.handle(0x3b63,request(stack.entity))
+        with patch('offline_ground_loot.time.monotonic',return_value=100.):
+            game.handle(0x3b63,request(stack.entity))
         self.assertEqual((game.reserve,game.magazine),(180,30))
         before=game.inventory.snapshot(game.magazine,game.selected_slot)
-        self.assertEqual(game.handle(0x3b63,request(stack.entity))[0][0],0x3b66)
+        with patch('offline_ground_loot.time.monotonic',return_value=100.2):
+            self.assertEqual(game.handle(0x3b63,request(stack.entity)),[(0x82b,struct.pack('>Q',stack.entity))])
+            self.assertIsNone(game.ground_loot.last_rejection)
+            self.assertEqual(game.handle(0x3b63,request(stack.entity,owner=123))[0][0],0x3b66)
+        with patch('offline_ground_loot.time.monotonic',return_value=102.1):
+            self.assertEqual(game.handle(0x3b63,request(stack.entity))[0][0],0x3b66)
         self.assertEqual(game.inventory.snapshot(game.magazine,game.selected_slot),before)
 
     def test_full_drop_and_explicit_empty_destination_preserve_identity(self):

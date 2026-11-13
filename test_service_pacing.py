@@ -90,7 +90,8 @@ class ServicePacingTests(unittest.TestCase):
             argv = ['local_server.py','--seconds','12','--port',str(port),'--single-session',
                     '--gameplay-prototype','--gameplay-inventory','--gameplay-ground-loot',
                     '--gameplay-doors','--world-populate','--world-terrain',str(terrain),
-                    '--ingame-overlay','--control-vehicle-template',str(jeep),'--gameplay-reload-seconds','.15']
+                    '--ingame-overlay','--control-vehicle-template',str(jeep),'--control-client-boarding',
+                    '--gameplay-reload-seconds','.15']
             errors = queue.Queue(); output = io.StringIO(); calls = []
             original_tick = WorldPopulation.tick
             added_burst = False
@@ -136,10 +137,15 @@ class ServicePacingTests(unittest.TestCase):
                         app=struct.pack('>IH',26+len(body),mid)+bytes(16)+struct.pack('>I',mid)+body
                         return frame(0,body=encrypt(app,bytes(16)))
 
+                    vehicle_uid = None
+
                     def receive_until(wanted,limit):
+                        nonlocal vehicle_uid
                         while time.monotonic()<limit:
                             _,_,cipher,*_=read_frame(client)
                             app=decrypt(cipher,bytes(16));mid=struct.unpack_from('>H',app,4)[0]
+                            if mid==0x654b and vehicle_uid is None:
+                                vehicle_uid=struct.unpack_from('>Q',app,10)[0]
                             if mid==wanted:return app[10:]
                         self.fail(f'No {wanted:#x} response')
 
@@ -162,7 +168,7 @@ class ServicePacingTests(unittest.TestCase):
                     self.assertLess(elapsed,1.5, 'Background work still runs for every incoming packet')
                     self.assertLess(len(calls),20)
                     started=time.monotonic()
-                    client.sendall(flood+request(0x3b63,pickup))
+                    client.sendall(flood+request(0x3b63,struct.pack('>I',0x400000)+pickup[4:]))
                     receive_until(0x3b66,started+2)
                     self.assertLess(time.monotonic()-started,1.5)
                     # A finite timed reload still advances with traffic queued.
@@ -174,6 +180,17 @@ class ServicePacingTests(unittest.TestCase):
                     # Reload can finish while the third burst is still queued.
                     # Drain its trailing door receipt before closing the socket.
                     client.sendall(request(0x6f57,struct.pack('>II',17415,0)))
+                    receive_until(0x6f55,time.monotonic()+2)
+                    self.assertIsNotNone(vehicle_uid)
+                    client.sendall(request(0x6541,struct.pack('>QI',vehicle_uid,1)))
+                    receive_until(0x6542,time.monotonic()+2)
+                    physics = struct.pack('>QIB3i',vehicle_uid,1,0,326100,271700,6600)+bytes(36)
+                    started=time.monotonic()
+                    client.sendall(request(0x6549,physics)*600+request(0x6543,b'\x25')*21)
+                    leave=receive_until(0x6544,started+2)
+                    self.assertEqual(struct.unpack_from('>Q',leave)[0],vehicle_uid)
+                    self.assertLess(time.monotonic()-started,1.5)
+                    client.sendall(request(0x6f57,struct.pack('>II',17415,1)))
                     receive_until(0x6f55,time.monotonic()+2)
                     client.sendall(frame(13))
                 server.join(4)
@@ -187,6 +204,10 @@ class ServicePacingTests(unittest.TestCase):
             self.assertLess(first_door,first_world, 'A door response waited for the entire world update')
             self.assertLess(first_pickup,first_world, 'A pickup response waited for the entire world update')
             self.assertEqual(sum(x['event']=='application_message' and x.get('message_id')==0x3783 for x in rows),1800)
+            self.assertEqual(sum(x['event']=='application_message' and x.get('message_id')==0x6549 for x in rows),600)
+            exits=[x for x in rows if x['event']=='vehicle_exit_request']
+            self.assertEqual(sum(not x['retry'] for x in exits),1)
+            self.assertLess(len(exits),5)
             self.assertNotIn('"event": "application_message"',output.getvalue())
             self.assertTrue(any(x['event']=='service_loop_statistics' for x in rows))
 

@@ -180,6 +180,10 @@ class ExtraItemTests(unittest.TestCase):
             self.assertTrue(control.last_exit_event['clear_ground'])
             self.assertEqual(game.player_position,(326591,272391,6515))
             self.assertEqual(struct.unpack_from('>3i',replies[0][1],28),game.player_position)
+            for _ in range(20):
+                self.assertEqual(control.handle(0x6543,b'\x21'),[])
+                self.assertIsNone(control.last_exit_event)
+        with patch('control_actions.time.monotonic',return_value=100.2):
             self.assertEqual(control.handle(0x6543,b'\x21'),replies)
             self.assertTrue(control.last_exit_event['retry'])
         with patch('control_actions.time.monotonic',return_value=103):

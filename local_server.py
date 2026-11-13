@@ -15,7 +15,7 @@ import struct
 import subprocess
 import time
 import webbrowser
-from tpdu import auth_info, decrypt, encrypt, frame, read_frame
+from tpdu import FrameReader, auth_info, decrypt, encrypt, frame
 from thai_profile import save_submission
 from offline_environment import (EnvironmentSchedule, NATIVE_WEATHER_IDS,
                                  WeatherSchedule, environment_clock, synchronize_lobby_clock)
@@ -659,6 +659,7 @@ def main():
                     CaptureFile(folder / f'{number}-application.bin') as application_raw:
                 connection.settimeout(min(45, max(1, deadline - time.monotonic())))
                 connection.setsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY,1)
+                reader = FrameReader(connection)
                 cadence=ServiceCadence()
                 work_counts=dict(packets=0,population=0,control=0,position=0)
                 work_started=time.monotonic()
@@ -884,7 +885,7 @@ def main():
                         loop_started=time.monotonic()
                         world_turn = True
                         if loaded_pushes_sent and (population is not None or ai is not None):
-                            incoming = bool(select.select([connection], [], [], 0)[0])
+                            incoming = reader.pending or bool(select.select([connection], [], [], 0)[0])
                             world_turn = cadence.background_ready(incoming, loop_started)
                         if cadence.due('capture_flush'):
                             received_raw.flush();application_raw.flush()
@@ -1016,7 +1017,8 @@ def main():
                                                     and not schedule.sent)
                         environment_timer=bool(environment_schedules and state=='transport_ready')
                         max_background_seconds=max(max_background_seconds,time.monotonic()-loop_started)
-                        if gameplay_timers or environment_timer or control is not None or population is not None or lobby_pushes:
+                        if not reader.pending and (gameplay_timers or environment_timer or control is not None
+                                                   or population is not None or lobby_pushes):
                             wait=min(.25,max(0,deadline-time.monotonic()))
                             if pending_world:
                                 wait=min(wait,ServiceCadence.INTERVALS['world_send'])
@@ -1030,7 +1032,7 @@ def main():
                                     send_gameplay_timers()
                                 send_environment_timers()
                                 continue
-                        command, extension, body, encrypted_length, packet = read_frame(connection)
+                        command, extension, body, encrypted_length, packet = reader.read()
                         dispatch_started=time.monotonic()
                         received_raw.write(packet)
                         work_counts['packets']+=1

@@ -41,6 +41,7 @@ def vehicle_spawn(template, uid, position, config=101):
 
 class ControlSession:
     EXIT_RETRY_WINDOW = 2.0
+    EXIT_RETRY_INTERVAL = .15
 
     def __init__(self, gameplay=None, vehicle_template=None,client_boarding=False,exit_visibility=None):
         self.gameplay = gameplay
@@ -220,8 +221,12 @@ class ControlSession:
         if message==0x6541 and game.vitals_enabled and not game.vitals.current:
             return []
         if message==0x6543 and not game.seated and len(body) in (1,9) and self.recent_exit:
-            until,uid,replies=self.recent_exit
-            if time.monotonic()<=until:
+            until,next_reply,uid,replies=self.recent_exit
+            now=time.monotonic()
+            if now<=until:
+                if now<next_reply:
+                    return []
+                self.recent_exit=(until,now+self.EXIT_RETRY_INTERVAL,uid,replies)
                 self.last_exit_event=dict(uid=hex(uid),retry=True)
                 return list(replies)
             self.recent_exit=None
@@ -253,7 +258,9 @@ class ControlSession:
         elif message==0x6543 and car.seated and len(body) in (1,9):
             position=self.find_exit(car)
             replies=car.leave(position=position)
-            self.recent_exit=(time.monotonic()+self.EXIT_RETRY_WINDOW,car.vehicle_uid,tuple(replies))
+            now=time.monotonic()
+            self.recent_exit=(now+self.EXIT_RETRY_WINDOW,now+self.EXIT_RETRY_INTERVAL,
+                              car.vehicle_uid,tuple(replies))
             self.last_exit_event=dict(uid=hex(car.vehicle_uid),position=car.player_position,
                                       clear_ground=position is not None,retry=False)
         else:

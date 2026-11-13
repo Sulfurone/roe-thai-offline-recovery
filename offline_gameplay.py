@@ -518,13 +518,13 @@ class OfflineGameplay:
         # after the logical DTO. Unit tests may use the bare logical body.
         return len(body) in (logical,logical+8)
 
-    def handle(self,message,body):
+    def handle(self,message,body,*,parcel_pickup=False):
         if self.world_file is None:
-            return self._handle(message,body)
+            return self._handle(message,body,parcel_pickup=parcel_pickup)
         previous=self.state_payload()
         announced=self.ground_loot.announced
         try:
-            replies=self._handle(message,body)
+            replies=self._handle(message,body,parcel_pickup=parcel_pickup)
             # Commit both sides of every transfer before returning replies
             # to the socket sender. A write failure closes the session without
             # acknowledging a mutation that could disappear on restart.
@@ -588,7 +588,7 @@ class OfflineGameplay:
         return (self.self_position is not None and self.self_position_at is not None
                 and 0<=now-self.self_position_at<=1)
 
-    def _handle(self, message, body):
+    def _handle(self, message, body, *, parcel_pickup=False):
         self.last_drop_event=None
         self.last_medicine_cancel=False
         if message==0x3e80 and body[:1]==b'\3':
@@ -639,7 +639,8 @@ class OfflineGameplay:
             feet=self.self_position if self.has_fresh_self_position() else self.player_position
             replies=self.ground_loot.pickup(body,self.inventory,self.actor_uid,feet,
                                             self.actor_ready and not self.seated
-                                            and not (glider is not None and glider.seated))
+                                            and not (glider is not None and glider.seated),
+                                            remember=not parcel_pickup)
             if stack is not None and any(msg==0x3e82 for msg,_ in replies):
                 camera=struct.unpack_from('>3i',body,20)
                 # The drop DTO has no position. Successful pickup supplies a

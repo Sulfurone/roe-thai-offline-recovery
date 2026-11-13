@@ -6,6 +6,7 @@ loot has a separate slot-list protocol and is deliberately not encoded here.
 from dataclasses import dataclass,replace
 import math
 import struct
+import time
 from offline_inventory import Item,MAX_AMMO,supported,stack_limit,item_fields,read_item,item_uids
 from offline_weapons import magazine_capacity,WEAPONS,AMMUNITION,is_weapon
 from offline_items import EXTRA_ITEMS,is_extra
@@ -14,6 +15,7 @@ from offline_items import EXTRA_ITEMS,is_extra
 # to the original inventory delta's fixed 128-row array.
 MAX_GROUND_STACKS=512
 PICKUP_DISTANCE=500  # Original client EntityTable.m_nMaxOpDistance, cm (both supported items).
+PICKUP_RETRY_WINDOW=2.0
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,7 @@ class OfflineGroundLoot:
         self.next_entity=0x400001
         self.announced=False
         self.last_rejection=None
+        self.recent_pickups={}
 
     def snapshot(self):
         return {'next_entity':self.next_entity,'stacks':[
@@ -108,13 +111,21 @@ class OfflineGroundLoot:
         self.announced=True
         return [stack.spawn() for stack in self.stacks.values()]
 
-    def pickup(self,body,inventory,actor_uid,player_position,can_interact):
+    def pickup(self,body,inventory,actor_uid,player_position,can_interact,*,remember=True):
         self.last_rejection=None
         if len(body) not in (33,41):
             self.last_rejection={'reason':'length'}
             return []
         entity,slot,owner,container,destination,automatic,*camera=struct.unpack('>IIQBHB3iB',body[:33])
         stack=self.stacks.get(entity)
+        now=time.monotonic()
+        valid=(can_interact and self.announced and slot in (0,0xffffffff)
+               and automatic in (0,1) and owner in (0,actor_uid))
+        if (remember and valid and stack is None
+                and now<=self.recent_pickups.get(entity,-1)):
+            # The inventory delta and notification already went out on TCP.
+            # Repeat only the idempotent world removal for stale selections.
+            return [(0x82b,struct.pack('>Q',entity))]
         actor_distance=math.dist(player_position,stack.position) if stack else math.inf
         request_camera=tuple(camera[:3])
         camera_distance=(math.dist(request_camera,stack.position) if stack and any(request_camera)
@@ -123,9 +134,7 @@ class OfflineGroundLoot:
         # Walking command keyframes can lag behind it. Retain the original
         # 500 cm range and accept either independently bounded viewpoint.
         nearby=min(actor_distance,camera_distance)<=PICKUP_DISTANCE
-        if (not can_interact or not self.announced or stack is None or slot not in (0,0xffffffff)
-                or automatic not in (0,1) or owner not in (0,actor_uid)
-                or not nearby):
+        if not valid or stack is None or not nearby:
             self.last_rejection={'reason':'distance' if stack and not nearby else 'identity_or_state',
                 'entity':entity,'actor_distance_cm':round(actor_distance) if math.isfinite(actor_distance) else None,
                 'camera_distance_cm':round(camera_distance) if math.isfinite(camera_distance) else None}
@@ -170,6 +179,10 @@ class OfflineGroundLoot:
             inventory.weapon_magazines[stack.item.uid]=stack.magazine
         inventory.next_uid=max(inventory.next_uid,stack.item.uid+1)
         del self.stacks[entity]
+        if remember:
+            if len(self.recent_pickups)>=MAX_GROUND_STACKS:
+                del self.recent_pickups[next(iter(self.recent_pickups))]
+            self.recent_pickups[entity]=now+PICKUP_RETRY_WINDOW
         # Apply the bag delta, remove the entire single-item entity, then
         # emit the original pickup-template/count sound notification.
         notice=struct.pack('>IIBII',entity,slot,stack.item.kind if is_weapon(stack.item) else 3,stack.item.template,stack.item.count)

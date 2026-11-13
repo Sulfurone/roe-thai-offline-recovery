@@ -77,7 +77,7 @@ class GroundLootSessionTests(unittest.TestCase):
                     receive(0x82b)
                     receive(0x3b64)
                     send(0x3b63,request(0x400002))
-                    self.assertEqual(struct.unpack('>BII',receive(0x3b66)),(1,1,0x400002))
+                    self.assertEqual(struct.unpack('>Q',receive(0x82b)),(0x400002,))
                     client.sendall(frame(13))
                 thread.join(3)
                 self.assertFalse(thread.is_alive())

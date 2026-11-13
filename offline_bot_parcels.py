@@ -81,7 +81,7 @@ class WorldParcels:
         world.stacks[entity] = items[slot]
         request = struct.pack('>II',entity,0) + body[8:]
         try:
-            replies = self.game.handle(0x3b63,request)
+            replies = self.game.handle(0x3b63,request,parcel_pickup=True)
             if entity in world.stacks:
                 return [self.contents(entity)]
             del items[slot]
