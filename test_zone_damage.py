@@ -56,6 +56,13 @@ class ZoneDamageTests(unittest.TestCase):
         z.tick(14);self.assertEqual(g.vitals.current,1000)  # exactly on boundary
         z.tick(15);self.assertEqual(g.vitals.current,990)
         z.tick(50);self.assertEqual(g.vitals.current,980)
+    def test_closed_circle_damages_even_at_the_center(self):
+        g,b,_,_=self.setup_world()
+        schedule=SimpleNamespace(game=g,circle_at=lambda now:(1000,1000,0))
+        z=ZoneDamage(schedule,b)
+        self.assertEqual(z.tick(10),[])
+        z.tick(11)
+        self.assertEqual((g.vitals.current,b.vitals[3].current),(990,990))
     def test_stale_player_not_damaged_and_death_sent_once(self):
         g,b,s,z=self.setup_world();g.require_self_position_for_drop=True
         g.player_position=(2500,1000,7000);g.vitals.current=10;b.vitals[2].current=10

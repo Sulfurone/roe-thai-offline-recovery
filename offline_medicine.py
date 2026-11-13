@@ -17,6 +17,7 @@ class Medicine:
 
 
 MEDICINES={70001:Medicine(3,100),70002:Medicine(6,500),70003:Medicine(8,1000,True)}
+NOT_USE_ITEM_STATUS=27
 
 
 class MedicineUse:
@@ -63,4 +64,7 @@ class MedicineUse:
         if not vitals.heal(amount):return []
         if item.count==1:del inventory.items[key]
         else:inventory.items[key]=replace(item,count=item.count-1)
-        return [inventory.delta([key]),vitals.packet(actor_uid)]
+        # Original 0x002B status 27 exits active item-use state without
+        # synthesizing a locomotion action or starting another use.
+        stop=(0x002b,struct.pack('>QI',actor_uid,NOT_USE_ITEM_STATUS))
+        return [inventory.delta([key]),vitals.packet(actor_uid),stop]

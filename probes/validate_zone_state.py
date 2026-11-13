@@ -47,8 +47,8 @@ phase_zero=received[0]
 # Phase two divides the elapsed FLOAT by the total DWORD. Do not interpret
 # the latter as an epoch timestamp: that would distort circle interpolation.
 blends=[]
-for fraction in (0.,.25,.5,1.):
-    _,wire=zone_state(2,120*fraction,120,current,target)
+for destination, fraction in [(target,f) for f in (0.,.25,.5,1.)]+[(Circle(current.x,current.y,0),1.)]:
+    _,wire=zone_state(2,120*fraction,120,current,destination)
     decoded=c.decode_server(0x47b,wire)
     if decoded['code'] or decoded['consumed']!=decoded['bytes']:raise ValueError(decoded)
     c.uc.mem_write(record,bytes(c.uc.mem_read(c.ROOT_OBJECT+10,36)))
@@ -60,8 +60,8 @@ for fraction in (0.,.25,.5,1.):
     c.uc.reg_write(UC_X86_REG_ESP,c.STACK-0x2000)
     c.uc.reg_write(UC_X86_REG_EDI,0)
     c.uc.emu_start(0x128da34,0x128db85,timeout=1000000,count=10000)
-    expected_blend=interpolated_circle(120*fraction,120,current,target)
-    if received[-1]!=circles[0]+expected_blend+circles[2]:
+    expected_blend=interpolated_circle(120*fraction,120,current,destination)
+    if received[-1]!=circles[0]+expected_blend+(destination.x,destination.y,destination.radius):
         raise ValueError(f'Original shrinking interpolation differs: {fraction}, {received[-1]}')
     blends.append(dict(fraction=fraction,circles=received[-1]))
 # Execute original countdown initialization against a synthetic clock source.

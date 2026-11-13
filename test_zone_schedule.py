@@ -39,16 +39,27 @@ class ZoneScheduleTests(unittest.TestCase):
             self.assertEqual((circle.radius,stage.wait,stage.shrink),(template.target.radius,template.wait,template.shrink))
             self.assertLessEqual(math.hypot(circle.x-previous.x,circle.y-previous.y)+circle.radius,previous.radius)
             previous=circle
+        inner=first.stages[-2].target
+        self.assertEqual((previous.x,previous.y),(inner.x,inner.y))
         for i in range(8):
             angle=i*math.tau/8
-            self.assertGreaterEqual(terrain.height_at(previous.x+previous.radius*math.cos(angle),
-                                                      previous.y+previous.radius*math.sin(angle)),6500)
+            self.assertGreaterEqual(terrain.height_at(inner.x+inner.radius*math.cos(angle),
+                                                      inner.y+inner.radius*math.sin(angle)),6500)
 
     def test_daily_plan_covers_the_map_and_gives_four_minutes_before_shrinking(self):
         daily=ZonePlan.read(Path(__file__).with_name('examples')/'thai-match-circle-plan.json')
-        self.assertEqual(len(daily.stages),4)
+        self.assertEqual(len(daily.stages),5)
         self.assertEqual(daily.stages[0].wait,240)
-        self.assertEqual(daily.stages[-1].target.radius,12000)
+        self.assertEqual(daily.stages[-2].target.radius,12000)
+        self.assertEqual(daily.stages[-1].target.radius,0)
+        pacing=ZoneSchedule(schedule().game,schedule().terrain,daily)
+        pacing.started=100
+        final_starts=100+sum(stage.wait+stage.shrink for stage in daily.stages[:-1])
+        self.assertEqual(pacing.countdown(final_starts),(0,45))
+        self.assertEqual(pacing.circle_at(final_starts+90)[2],6000)
+        self.assertEqual(pacing.circle_at(final_starts+135)[2],0)
+        self.assertTrue(pacing.tick(final_starts+135))
+        self.assertTrue(pacing.finished)
         for x in (0,409600):
             for y in (0,409600):
                 self.assertLessEqual((x-daily.initial.x)**2+(y-daily.initial.y)**2,daily.initial.radius**2)

@@ -19,7 +19,7 @@ class Circle:
         if (type(self.x) is not int or type(self.y) is not int
                 or not 0<=self.x<=409600 or not 0<=self.y<=409600
                 or type(self.radius) not in (int,float) or not math.isfinite(self.radius)
-                or not 0<self.radius<=600000):
+                or not 0<=self.radius<=600000):
             raise ValueError('Circle exceeds the local Thai-map bounds')
 
 

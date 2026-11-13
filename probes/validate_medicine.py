@@ -11,7 +11,7 @@ from native_codec_probe import NativeCodec,ROOT
 from unicorn import UC_HOOK_CODE
 from unicorn.x86_const import UC_X86_REG_EAX,UC_X86_REG_ECX,UC_X86_REG_ESP,UC_X86_REG_EIP
 sys.path.insert(0,str(ROOT))
-from offline_medicine import MEDICINES,MedicineUse
+from offline_medicine import MEDICINES,NOT_USE_ITEM_STATUS,MedicineUse
 from offline_inventory import OfflineInventory,Item
 from offline_vitals import Vitals
 from test_medicine import request
@@ -114,7 +114,8 @@ put(cast_vt+0x10,0x1427ee0)  # original action-type getter returns 8
 put(vt+4,0xe99730)  # original ManPlayer class getter
 c.uc.mem_write(actor+0x2f8,b'\0')  # skip local UI hooks, not timer initialization
 hook(0x12ac6b0,lambda:done(1))
-hook(0x67b4c0,lambda:done(0,4))  # skip renderer RTTI branch
+accept_status_receiver=False
+hook(0x67b4c0,lambda:done(int(accept_status_receiver),4))
 cast_checks=[]
 for template,spec in MEDICINES.items():
     put(row+0x24,spec.seconds*1000)
@@ -125,10 +126,24 @@ for template,spec in MEDICINES.items():
     if seconds!=spec.seconds or elapsed!=0:raise ValueError('Original cast timer differs')
     cast_checks.append(dict(template=template,seconds=seconds,elapsed=elapsed))
 completed=use.tick(inventory,hp,256,True,103)
+accept_status_receiver=True
+action_requests=[]
+hook(0x1130320,lambda:done(actor))
+hook(0x13a9260,lambda:done(9))  # status is outside the movement and stance groups
+for address in (0x13a9090,0x13a9170,0x13a9220,0x12ace10,0xe543f0):
+    hook(address,lambda:done())
+hook(0x12ad430,lambda:(action_requests.append(args(2)),done(0,8)))
+c.uc.mem_write(actor+0x2f8,b'\1')
+c.uc.mem_write(0x2952df5,b'\0')
 for mid,body in completed:
     check=c.decode_server(mid,body)
     if check['code'] or check['consumed']!=check['bytes']:raise ValueError(check)
+    if mid==0x002b:
+        if struct.unpack('>QI',body)!=(256,NOT_USE_ITEM_STATUS):raise ValueError('Unexpected item status')
+        c.invoke(0x1279d10,0,[c.ROOT_OBJECT+6])
+if action_requests!=[(0,1)]:raise ValueError(f'Original use-action reset missing: {action_requests}')
 report=dict(passed=True,table_facts=facts,operation=3,native_notifications=notifications,cast_timers=cast_checks,
+    action_requests=action_requests,
     completed_messages=[hex(m) for m,b in completed],current=hp.current,remaining=inventory.items[2,3].count,
     limitation='Synthetic lookups and condition bypass; cast animation, cancellation and original buff pulse timing remain unverified')
 (ROOT/'private/medical-catalog/validation.json').write_text(json.dumps(report,indent=2),encoding='utf8')

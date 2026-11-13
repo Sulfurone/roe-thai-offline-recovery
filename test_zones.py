@@ -21,7 +21,7 @@ class ZoneTests(unittest.TestCase):
             self.assertEqual(struct.unpack('>IfI',wire[:12]),(2,float(elapsed),120))
 
     def test_invalid_geometry_and_time_are_rejected_before_serializing(self):
-        for values in ((-1,0,100),(0,409601,100),(True,0,100),(0,0,0),
+        for values in ((-1,0,100),(0,409601,100),(True,0,100),
                        (0,0,-10),(0,0,float('nan')),(0,0,float('inf')),(0,0,600001)):
             with self.assertRaises(ValueError):Circle(*values)
         current=Circle(200000,190000,150000)

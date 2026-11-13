@@ -28,7 +28,7 @@ class ZoneDamage:
         # No accumulated burst after a service stall or stale coordinates.
         self.next_tick=now+self.PERIOD
         x,y,radius=circle
-        def outside(pos):return math.hypot(pos[0]-x,pos[1]-y)>radius
+        def outside(pos):return radius==0 or math.hypot(pos[0]-x,pos[1]-y)>radius
         replies=[];g=self.game
         in_car=g.seated and self.control is not None and self.control.active_vehicle is not None
         fresh=(g.actor_ready and g.vitals.current and

@@ -4,10 +4,58 @@ import math
 import random
 import struct
 
-from offline_gameplay import TYPED_VEHICLE_UID
+from offline_bots import POSITION_MARKER
+from offline_gameplay import TYPED_ACTOR_UID, TYPED_VEHICLE_UID
 from offline_items import SPAWNABLE_EXTRA_ITEMS
 from offline_motion import aircraft_spawn_heading
 from offline_weapons import WEAPONS
+
+SMOKE_TEMPLATE = 50002
+SMOKE_UID = TYPED_ACTOR_UID + 0x6000
+
+
+@dataclass
+class SupplySmoke:
+    number: int
+    next_at: float = 0.
+    phase: int = 0
+
+    @property
+    def owner(self):
+        return SMOKE_UID + self.number
+
+    @property
+    def serial(self):
+        return 0x6f000000 + self.number
+
+    def tick(self, now, position, player, profile, position_offset):
+        if now < self.next_at:
+            return []
+        if self.phase == 0:
+            if math.dist(position[:2],player[:2])>45000:
+                return []
+            # The native remote throw handler needs an actor. Its origin is
+            # underground and separate from the ground-level smoke position.
+            origin = (*position[:2],position[2]-10000)
+            record = bytearray(profile)
+            struct.pack_into('>Q',record,8,self.owner)
+            struct.pack_into('>3i',record,position_offset,*origin)
+            self.phase,self.next_at = 1,now+1.
+            return [(0x565,struct.pack('>B3iBQ',1,*origin,0,self.owner)),(0xbe7,bytes(record))]
+        if self.phase == 1:
+            self.phase,self.next_at = 2,now+.25
+            return [(0x1006,struct.pack('>IIQ3iB3iBI',SMOKE_TEMPLATE,self.serial,self.owner,
+                                      *position,0,0,0,0,0,0))]
+        if self.phase == 2:
+            self.phase,self.next_at = 3,now+65.
+            return [(0x1009,struct.pack('>II3iBQI',SMOKE_TEMPLATE,self.serial,*position,0,self.owner,0))]
+        return self.remove()
+
+    def remove(self):
+        if self.phase in (1,2,3):
+            self.phase,self.next_at = 4,math.inf
+            return [(0x605,struct.pack('>HQ',1,self.owner))]
+        return []
 
 
 def supply_vehicle(template, uid, position, config=4):
@@ -51,6 +99,13 @@ class SupplyFlight:
         return message,struct.pack('>Q3iB3fI',self.aircraft,*position,0,*direction,speed)
 
 
+@dataclass
+class LandedSupply:
+    position: tuple
+    expires: float
+    smoke: SupplySmoke | None
+
+
 class SupplyDrops:
     SCHEDULE = (120,420,660)
     FLY_SECONDS = 12.
@@ -59,11 +114,13 @@ class SupplyDrops:
     SPEED = 4500
     HEIGHT = 14000
 
-    def __init__(self, game, zones, parcels, aircraft_template, seed, visibility=None):
+    def __init__(self, game, zones, parcels, aircraft_template, seed, visibility=None, *, smoke_profile=None):
         supply_vehicle(aircraft_template,TYPED_VEHICLE_UID,(0,0,0))
         self.game, self.zones, self.parcels = game,zones,parcels
         self.terrain, self.visibility = zones.terrain,visibility
         self.template = aircraft_template
+        self.smoke_profile = smoke_profile
+        self.smoke_position_offset = smoke_profile.index(POSITION_MARKER) if smoke_profile else None
         self.rng = random.Random(f'{seed}:supply-drops')
         self.index = 0
         self.flight = None
@@ -94,7 +151,7 @@ class SupplyDrops:
             z = round(heights[0])
             if self.visibility is not None and not self.visibility.clear((x,y,z+25),(x,y,z+175),padding=65):
                 continue
-            if any(math.dist((x,y),position[:2])<10000 for position,_ in self.landed.values()):
+            if any(math.dist((x,y),drop.position[:2])<10000 for drop in self.landed.values()):
                 continue
             return x,y,z+20
         return None
@@ -112,17 +169,22 @@ class SupplyDrops:
             flight = self.flight
             return ('incoming',*flight.landing[:2],max(0,math.ceil(self.LAND_SECONDS-now+flight.started)))
         if self.landed:
-            position,_ = min(self.landed.values(),key=lambda row:math.dist(row[0],self.game.player_position))
-            return ('landed',*position[:2],0)
+            closest = min(self.landed.values(),key=lambda drop:math.dist(drop.position,self.game.player_position))
+            return ('landed',*closest.position[:2],0)
         return None
 
     def tick(self, now):
         self.last_event = None
         replies = []
-        for entity,(_,expires) in list(self.landed.items()):
-            if now>=expires or not self.parcels.parcels[entity][1]:
+        for entity,drop in list(self.landed.items()):
+            if now>=drop.expires or not self.parcels.parcels[entity][1]:
                 replies.append(self.parcels.remove(entity))
+                if drop.smoke is not None:
+                    replies.extend(drop.smoke.remove())
                 del self.landed[entity]
+            elif drop.smoke is not None:
+                replies.extend(drop.smoke.tick(now,drop.position,self.game.player_position,self.smoke_profile,
+                                               self.smoke_position_offset))
         flight = self.flight
         if flight is not None:
             elapsed = now-flight.started
@@ -135,8 +197,12 @@ class SupplyDrops:
                 result = self.parcels.add(flight.landing,self.loot(),b'OfflineSupplyDrop\0')
                 if result is not None:
                     entity,packet = result
-                    self.landed[entity] = (flight.landing,now+self.LIFETIME)
+                    smoke = SupplySmoke(flight.number) if self.smoke_profile else None
+                    self.landed[entity] = LandedSupply(flight.landing,now+self.LIFETIME,smoke)
                     replies.append(packet)
+                    if smoke is not None:
+                        replies.extend(smoke.tick(now,flight.landing,self.game.player_position,self.smoke_profile,
+                                                  self.smoke_position_offset))
                     self.last_event = dict(action='landed',number=flight.number,position=flight.landing,entity=entity)
                 self.flight = None
                 return replies

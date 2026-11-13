@@ -574,6 +574,7 @@ class IngameSessionTests(unittest.TestCase):
                         self.assertEqual(receive()[0],0x3e82)
                         self.assertGreaterEqual(time.monotonic()-started,2.8)
                         self.assertEqual(receive_raw(),(0x1069,struct.pack('>QBBBII',256,0,1,0,500,1000)))
+                        self.assertEqual(receive_raw(),(0x002b,struct.pack('>QI',256,27)))
                     if hit_reports:
                         before=(games[0].vitals.current,games[0].magazine)
                         send(0x11e9,hit_body()+b'\x18'*8)

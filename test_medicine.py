@@ -25,7 +25,8 @@ class MedicineTests(unittest.TestCase):
             self.assertEqual(use.tick(inventory,hp,256,True,100+seconds-.001),[])
             self.assertEqual(inventory.items[2,3].count,2)
             replies=use.tick(inventory,hp,256,True,100+seconds)
-            self.assertEqual([m for m,b in replies],[0x3e82,0x1069])
+            self.assertEqual([m for m,b in replies],[0x3e82,0x1069,0x002b])
+            self.assertEqual(struct.unpack('>QI',replies[-1][1]),(256,27))
             self.assertEqual(hp.current,expected)
             self.assertEqual(inventory.items[2,3].count,1)
             self.assertEqual(use.tick(inventory,hp,256,True,999),[])
@@ -65,7 +66,7 @@ class MedicineTests(unittest.TestCase):
         with patch('offline_medicine.time.monotonic',return_value=100):
             self.assertEqual(g.handle(0x3e80,request()),[g.inventory.reply(3,template=70003)])
         with patch.object(g,'save_state') as saved:
-            self.assertEqual([m for m,b in g.tick(108)],[0x3e82,0x1069])
+            self.assertEqual([m for m,b in g.tick(108)],[0x3e82,0x1069,0x002b])
             saved.assert_called_once()
         self.assertEqual(g.vitals.current,1000)
 

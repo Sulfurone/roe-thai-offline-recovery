@@ -745,7 +745,8 @@ def main():
                 if control_session is not None:control_session.bot_ai=ai
                 blast=BlastCombat(gameplay,bots,bot_visibility) if args.world_throwable_combat else None
                 zones=ZoneSchedule(gameplay,population_surface,match_zones) if match_zones is not None else None
-                supplies = (SupplyDrops(gameplay,zones,parcels,supply_template,world_seed,bot_visibility)
+                supplies = (SupplyDrops(gameplay,zones,parcels,supply_template,world_seed,bot_visibility,
+                                        smoke_profile=bot_profile)
                             if supply_template is not None else None)
                 if control_session is not None:
                     control_session.zones=zones

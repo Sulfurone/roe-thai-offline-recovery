@@ -24,7 +24,8 @@ class ZonePlan:
     stages:tuple
 
     def __post_init__(self):
-        if type(self.initial) is not Circle or type(self.stages) is not tuple or not 1<=len(self.stages)<=20:
+        if (type(self.initial) is not Circle or self.initial.radius<=0
+                or type(self.stages) is not tuple or not 1<=len(self.stages)<=20):
             raise ValueError('Local circle plan requires 1..20 stages')
         previous=self.initial;seconds=0
         for stage in self.stages:
@@ -39,7 +40,8 @@ class ZonePlan:
 
     def randomize(self, rng, terrain):
         """Keep stage radii/times and sample nested centers on dry Thai land."""
-        final_radius = self.stages[-1].target.radius
+        last_land_stage = len(self.stages)-1-(self.stages[-1].target.radius==0)
+        final_radius = (self.stages[last_land_stage].target if last_land_stage>=0 else self.initial).radius
 
         def dry(x, y):
             height = terrain.height_at(x,y)
@@ -50,6 +52,9 @@ class ZonePlan:
             stages = []
             for index,stage in enumerate(self.stages):
                 radius = stage.target.radius
+                if radius==0:
+                    stages.append(ZoneStage(Circle(previous.x,previous.y,0),stage.wait,stage.shrink))
+                    continue
                 limit = max(0,previous.radius-radius-1)
                 for _ in range(32):
                     angle = rng.uniform(0,math.tau)
@@ -59,7 +64,7 @@ class ZonePlan:
                     if not (final_radius<=x<=409600-final_radius and final_radius<=y<=409600-final_radius
                             and dry(x,y)):
                         continue
-                    if index==len(self.stages)-1 and not all(
+                    if index==last_land_stage and not all(
                             dry(x+radius*math.cos(i*math.tau/8),y+radius*math.sin(i*math.tau/8)) for i in range(8)):
                         continue
                     previous = Circle(x,y,radius)
