@@ -46,6 +46,28 @@ def file_digest(path):
         return hashlib.file_digest(source, 'sha256').hexdigest()
 
 
+def check_client_engine(engine, original_digest, observer):
+    clean_install = ('With the game closed, rename the existing 32838 folder and '
+                     'extract a fresh 32838 from roe_tai.zip into the package folder.')
+    actual = file_digest(engine)
+    if actual != original_digest:
+        if actual == file_digest(observer.built):
+            detail = 'DataEngine.dll is the bundled position observer left by a previous session.'
+        else:
+            detail = 'DataEngine.dll has an unexpected SHA-256 for this Thai client.'
+        raise ValueError(
+            f'{detail}\n'
+            f'File: {engine}\n'
+            f'Expected: {original_digest}\n'
+            f'Found:    {actual}\n'
+            f'{clean_install}')
+    if observer.copy.exists() or observer.config.exists():
+        raise ValueError(
+            'The client has its original DataEngine.dll and leftover position observer files.\n'
+            f'Client folder: {engine.parent}\n'
+            f'{clean_install}')
+
+
 def check_installation(root, manifest, *, verify_all):
     game = root / '32838'
     recovery = root / 'recovery'
@@ -74,10 +96,9 @@ def check_installation(root, manifest, *, verify_all):
     if not game_stopped():
         raise ValueError('Close the running Ring of Elysium client before starting another session.')
     recover_previous(game, recovery / 'private/self-position')
-    if file_digest(engine) != ORIGINAL_SHA:
-        raise ValueError('DataEngine.dll differs from the original Thai file. Use a clean client copy.')
     observer = PositionInstallation(game, recovery / 'private/self-position/check')
     verify_built(observer.built)
+    check_client_engine(engine, ORIGINAL_SHA, observer)
     if verify_all:
         verify_proxy(engine.read_bytes(), observer.built.read_bytes())
         missing = [name for name in manifest['client_archives'] if not (game / 'SFC' / name).is_file()]
@@ -95,7 +116,6 @@ def main():
         check_installation(root, manifest, verify_all=args.check)
         if args.check:
             print('PASS: portable runtime, game build, archives, and position observer.', flush=True)
-            check_driver_events()
             return 0
         from tools.disable_console_quick_edit import main as disable_quick_edit
         disable_quick_edit()
@@ -105,8 +125,11 @@ def main():
         return subprocess.call([sys.executable, '-B', 'local_server.py', *manifest['service_args']],
                                cwd=root / 'recovery', env=env)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
-        print(f'ROE: {error}', file=sys.stderr)
+        print(f'ROE: {error}', file=sys.stderr, flush=True)
         return 1
+    finally:
+        if args.check:
+            check_driver_events()
 
 
 if __name__ == '__main__':

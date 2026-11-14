@@ -24,6 +24,13 @@
 脚点模块随服务启动，正常退出后恢复原 DataEngine.dll。若上次异常退出，关闭游戏后
 从同一目录重新启动，服务会先恢复该目录的上次记录。
 
+如果 Verify-ROE.cmd 提示 DataEngine.dll 的 SHA-256 不符，先关闭游戏和启动窗口。
+在 Start-ROE.cmd 所在目录把现有 32838 重命名为 32838-old，再从原始 roe_tai.zip
+完整解压一份新的 32838 到这里。使用新目录可以避开上一次会话遗留的脚点模块文件。
+从原始 roe_tai.zip 核对的 DataEngine.dll SHA-256 为
+8162e1d985cb3190903ca5645f40e5223d7c4fa9c7e8432eea233de14da02b37
+完成后重新运行 Verify-ROE.cmd。
+
 如果 Windows 提示「无法在此设备上加载驱动程序」，名称为 TesSafe.sys，
 随后 TP 显示 Warning(0, 404, 3)，请在出问题的电脑运行 Verify-ROE.cmd。
 PASS 表示便携包与受检客户端文件通过。CLIENT DRIVER 行列出近期匹配的 Windows
