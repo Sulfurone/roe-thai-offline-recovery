@@ -13,7 +13,7 @@ from offline_match_status import room_kill_broadcast
 def main():
     codec=NativeCodec()
     uc=codec.uc
-    for name,value in ((b'SHOOT',1),(b'MISSLE',2),(b'SHRINK',3)):
+    for name,value in ((b'SHOOT',1),(b'MISSLE',2),(b'SHRINK',3),(b'VEHICLE_HIT_STC',12)):
         label=b'E_POWER_UPDATE_REASON_'+name+b'\0'
         location=codec.base+codec.image.index(label)
         assert struct.pack('<II',location,value) in codec.image
@@ -38,9 +38,11 @@ def main():
     uc.hook_add(UC_HOOK_CODE,event_name,begin=0x401330,end=0x401330)
     uc.hook_add(UC_HOOK_CODE,dispatch,begin=0x66e7f0,end=0x66e7f0)
     shooter,victim=0x1000000000100,0x1000000001100
-    for weapon,reason,headshot in ((10201,1,False),(10301,1,True),(50001,2,False),(0,3,False)):
-        killer,killer_name=(shooter,b'RoeTest') if weapon else (0,b'')
-        message,body=room_kill_broadcast(killer,killer_name,victim,b'AI-1',weapon,22,headshot=headshot)
+    for weapon,vehicle,reason,headshot in ((10201,0,1,False),(10301,0,1,True),
+                                           (50001,0,2,False),(0,0,3,False),(0,101,12,False)):
+        killer,killer_name=(shooter,b'RoeTest') if weapon or vehicle else (0,b'')
+        message,body=room_kill_broadcast(killer,killer_name,victim,b'AI-1',weapon or vehicle,22,
+                                        headshot=headshot,vehicle_impact=bool(vehicle))
         result=codec.decode_server(message,body)
         assert result['code']==0 and result['consumed']==result['bytes'],result
         native=bytes(uc.mem_read(codec.ROOT_OBJECT+10,0x1ad))
@@ -49,7 +51,7 @@ def main():
         assert struct.unpack_from('<Q',native,0x88)[0]==0
         assert struct.unpack_from('<IQ',native,0x110)==(weapon,victim)
         assert native[0x11c:0x121]==b'AI-1\0'
-        assert struct.unpack_from('<3I5B',native,0x19c)==(22,0,reason,0,0,0,0,int(headshot))
+        assert struct.unpack_from('<3I5B',native,0x19c)==(22,vehicle,reason,0,0,0,0,int(headshot))
         assert codec.pack_type(0xdd3390,native)==(0,body)
         uc.mem_write(0,bytes(4))
         uc.mem_write(history,struct.pack('<3I',record,record,record+0x1ad))
@@ -59,7 +61,7 @@ def main():
         latest=codec.invoke(0x1138400,0,[])
         assert latest==record and bytes(uc.mem_read(latest,0x1ad))==native
         assert codec.decode_server(message,body[:-1])['code']!=0
-    print('Thai 0x0480 reader, writer, HUD event and latest-kill data agreed for bullets, frag and circle.')
+    print('Thai 0x0480 reader, writer, HUD event and latest-kill data agreed for bullets, frag, circle and vehicle impact.')
 
 
 if __name__=='__main__':

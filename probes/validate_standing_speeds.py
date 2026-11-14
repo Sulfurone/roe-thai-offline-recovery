@@ -45,11 +45,13 @@ APPLY = 0x12D6F10
 SPARSE_UPDATE = 0x516
 POSTURES = {0: 'stand', 1: 'crouch', 2: 'prone'}
 
-# What each posture must report once the standing patch is applied.
+# Each row is (forward, auxiliary, backward) for a resolved movement mode.
 EXPECTED = {
-    'stand': (560.0, 560.0, 560.0),
-    'crouch': (280.0, 280.0, 120.0),
-    'prone': (120.0, 120.0, 120.0),
+    'stand/0': (560.0, 560.0, 560.0),
+    'stand/1': (400.0, 560.0, 560.0),
+    'stand/2': (720.0, 560.0, 560.0),
+    **{f'crouch/{mode}': (280.0, 280.0, 120.0) for mode in range(3)},
+    **{f'prone/{mode}': (120.0, 120.0, 120.0) for mode in range(3)},
 }
 
 
@@ -126,20 +128,10 @@ def main() -> int:
 
     problems = []
     for key, value in after.items():
-        posture = key.split('/')[0]
-        if value != EXPECTED[posture]:
-            problems.append(
-                f'{key} reports {value}, expected {EXPECTED[posture]}')
-    # Crouch/prone legitimately differ from the stock delta -- that delta flattens
-    # every posture to 560 and this patch is what brings them back to 280/120.
-    # What matters is the patched result, checked against EXPECTED above.
-    standing = [k for k in before if k.startswith('stand')]
-    if any(before[k][2] >= before[k][0] for k in standing):
+        if value != EXPECTED[key]:
+            problems.append(f'{key} reports {value}, expected {EXPECTED[key]}')
+    if any(before[k][2] >= before[k][0] for k in before if k.startswith('stand')):
         problems.append('fixture does not exhibit the reported slow backward speed')
-    # Only standing forward speed is in scope; the stock delta flattens crouch and
-    # prone to 560 on purpose, so their forward values are expected to drop.
-    if any(before[k][0] != after[k][0] for k in standing):
-        problems.append('standing forward speed changed, which is out of scope')
 
     receipt = {
         'calculator': hex(CALCULATOR),

@@ -15,8 +15,20 @@ class WorldParcels:
         self.game = game
         self.parcels = {}
         self.opened = set()
+        self.airdrops = {}
 
     def add(self, position, loot, name):
+        entity=self.store(position,loot)
+        if entity is None:
+            return None
+        body = struct.pack('>IQI', 30201002, entity, len(name)) + name
+        body += struct.pack('>I', 1) + b'\0' + struct.pack('>I', 1) + b'\0'
+        body += struct.pack('>3iBfI', *position, 0, 0., 1)
+        body += struct.pack('>IQB5I', 0, 0, 1, 0, 0, entity, 0, 0)
+        body += bytes(4) + struct.pack('>IB', 0, 0)
+        return entity, (0x821, body)
+
+    def store(self, position, loot):
         world = self.game.ground_loot
         if world is None or world.next_entity >= 2**32:
             return None
@@ -30,17 +42,19 @@ class WorldParcels:
             slot = len(items) + 1
             items[slot] = GroundStack(entity, position, item, magazine)
         self.parcels[entity] = (position, items)
-        body = struct.pack('>IQI', 30201002, entity, len(name)) + name
-        body += struct.pack('>I', 1) + b'\0' + struct.pack('>I', 1) + b'\0'
-        body += struct.pack('>3iBfI', *position, 0, 0., 1)
-        body += struct.pack('>IQB5I', 0, 0, 1, 0, 0, entity, 0, 0)
-        body += bytes(4) + struct.pack('>IB', 0, 0)
-        return entity, (0x821, body)
+        return entity
 
-    def remove(self, entity):
+    def add_airdrop(self, uid, position, loot):
+        entity=self.store(position,loot)
+        if entity is not None:
+            self.airdrops[uid]=entity
+        return entity
+
+    def remove_airdrop(self, uid):
+        entity=self.airdrops.pop(uid)
         del self.parcels[entity]
         self.opened.discard(entity)
-        return 0x82b, struct.pack('>Q',entity)
+        return 0x654c,struct.pack('>Q',uid)
 
     def contents(self, entity):
         _, items = self.parcels[entity]
@@ -56,17 +70,16 @@ class WorldParcels:
         return 0x3b61, body
 
     def handle(self, message, body):
+        if message == 0x656f and len(body) in (8,16):
+            entity=self.airdrops.get(struct.unpack_from('>Q',body)[0])
+            if entity is None:
+                return None
+            return self.open(entity,self.game.actor_uid)
         if message == 0xbce and len(body) in (16, 24):
             entity, owner = struct.unpack_from('>QQ', body)
             if entity not in self.parcels:
                 return None
-            position, _ = self.parcels[entity]
-            feet = self.game.self_position if self.game.has_fresh_self_position() else self.game.player_position
-            if (owner != self.game.actor_uid or not self.game.actor_ready or self.game.seated
-                    or not self.game.vitals.current or math.dist(position,feet)>PICKUP_DISTANCE):
-                return []
-            self.opened.add(entity)
-            return [self.contents(entity)]
+            return self.open(entity,owner)
         if message != 0x3b63 or len(body) not in (33, 41):
             return None
         entity, slot = struct.unpack_from('>II', body)
@@ -89,6 +102,15 @@ class WorldParcels:
             return [replies[0], (0x3b64, notice), self.contents(entity)]
         finally:
             world.stacks.pop(entity,None)
+
+    def open(self, entity, owner):
+        position,_=self.parcels[entity]
+        feet=self.game.self_position if self.game.has_fresh_self_position() else self.game.player_position
+        if (owner!=self.game.actor_uid or not self.game.actor_ready or self.game.seated
+                or not self.game.vitals.current or math.dist(position,feet)>PICKUP_DISTANCE):
+            return []
+        self.opened.add(entity)
+        return [self.contents(entity)]
 
 
 class BotParcels(WorldParcels):

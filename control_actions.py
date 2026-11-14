@@ -60,6 +60,7 @@ class ControlSession:
         self.entry_side=None
         self.recent_exit=None
         self.last_exit_event=None
+        self.vehicle_impacts=None
         self.weather_id = None
         self.placement_map = None
         self.placement_random = random.Random()
@@ -242,6 +243,7 @@ class ControlSession:
         if message == 0x6541 and game.seated:
             return []
         car.player_position = game.player_position
+        was_driving = self.active_vehicle==car.vehicle_uid and car.seated and car.seat==1
         if message==0x6541 and self.client_boarding and len(body) in (12,20):
             seat=struct.unpack_from('>I',body,8)[0] or 1
             ready=(game.actor_ready and game.deployment_phase in ('ground','landed')
@@ -280,4 +282,13 @@ class ControlSession:
             game.seated, game.seat = False, 0
             game.player_position = car.player_position
             game.self_position,game.self_position_at=None,None
+        if self.vehicle_impacts is not None:
+            if message==0x6549 and was_driving and len(body) in (61,69):
+                position=struct.unpack_from('>3i',body,13)
+                velocity=struct.unpack_from('>3f',body,26)
+                if position==car.vehicle_position:
+                    replies.extend(self.vehicle_impacts.move(car.vehicle_uid,car.vehicle_config,position,
+                                                              velocity,time.monotonic()))
+            if message in (0x6541,0x6543,0x6547) and (not was_driving or not car.seated or car.seat!=1):
+                self.vehicle_impacts.reset()
         return replies

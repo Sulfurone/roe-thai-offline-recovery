@@ -69,7 +69,8 @@ for row in range(3):
     for mode in range(3):
         c.invoke(0x106fb20,0,[entity,row,mode,0,0,out,out+4,out+8])
         result=struct.unpack('<3f',c.uc.mem_read(out,12))
-        wanted=((560.,560.,120.),(280.,280.,120.),(120.,120.,120.))[row]
+        wanted=(((560.,560.,560.),(400.,560.,560.),(720.,560.,560.))[mode],
+                (280.,280.,120.),(120.,120.,120.))[row]
         if result!=wanted:
             raise ValueError(f'Pose {row}, mode {mode}: {result} != {wanted}')
         results.append(dict(posture=row,mode=mode,values=result))

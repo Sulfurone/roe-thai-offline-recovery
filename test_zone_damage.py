@@ -27,7 +27,8 @@ class ZoneDamageTests(unittest.TestCase):
         bots.streamed=True
         bots.vitals[uid].current=10
         x,y,_=game.player_position
-        schedule=SimpleNamespace(game=game,circle_at=lambda now:(x,y,150))
+        schedule=SimpleNamespace(game=game,circle_at=lambda now:(x,y,150),stage_at=lambda now:(0,),plan=ZonePlan(
+            Circle(x,y,200),(ZoneStage(Circle(x,y,150),1,1),)))
         bots.death_notice=lambda victim,killer,weapon,headshot: [
             room_kill_broadcast(killer or 0,b'',victim,b'AI-1',weapon,survivor_count(game,bots))]
         damage=ZoneDamage(schedule,bots)
@@ -58,11 +59,22 @@ class ZoneDamageTests(unittest.TestCase):
         z.tick(50);self.assertEqual(g.vitals.current,980)
     def test_closed_circle_damages_even_at_the_center(self):
         g,b,_,_=self.setup_world()
-        schedule=SimpleNamespace(game=g,circle_at=lambda now:(1000,1000,0))
+        schedule=SimpleNamespace(game=g,circle_at=lambda now:(1000,1000,0),stage_at=lambda now:(5,))
         z=ZoneDamage(schedule,b)
         self.assertEqual(z.tick(10),[])
         z.tick(11)
-        self.assertEqual((g.vitals.current,b.vitals[3].current),(990,990))
+        self.assertEqual((g.vitals.current,b.vitals[3].current),(850,850))
+
+    def test_damage_increases_in_later_rounds(self):
+        g,_,_,_=self.setup_world()
+        stage=0
+        schedule=SimpleNamespace(game=g,circle_at=lambda now:(2000,2000,100),stage_at=lambda now:(stage,),
+                                 plan=SimpleNamespace(stages=range(5)))
+        z=ZoneDamage(schedule)
+        z.tick(10)
+        for stage,expected in enumerate((10,20,40,70,100)):
+            z.tick(11+stage)
+            self.assertEqual(z.events[0]['damage'],expected)
     def test_stale_player_not_damaged_and_death_sent_once(self):
         g,b,s,z=self.setup_world();g.require_self_position_for_drop=True
         g.player_position=(2500,1000,7000);g.vitals.current=10;b.vitals[2].current=10

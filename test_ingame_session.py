@@ -364,9 +364,10 @@ class IngameSessionTests(unittest.TestCase):
                     if posture:
                         message,payload=receive()
                         self.assertEqual(message,0x516)
-                        self.assertEqual(len(payload),101)
+                        self.assertEqual(len(payload),128)
                         records=[struct.unpack_from('>BII',payload,i) for i in range(2,len(payload),9)]
-                        self.assertEqual(records,[(i,560,560) for i in (15,16)]
+                        self.assertEqual(records,[(10,400,400),(11,560,560),(12,720,720)]
+                                         +[(i,560,560) for i in (15,16)]
                                          +[(i,280,280) for i in range(17,22)]
                                          +[(i,120,120) for i in range(24,28)])
                         send(0x002a,struct.pack('>I3i',1,325850,271700,6501))

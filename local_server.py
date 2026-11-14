@@ -32,6 +32,7 @@ from offline_combat import BotCombat
 from offline_bot_ai import BotAI
 from offline_bot_parcels import BotParcels,WorldParcels
 from offline_supply_drops import SupplyDrops,supply_vehicle
+from offline_vehicles import LAND_VEHICLES
 from offline_blast import BlastCombat
 from offline_visibility import StaticVisibility
 from offline_zone_schedule import ZonePlan,ZoneSchedule
@@ -743,10 +744,12 @@ def main():
                 if ai is not None:
                     bots.death_parcel = parcels.drop
                 if control_session is not None:control_session.bot_ai=ai
+                if control_session is not None and combat is not None:
+                    from offline_vehicle_impacts import VehicleImpacts
+                    control_session.vehicle_impacts=VehicleImpacts(gameplay,bots,bot_visibility)
                 blast=BlastCombat(gameplay,bots,bot_visibility) if args.world_throwable_combat else None
                 zones=ZoneSchedule(gameplay,population_surface,match_zones) if match_zones is not None else None
-                supplies = (SupplyDrops(gameplay,zones,parcels,supply_template,world_seed,bot_visibility,
-                                        smoke_profile=bot_profile)
+                supplies = (SupplyDrops(gameplay,zones,parcels,supply_template,world_seed,bot_visibility)
                             if supply_template is not None else None)
                 if control_session is not None:
                     control_session.zones=zones
@@ -757,7 +760,8 @@ def main():
                         if weapon is None:return []
                         killer_name=native_result_name.rstrip(b'\0') if killer else b''
                         return [room_kill_broadcast(killer or 0,killer_name,uid,bots.name_for(uid).encode('ascii'),
-                                                    weapon,survivor_count(gameplay,bots),headshot=headshot)]
+                                                    weapon,survivor_count(gameplay,bots),headshot=headshot,
+                                                    vehicle_impact=weapon in LAND_VEHICLES)]
                     bots.death_notice=native_bot_death
                 if args.world_zone_damage:
                     from offline_zone_damage import ZoneDamage
