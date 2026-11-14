@@ -6,6 +6,39 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from xml.etree import ElementTree
+
+
+def check_driver_events():
+    """Report recent Code Integrity records for the client's driver."""
+    channel = 'Microsoft-Windows-CodeIntegrity/Operational'
+    query = '*[System[TimeCreated[timediff(@SystemTime) <= 86400000]]]'
+    try:
+        result = subprocess.run(
+            ['wevtutil.exe', 'qe', channel, f'/q:{query}', '/rd:true', '/c:400',
+             '/f:xml', '/e:Events', '/uni:true'],
+            capture_output=True, check=True, timeout=10)
+        events = ElementTree.fromstring(result.stdout) if result.stdout else ()
+    except (OSError, subprocess.SubprocessError, ElementTree.ParseError):
+        print('CLIENT DRIVER: Windows Code Integrity log unavailable. See the troubleshooting guide.')
+        return
+
+    found = 0
+    for event in events:
+        if not any('tessafe.sys' in str(value).lower()
+                   for node in event.iter()
+                   for value in (node.text, *node.attrib.values())):
+            continue
+        event_id = event.findtext('./{*}System/{*}EventID', '?')
+        stamp = event.find('./{*}System/{*}TimeCreated')
+        time_utc = stamp.get('SystemTime', '?') if stamp is not None else '?'
+        print(f'CLIENT DRIVER: TesSafe.sys, Code Integrity event {event_id} at {time_utc} (UTC).')
+        found += 1
+        if found == 3:
+            break
+    if not found:
+        print('CLIENT DRIVER: No recent TesSafe.sys events found in the sampled Code Integrity log.')
+    print('This check reads logs only. Client driver loading is verified when Windows starts the game.')
 
 
 def file_digest(path):
@@ -62,6 +95,7 @@ def main():
         check_installation(root, manifest, verify_all=args.check)
         if args.check:
             print('PASS: portable runtime, game build, archives, and position observer.', flush=True)
+            check_driver_events()
             return 0
         from tools.disable_console_quick_edit import main as disable_quick_edit
         disable_quick_edit()

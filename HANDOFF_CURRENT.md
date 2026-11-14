@@ -1,3 +1,9 @@
+## 2026-11-14 其他电脑启动时拦截 TesSafe.sys
+
+用户截图显示 Windows 程序兼容性助手拒绝加载 `TesSafe.sys`，并出现 TP `Warning(0, 404, 3)`。本地原版 `32838/TesSafe.sys` 带腾讯签名；受影响电脑的实际拦截原因需核对其 Code Integrity 事件。
+
+新版 `Verify-ROE.cmd` 在校验便携包后只读查询最近 24 小时的 Code Integrity 日志，报告匹配的事件编号和 UTC 时间。游戏启动仍取决于系统是否允许加载原版客户端驱动。可以通过 Windows 更新或发行方寻找适用于该泰服构建的兼容版本。见 [微软驱动加载说明](https://support.microsoft.com/en-us/windows/hardware/drivers/a-driver-can-t-load-on-this-device)。
+
 ## 2026-11-14 原生空投箱、冲刺、载具撞击和阶段毒伤
 
 - 补给空投在地面继续使用泰服配置 501，发送原生 `0x6571` 关联箱内物资，客户端通过 `0x656F` 搜索。旧版落地后生成的死亡包和借用的烟雾弹效果已撤下。泰服配置表中已定位到 `sfx_balloon_smoke_01`，专用烟效的触发仍待接通。
