@@ -12,6 +12,8 @@
 
 新版 `Verify-ROE.cmd` 在校验便携包后只读查询最近 24 小时的 Code Integrity 日志，报告匹配的事件编号和 UTC 时间。游戏启动仍取决于系统是否允许加载原版客户端驱动。可以通过 Windows 更新或发行方寻找适用于该泰服构建的兼容版本。见 [微软驱动加载说明](https://support.microsoft.com/en-us/windows/hardware/drivers/a-driver-can-t-load-on-this-device)。
 
+本机对照原始 `roe_tai.zip` 发现，`TPSDK.dll`、`TP3Helper.exe` 与 `TerSafe.dll` 均随泰服客户端提供。`TesSafe.sys` 未列在原始压缩包中，但运行后的 `32838` 已出现该文件，且字节与本机 Windows 注册的 TesSafe 驱动一致。仅移除游戏目录内的驱动文件无法卸载 Windows 里的驱动实例，也不能据此确认删掉其他 TP 文件后客户端还可启动。蓝屏电脑的失败模块和停止代码尚未提供。
+
 ## 2026-11-14 原生空投箱、冲刺、载具撞击和阶段毒伤
 
 - 补给空投在地面继续使用泰服配置 501，发送原生 `0x6571` 关联箱内物资，客户端通过 `0x656F` 搜索。旧版落地后生成的死亡包和借用的烟雾弹效果已撤下。泰服配置表中已定位到 `sfx_balloon_smoke_01`，专用烟效的触发仍待接通。
