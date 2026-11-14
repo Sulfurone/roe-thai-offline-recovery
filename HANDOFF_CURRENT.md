@@ -4,6 +4,8 @@
 
 复制了使用中的客户端时，可能带上临时脚点模块而遗漏同一次会话的恢复记录。关闭游戏和服务窗口，把便携目录内的旧 `32838` 重命名，再从原始压缩包解出完整的新 `32838`。新版校验输出文件路径、预期和实际哈希，识别当前随包脚点模块，并对残留文件提前报错。校验失败后仍继续读取目标电脑的驱动日志。
 
+用户确认从原始压缩包重新解压后，便携校验显示 `PASS`。目标电脑的日志另有三条 `TesSafe.sys` 事件 3111，记录于北京时间 2026-11-14 13:12:04–13:12:14。微软将 3111 定义为文件未满足 HVCI（内存完整性）策略。日志为历史记录，目前还没有更新一次启动的结果。见 [微软事件说明](https://learn.microsoft.com/en-us/windows/security/application-security/application-control/app-control-for-business/operations/event-id-explanations)。
+
 ## 2026-11-14 其他电脑启动时拦截 TesSafe.sys
 
 用户截图显示 Windows 程序兼容性助手拒绝加载 `TesSafe.sys`，并出现 TP `Warning(0, 404, 3)`。本地原版 `32838/TesSafe.sys` 带腾讯签名；受影响电脑的实际拦截原因需核对其 Code Integrity 事件。
