@@ -5,7 +5,7 @@ import sys
 
 from native_codec_probe import NativeCodec, ROOT
 from unicorn import UC_HOOK_CODE
-from unicorn.x86_const import UC_X86_REG_EIP, UC_X86_REG_ESP
+from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EIP, UC_X86_REG_ESP
 
 sys.path.insert(0,str(ROOT))
 from test_supply_drops import scenario
@@ -27,6 +27,30 @@ def main():
 
     codec = NativeCodec()
     factory = []
+    uc = codec.uc
+    vehicle,world = 0x10900000,0x10902000
+    uc.mem_write(0x2eedb58,struct.pack('<I',world))
+    uc.mem_write(world+0x28,struct.pack('<I',world))
+    uc.mem_write(vehicle,struct.pack('<I',0x25b46d8))  # AirdropUnit vtable
+
+    def lookup_vehicle(uc,*_):
+        stack = uc.reg_read(UC_X86_REG_ESP)
+        ret,low,high = struct.unpack('<3I',uc.mem_read(stack,12))
+        assert low+(high<<32)==uid
+        uc.reg_write(UC_X86_REG_EAX,vehicle)
+        uc.reg_write(UC_X86_REG_ESP,stack+12)
+        uc.reg_write(UC_X86_REG_EIP,ret)
+
+    def match_airdrop_type(uc,*_):
+        stack = uc.reg_read(UC_X86_REG_ESP)
+        ret,target_type = struct.unpack('<2I',uc.mem_read(stack,8))
+        assert uc.reg_read(UC_X86_REG_ECX)==target_type==0x2ee1430
+        uc.reg_write(UC_X86_REG_EAX,1)
+        uc.reg_write(UC_X86_REG_ESP,stack+8)
+        uc.reg_write(UC_X86_REG_EIP,ret)
+
+    uc.hook_add(UC_HOOK_CODE,lookup_vehicle,begin=0xf074e0,end=0xf074e0)
+    uc.hook_add(UC_HOOK_CODE,match_airdrop_type,begin=0x67b4c0,end=0x67b4c0)
 
     def capture_spawn(uc,address,size,user):
         stack = uc.reg_read(UC_X86_REG_ESP)
@@ -43,6 +67,9 @@ def main():
             dto = bytes(codec.uc.mem_read(codec.ROOT_OBJECT+10,0x1259))
             codec.uc.mem_write(codec.OBJECT,struct.pack('<I',message)+dto+bytes(64))
             codec.invoke(0x1289610,0,[codec.OBJECT])
+        if message==0x6571:
+            codec.invoke(0x1288f80,0,[codec.ROOT_OBJECT+6])
+            assert codec.read32(vehicle+0xa28)==entity
     if [row['config'] for row in factory]!=[4,501,501] or any(row['hp']!=100 for row in factory):
         raise ValueError(f'Unexpected original spawn arguments: {factory}')
     if factory[-1]['state']!=1 or factory[-1]['position']!=position:

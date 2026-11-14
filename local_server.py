@@ -1014,7 +1014,8 @@ def main():
                             send(connection,0,body=encrypt(response,key))
                             posture_delta_sent=True
                             emit('posture_speed_delta_sent',crouch_cm_per_second=CROUCH_CM_PER_SECOND,
-                                 prone_cm_per_second=PRONE_CM_PER_SECOND,records=9,
+                                 prone_cm_per_second=PRONE_CM_PER_SECOND,
+                                 records=struct.unpack_from('>H',payload)[0],
                                  scope='Offline posture calibration; not recovered server defaults')
                         environment_schedules=tuple(schedule for schedule in (environment,weather)
                                                     if schedule is not None
