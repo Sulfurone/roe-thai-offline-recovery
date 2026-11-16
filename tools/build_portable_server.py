@@ -117,6 +117,9 @@ def build(root, repository, python, client, assets):
     copy_python(python, root / 'runtime/python', assets)
     shutil.copy2(RECOVERY / 'tools/portable_launcher.py', root / 'portable_launcher.py')
     shutil.copy2(RECOVERY / 'tools/portable_readme.txt', root / '使用说明.txt')
+    disclaimer = subprocess.check_output(
+        ['git', '-C', str(repository), 'show', f'{revision}:DISCLAIMER.zh-CN.txt'])
+    (root / 'DISCLAIMER.zh-CN.txt').write_bytes(disclaimer)
     write_entry(root / 'Start-ROE.cmd', '')
     write_entry(root / 'Verify-ROE.cmd', ' --check')
     manifest = dict(source_commit=revision, service_args=arguments,
