@@ -68,8 +68,21 @@ def check_client_engine(engine, original_digest, observer):
             f'{clean_install}')
 
 
+def find_client(root):
+    adjacent = root.parent / '32838'
+    candidates = (adjacent, root / '32838', root.parent / 'ROE-Thai-Offline' / '32838')
+    return next((path for path in candidates if (path / 'Europa_Client.exe').is_file()), adjacent)
+
+
+def service_arguments(arguments, game):
+    arguments = list(arguments)
+    if '--world-collision-archives' in arguments:
+        arguments[arguments.index('--world-collision-archives') + 1] = str(game / 'SFC')
+    return [*arguments, '--game-client-dir', str(game)]
+
+
 def check_installation(root, manifest, *, verify_all):
-    game = root / '32838'
+    game = find_client(root)
     recovery = root / 'recovery'
     sys.path.insert(0, str(recovery))
     from self_position import (ORIGINAL_SHA, PositionInstallation, game_stopped,
@@ -90,7 +103,7 @@ def check_installation(root, manifest, *, verify_all):
 
     executable, engine = game / 'Europa_Client.exe', game / 'DataEngine.dll'
     if not executable.is_file() or not engine.is_file() or not (game / 'SFC').is_dir():
-        raise ValueError('Put the complete Thai 0.2.15.5 client in the adjacent 32838 folder.')
+        raise ValueError(f'Put the complete Thai 0.2.15.5 client here: {game}')
     if file_digest(executable) != manifest['client_sha256']:
         raise ValueError('Wrong Europa_Client.exe. Use the original Thai 0.2.15.5 client.')
     if not game_stopped():
@@ -104,6 +117,7 @@ def check_installation(root, manifest, *, verify_all):
         missing = [name for name in manifest['client_archives'] if not (game / 'SFC' / name).is_file()]
         if missing:
             raise ValueError(f'Missing {len(missing)} Thai client archives, including {missing[0]}')
+    return game
 
 
 def main():
@@ -113,7 +127,7 @@ def main():
     root = Path(__file__).resolve().parent
     try:
         manifest = json.loads((root / 'portable-manifest.json').read_text(encoding='utf-8'))
-        check_installation(root, manifest, verify_all=args.check)
+        game = check_installation(root, manifest, verify_all=args.check)
         if args.check:
             print('PASS: portable runtime, game build, archives, and position observer.', flush=True)
             return 0
@@ -122,7 +136,8 @@ def main():
         print('Loading the Thai map and collisions. The game will open after preload.', flush=True)
         env = {key: value for key, value in os.environ.items() if not key.upper().startswith('PYTHON')}
         env.update(PYTHONNOUSERSITE='1', PYTHONUTF8='1', PYTHONUNBUFFERED='1')
-        return subprocess.call([sys.executable, '-B', 'local_server.py', *manifest['service_args']],
+        return subprocess.call([sys.executable, '-B', 'local_server.py',
+                                *service_arguments(manifest['service_args'], game)],
                                cwd=root / 'recovery', env=env)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         print(f'ROE: {error}', file=sys.stderr, flush=True)

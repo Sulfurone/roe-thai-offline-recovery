@@ -40,11 +40,11 @@ internal static class PortableServer
             if (installOnly)
                 return 0;
 
-            if (!File.Exists(Path.Combine(installation, "32838", "Europa_Client.exe")))
+            if (!HasClient(parent) && !HasClient(installation) && !HasClient(Path.Combine(parent, Folder)))
                 MessageBox.Show(
-                    "请把你自己的原版泰服 32838 文件夹放在以下目录，再从服务端界面校验文件。\n\n"
-                    + "Place your original Thai 32838 client folder inside this directory, then verify files in the app.\n\n"
-                    + installation, Title, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    "请把原版泰服 32838 文件夹放在 EXE 旁边，再从服务端界面校验文件。\n\n"
+                    + "Place your original Thai 32838 client folder beside this EXE, then verify files in the app.\n\n"
+                    + parent, Title, MessageBoxButtons.OK, MessageBoxIcon.Information);
 
             var start = new ProcessStartInfo
             {
@@ -63,6 +63,11 @@ internal static class PortableServer
                                 Title, MessageBoxButtons.OK, MessageBoxIcon.Error);
             return 1;
         }
+    }
+
+    private static bool HasClient(string folder)
+    {
+        return File.Exists(Path.Combine(folder, "32838", "Europa_Client.exe"));
     }
 
     private static string Install(string parent, ZipArchive archive)

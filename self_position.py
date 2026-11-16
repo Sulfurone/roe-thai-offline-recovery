@@ -202,12 +202,74 @@ def recover_previous(game,parent):
             if not observer.restore():raise ValueError('Close the old game before restoring its observer')
 
 
+def client_directory():
+    """Locate the owned Thai client regardless of how the tree was laid out.
+
+    The game has lived at `<root>/32838` next to `recovery/`, in the original
+    working tree, and inside the unpacked portable package. Rather than hardcode
+    one shape, check each ancestor's `32838` for a real DataEngine DLL, then the
+    portable package directory beside the tree. A stale empty directory can
+    never shadow a real install because the archive must exist.
+    """
+    seen=set()
+    for base in (ROOT,ROOT.parent,ROOT.parent.parent):
+        candidate=base/'32838'
+        if candidate in seen:continue
+        seen.add(candidate)
+        if (candidate/'DataEngine.dll').is_file():
+            return candidate
+    for base in (ROOT.parent,ROOT.parent.parent):
+        for package in sorted(base.glob('*')) if base.is_dir() else ():
+            candidate=package/'32838'
+            if candidate in seen:continue
+            seen.add(candidate)
+            if (candidate/'DataEngine.dll').is_file():
+                return candidate
+    return ROOT.parent/'32838'
+
+
+def verify_prebuilt(path):
+    """Accept a shipped observer DLL without a native toolchain.
+
+    Once the portable EXE exists the observer ships inside it, so rebuilding the
+    DLL, its self-test executable and the temporary zig compiler is redundant on
+    any machine that only needs to run the server. The safety properties still
+    have to hold, so this checks the recorded build receipt (format, source
+    digests, accessor result) and re-verifies the export forwarding against the
+    original DataEngine DLL. It returns None when no usable prebuilt build
+    exists, letting the caller fall back to a real compile.
+    """
+    path=Path(path)
+    manifest=path.with_suffix('.build.json')
+    if not path.is_file() or not manifest.is_file():
+        return None
+    try:
+        record=json.loads(manifest.read_text(encoding='utf8'))
+    except (OSError,ValueError):
+        return None
+    if (record.get('format')!='roe-self-position-build-v1'
+            or record.get('accessor_tests_passed') is not True
+            or record.get('dll_sha256')!=sha(path.read_bytes())
+            or record.get('sources')!=source_digests()):
+        return None
+    original=client_directory()/'DataEngine.dll'
+    if not original.is_file():
+        return None
+    if sha(original.read_bytes())!=ORIGINAL_SHA:
+        raise ValueError('Original DataEngine DLL hash differs; preserve it')
+    verify_proxy(original.read_bytes(),path.read_bytes())
+    verify_built(path)
+    return record
+
+
 if __name__=='__main__':
     import argparse
     parser=argparse.ArgumentParser(description=__doc__)
     sub=parser.add_subparsers(dest='action',required=True)
     build=sub.add_parser('build')
     build.add_argument('--zig',type=Path,default=ROOT/'build-tools/ziglang/zig.exe')
+    build.add_argument('--force-rebuild',action='store_true',
+        help='Ignore the shipped observer DLL and compile the three native artifacts again')
     restore_parser=sub.add_parser('restore')
     restore_parser.add_argument('receipt',type=Path)
     args=parser.parse_args()
@@ -216,6 +278,14 @@ if __name__=='__main__':
         import tempfile
         destination=ROOT/'private/runtime-diag-1/DataEngine.position.dll'
         destination.parent.mkdir(parents=True,exist_ok=True)
+        # The portable EXE already carries a verified observer; only compile the
+        # native artifacts when there is no usable build or a rebuild is asked for.
+        if not args.force_rebuild:
+            prebuilt=verify_prebuilt(destination)
+            if prebuilt is not None:
+                print('Position observer already built and verified; skipping compiler and self-test')
+                print(f'DLL {prebuilt["dll_sha256"][:16]} kept at {destination}')
+                sys.exit(0)
         # Keep native compiler work outside inherited workspace cache ACLs.
         build_root=Path(tempfile.gettempdir())/'roe-position-compiler'
         build_root.mkdir(exist_ok=True)
@@ -230,7 +300,7 @@ if __name__=='__main__':
             '-isystem',str(args.zig.resolve().parent/'lib/libc/include/any-windows-any'),
             str(ROOT/'probes/position_observer.c'),str(ROOT/'probes/dataengine_diagnostic.def'),
             '-o',str(built),'-lkernel32'],cwd=build_root,env=environment,check=True)
-        verify_proxy((ROOT.parent/'32838/DataEngine.dll').read_bytes(),built.read_bytes())
+        verify_proxy((client_directory()/'DataEngine.dll').read_bytes(),built.read_bytes())
         selftest=build_root/'position-observer-selftest.exe'
         subprocess.run([str(compiler),'cc','-target','x86-windows-gnu','-Os',
             '-nostdlib','-fno-stack-protector','-fno-builtin','-Wl,--entry,TestEntry@0',

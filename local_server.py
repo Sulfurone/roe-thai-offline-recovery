@@ -34,6 +34,7 @@ from offline_bot_parcels import BotParcels,WorldParcels
 from offline_supply_drops import SupplyDrops,supply_vehicle
 from offline_vehicles import LAND_VEHICLES
 from offline_blast import BlastCombat
+from offline_death_loot import DeathLoot
 from offline_visibility import StaticVisibility
 from offline_zone_schedule import ZonePlan,ZoneSchedule
 from offline_match_status import SurvivorStatus,room_kill_broadcast,survivor_count
@@ -152,6 +153,8 @@ def main():
                         help='Send the original Thai outcome messages with the local match result')
     parser.add_argument('--world-bot-ai',action='store_true',
                         help='Experimental local perception/chase/fire; requires explicit combat and static bounds')
+    parser.add_argument('--world-death-loot',action='store_true',
+                        help='Opt-in weapon/reserve bundle at a dead bot position; 0x821 entities, not the original parcel')
     parser.add_argument('--world-bot-mode',choices=('target','patrol','combat'),default='combat',
                         help='Initial local bot mode; the native overlay can change it in-session')
     parser.add_argument('--world-throwable-combat',action='store_true',
@@ -201,6 +204,8 @@ def main():
                         help='Original RigidTerrain.repx for near-ground glider release')
     parser.add_argument('--gameplay-aircraft-route-end',type=int,nargs=3,metavar=('X','Y','Z'),
                         help='Optional finite aircraft endpoint in original world centimetres')
+    parser.add_argument('--game-client-dir', type=Path,
+                        help='Directory containing the original Thai client for this local session')
     parser.add_argument('--client-arg', action='append', default=[],
                         help='Extra argument passed to the launched client (repeatable)')
     parser.add_argument('--probe-auth-response', action='store_true',
@@ -575,6 +580,7 @@ def main():
     elif args.create_zeros:
         create_body = bytes(args.create_zeros)
     root = Path(__file__).resolve().parent.parent
+    game_client = args.game_client_dir.resolve() if args.game_client_dir is not None else root / '32838'
     stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     folder = root / 'recovery' / 'logs' / ('handshake-' + stamp)
     folder.mkdir(parents=True)
@@ -610,8 +616,8 @@ def main():
              key_status='Unverified test session key')
         observer=None
         if args.self_position_observer:
-            recover_previous(root/'32838',root/'recovery/private/self-position')
-            observer=resources.enter_context(PositionInstallation(root/'32838',
+            recover_previous(game_client,root/'recovery/private/self-position')
+            observer=resources.enter_context(PositionInstallation(game_client,
                 root/'recovery/private/self-position'/('session-'+stamp)))
             observer.feed = BufferedPositionFeed(observer.feed)
             resources.callback(observer.feed.close)
@@ -627,7 +633,7 @@ def main():
             emit('ingame_overlay_started', directory=str(mailbox.directory), hotkey='F6',
                  scope='Separate Windows overlay attached to the game window; no engine injection')
         if args.ingame_control:
-            resources.enter_context(IngameInstallation(root / '32838', mailbox))
+            resources.enter_context(IngameInstallation(game_client, mailbox))
             emit('ingame_menu_prepared', directory=str(mailbox.directory),
                  fallback_command='/lua assert(loadstring(assert(io.open("ROE_OfflineMenu.lua")):read("*a")))()',
                  scope='Loader candidate prepared; native loading/visibility require live evidence')
@@ -637,14 +643,14 @@ def main():
             if args.control_open:
                 webbrowser.open(panel.url)
         if args.launch:
-            executable = str(root / '32838' / 'Europa_Client.exe')
+            executable = str(game_client / 'Europa_Client.exe')
             arguments = ['-garena', '-uid=1', '-language=en',
                          f'-server=127.0.0.1:{args.port}']
             arguments.extend(args.client_arg)
             if args.loose_scripts:
                 arguments.append('-useallfiles')
             os.startfile(executable, arguments=subprocess.list2cmdline(arguments),
-                         cwd=str(root / '32838'))
+                         cwd=str(game_client))
             emit('shell_launch_requested', arguments=arguments)
         if mailbox is not None:
             mailbox = BufferedMailbox(mailbox, control)

@@ -2,6 +2,16 @@
 
 `ROE-Thai-Offline-Server-win64.exe` 内嵌经校验的 GUI r5 便携包，包含本地服务端、双语界面与 Python/Tk 运行环境。双击后在同目录解包并打开服务端界面。原版泰服客户端单独放入程序提示的安装目录下，目录名为 `32838`。启动器会复用同一版本的完好安装，遇到不匹配的旧安装时使用带版本摘要的独立目录。EXE 当前未做 Authenticode 签名。
 
+### 有 EXE 后不再重复编译三个原生产物
+
+`self_position.py build` 原会调用 zig 生成三样东西：`DataEngine.position.dll`、`position-observer-selftest.exe`，以及临时目录里的 zig 编译器副本，随后还要跑一次自检 exe。便携包里这些早已构建完毕并随包分发，最终用户机器上没有工具链也没有必要重编。
+
+现在 `build` 先调用新增的 `verify_prebuilt()`：校验 `.build.json` 的格式、源文件摘要、访问器自检结果、DLL 哈希，并用原 `DataEngine.dll` 复核导出转发。全部成立就打印一行提示后直接退出，不碰编译器；任一项不成立才回退到真正的编译。需要强制重编时用 `--force-rebuild`。
+
+同时修正了客户端目录解析。原来硬编码 `ROOT.parent/'32838'`，在便携包布局下指向空目录，导致校验必然失败、被迫走编译分支。新增 `client_directory()` 按 `recovery/32838`、工作区同级 `32838`、以及同级的便携包目录依次探测，并且要求 `DataEngine.dll` 真实存在，空目录无法遮蔽有效安装。
+
+服务端运行路径本身从不编译，`portable_launcher.py` 的 `--check` 只调用 `verify_built()` 校验收据，因此本改动不改变启动与校验语义。本地 407 项、公开 7 项 `test_self_position` 通过。
+
 构建命令为 `python tools/build_portable_exe.py <GUI便携包.zip> <输出.exe>`。构建器调用本机 .NET Framework C# 编译器，生成 Windows x64 GUI 程序，并把原 ZIP 作为资源嵌入。它不打包客户端、Windows 驱动或个人存档。运行端可加 `--install-only` 只解包，便于自动验包。
 
 ## 2026-11-14 迁移后 DataEngine.dll 校验失败
@@ -150,6 +160,14 @@
 ## 2026-11-12 机器人平移复测
 
 用户确认上一版机器人仍平移。新增可选只读运动采样，实机确认 `0x25` 到达远程角色队列，前进动画速度起初约220厘米/秒，随后频繁归零。巡逻改为固定路点，避免机器人反复追上慢速目标后停步。移动关键帧加入50毫秒的帧内时间，供原生世界 tick 时长为零时使用。20秒合成巡逻及原生模型参数检查通过，修订后实机跑步画面仍待确认。诊断细节见 [机器人](BOT_AI.md)。
+
+## 2026-11-11 衣服进图不显示：定位到角色类型字节，self 型 world body 候选待实机
+
+用户报告大厅衣柜穿好的衣服进图后消失。本轮用客户端自身构建器与解码器证实：注入 world body 内嵌角色记录与"在线有衣服"构建记录**仅差记录第 6 字节**（在线/地面基线 `world-native-default.bin`=00；日常/跳伞 `typed-gameplay/world.bin`=01）。该字节是 self/peer 角色类型位：01 使本机角色走 peer 外观消费者（只读 +0x8C 选择子→默认裸模），00 走本机消费者（读 create 请求 +0x5C8 服装表→装配衣服）。两份 body 除该字节外逐字节相同；记录本身均不含服装 id（构建器丢弃服装表，只用于网络记录），故"重写选择子/往记录塞服装 id"路线均不成立。
+
+最小修复候选：`private/typed-gameplay/world-self.bin`（= 地面基线 self 型 body，rec6=00，sha 88370a56…），**仅**原生大厅入口 `start_native_lobby_recovery.cmd` 改指它；`world.bin`、桌面 `start_ingame_control.cmd`、跳伞 `start_offline_parachute.cmd` 一律未动。`probes/prepare_world_self.py` 可复现生成与校验。
+
+**未验收**：只证明字节差异与类型语义，未证明画面。需用户经原生大厅进图确认衣服是否显示；若仍不显示，则自身装配还依赖 create 请求服装表是否携带衣柜选择，下一步查离线 create 请求 +0x5C8。不将本候选记为已修复。
 
 ## 2026-11-10 附近物资优先发送，机器人轨迹使用原生行走输入
 

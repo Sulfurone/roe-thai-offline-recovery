@@ -71,6 +71,9 @@ class BotRoster:
         self.external_motion=False
         self.motion_tick=None
         self.death_parcel = None
+        # Optional callable(uid) -> [(message, body)] supplied by an opt-in
+        # death-loot provider; None keeps the passive roster unchanged.
+        self.death_loot=None
         self.death_notice = None
         self.zones = None
         self.encounter_at = None
@@ -200,6 +203,9 @@ class BotRoster:
         hp=self.vitals[uid]
         return [hp.packet(uid)]+([death_packet(uid)] if not hp.current else [])
 
+    def loot_packets(self,uid):
+        return [] if self.death_loot is None else list(self.death_loot(uid))
+
     def damage(self,uid,amount,*,killer=None,weapon=None,headshot=False):
         hp=self.vitals.get(uid)
         if hp is None or not hp.current:return []
@@ -212,7 +218,7 @@ class BotRoster:
         if not hp.current:
             if self.streamed:self.actors[uid]['retire_at']=time.monotonic()+self.CORPSE_SECONDS
             if self.death_parcel is not None:replies.extend(self.death_parcel(uid))
-        return replies+notices
+        return replies+(self.loot_packets(uid) if not hp.current else [])+notices
 
     def spawn(self, population, position, rng):
         if self.streamed:
