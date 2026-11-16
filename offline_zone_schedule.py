@@ -99,6 +99,7 @@ class ZonePlan:
 class ZoneSchedule:
     ARM_DELAY=3.
     PERIOD=1.
+    MIN_MAP_RADIUS=2000  # centimetres, UI only
 
     def __init__(self,game,terrain,plan):
         if game is None or not callable(getattr(terrain,'height_at',None)) or type(plan) is not ZonePlan:
@@ -139,7 +140,8 @@ class ZoneSchedule:
     def countdown(self,now):
         if self.started is None:return None
         index,_,_,phase,elapsed,total=self.stage_at(now)
-        if index==len(self.plan.stages):return None
+        if index==len(self.plan.stages):
+            return (3,0) if self.plan.stages[-1].target.radius==0 else None
         return phase,math.ceil(total-elapsed)
 
     def migration_target(self,now):
@@ -163,4 +165,7 @@ class ZoneSchedule:
         index,current,target,phase,offset,total=self.stage_at(now)
         self.finished=index==len(self.plan.stages)
         self.last_event=dict(stage=index,phase=phase,elapsed=offset,total=total,finished=self.finished)
+        if self.plan.stages[-1].target.radius==0 and target.radius==0:
+            current=Circle(current.x,current.y,max(current.radius,self.MIN_MAP_RADIUS))
+            target=Circle(target.x,target.y,self.MIN_MAP_RADIUS)
         return [zone_state(phase,offset,total,current,target)]

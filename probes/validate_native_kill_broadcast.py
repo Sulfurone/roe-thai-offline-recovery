@@ -7,13 +7,13 @@ from unicorn import UC_HOOK_CODE
 from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EIP, UC_X86_REG_ESP
 
 sys.path.insert(0,str(ROOT))
-from offline_match_status import room_kill_broadcast
+from offline_match_status import actor_kill_count,room_kill_broadcast
 
 
 def main():
     codec=NativeCodec()
     uc=codec.uc
-    for name,value in ((b'SHOOT',1),(b'MISSLE',2),(b'SHRINK',3),(b'VEHICLE_HIT_STC',12)):
+    for name,value in ((b'SHOOT',1),(b'MISSLE',2),(b'SHRINK',3),(b'VEHICLE',4)):
         label=b'E_POWER_UPDATE_REASON_'+name+b'\0'
         location=codec.base+codec.image.index(label)
         assert struct.pack('<II',location,value) in codec.image
@@ -39,7 +39,7 @@ def main():
     uc.hook_add(UC_HOOK_CODE,dispatch,begin=0x66e7f0,end=0x66e7f0)
     shooter,victim=0x1000000000100,0x1000000001100
     for weapon,vehicle,reason,headshot in ((10201,0,1,False),(10301,0,1,True),
-                                           (50001,0,2,False),(0,0,3,False),(0,101,12,False)):
+                                           (50001,0,2,False),(0,0,3,False),(0,101,4,False)):
         killer,killer_name=(shooter,b'RoeTest') if weapon or vehicle else (0,b'')
         message,body=room_kill_broadcast(killer,killer_name,victim,b'AI-1',weapon or vehicle,22,
                                         headshot=headshot,vehicle_impact=bool(vehicle))
@@ -62,6 +62,33 @@ def main():
         assert latest==record and bytes(uc.mem_read(latest,0x1ad))==native
         assert codec.decode_server(message,body[:-1])['code']!=0
     print('Thai 0x0480 reader, writer, HUD event and latest-kill data agreed for bullets, frag, circle and vehicle impact.')
+    updates=[]
+
+    def return_from_call(uc,cleanup=0):
+        stack=uc.reg_read(UC_X86_REG_ESP)
+        uc.reg_write(UC_X86_REG_EAX,uc.reg_read(UC_X86_REG_ECX))
+        uc.reg_write(UC_X86_REG_EIP,codec.read32(stack))
+        uc.reg_write(UC_X86_REG_ESP,stack+4+cleanup)
+
+    def kill_update(uc,*_):
+        stack=uc.reg_read(UC_X86_REG_ESP)
+        dto=codec.read32(stack+8)
+        updates.append(struct.unpack('<IQ',uc.mem_read(dto,12)))
+        return_from_call(uc)
+
+    for address,hook in ((0x128dd70,kill_update),(0x409190,lambda uc,*_:return_from_call(uc,4)),
+                         (0x128d770,lambda uc,*_:return_from_call(uc,12))):
+        uc.hook_add(UC_HOOK_CODE,hook,begin=address,end=address)
+    for kills in (1,2,63):
+        message,body=actor_kill_count(shooter,kills)
+        result=codec.decode_server(message,body)
+        assert result['code']==0 and result['consumed']==result['bytes'],result
+        events.clear()
+        codec.invoke(0x128dfa0,0,[codec.ROOT_OBJECT+6])
+        assert updates[-1]==(kills,shooter)
+        assert b'EVENT_SET_KILL_NUMBER' in events
+        assert codec.read32(0x2ef4700)==kills
+    print('Thai 0x047e decoder and kill counter dispatch agreed on the count and actor.')
 
 
 if __name__=='__main__':

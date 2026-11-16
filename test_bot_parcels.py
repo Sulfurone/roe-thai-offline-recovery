@@ -6,6 +6,7 @@ from offline_bot_ai import BotAI
 from offline_bot_parcels import BotParcels
 from offline_bots import BotRoster,POSITION_MARKER
 from offline_items import SPAWNABLE_EXTRA_ITEMS
+from offline_inventory import Item
 from offline_vitals import Vitals
 from offline_weapons import WEAPONS,is_weapon
 from test_control_panel import ready_game
@@ -43,11 +44,17 @@ class ParcelTests(unittest.TestCase):
         self.assertEqual(parcels.handle(0xbce,request),[])
         game.player_position = position
         self.assertEqual(parcels.handle(0xbce,request),[parcels.contents(entity)])
+        previous_helmet=Item(20,200101,game.inventory.next_uid,1,durability=230)
+        game.inventory.next_uid+=1
+        game.inventory.items[1,10]=previous_helmet
         for slot,stack in items.items():
             pickup = struct.pack('>IIQBHB3iB',entity,slot,0,0,0,1,*position,0)
             result = parcels.handle(0x3b63,pickup)
-            self.assertEqual([m for m,b in result],[0x3e82,0x3b64,0x3b61])
-            self.assertEqual(struct.unpack_from('>II',result[1][1]),(entity,slot))
+            replacement=stack.item.kind==20 and SPAWNABLE_EXTRA_ITEMS[stack.item.template].slot==10
+            self.assertEqual([m for m,b in result],[0x3e82]+([0x821] if replacement else [])+[0x3b64,0x3b61])
+            self.assertEqual(struct.unpack_from('>II',result[-2][1]),(entity,slot))
+            if replacement:
+                self.assertIn(previous_helmet,[old.item for old in game.ground_loot.stacks.values()])
             self.assertIn(stack.item,game.inventory.items.values())
             before = dict(game.inventory.items)
             parcels.handle(0x3b63,pickup)

@@ -62,6 +62,9 @@ class IngameOverlayTests(unittest.TestCase):
         overlay.client.state=lambda:{'ready':'1','zone_countdown':'2,65'}
         overlay.tick()
         overlay.show_match_hud.assert_any_call('circle','缩圈结束  01:05','158x30+1838+842')
+        overlay.client.state=lambda:{'ready':'1','zone_countdown':'3,0'}
+        overlay.tick()
+        overlay.show_match_hud.assert_any_call('circle','安全区已闭合','158x30+1838+842')
         overlay.root.focus_force.assert_not_called()
         self.assertFalse(overlay.expanded)
         overlay.win.active.return_value=False

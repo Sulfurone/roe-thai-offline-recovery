@@ -183,6 +183,9 @@ class OfflineInventory:
             return [self.reply(1,1)]
         if source==destination:
             return [self.reply(1)]
+        if (item.kind==20 and destination[0]==2
+                or target is not None and target.kind==20 and source[0]==2):
+            return [self.reply(1,1)]
         updated=dict(self.items)
         changed={source,destination}
         if target is None:

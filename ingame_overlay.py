@@ -429,7 +429,9 @@ class Overlay:
         x,y,width,height=bounds
         phase,_,remaining=state.get('zone_countdown','').partition(',')
         timer=''
-        if phase in ('0','2') and remaining.isdecimal():
+        if phase=='3':
+            timer='安全区已闭合'
+        elif phase in ('0','2') and remaining.isdecimal():
             minutes,seconds=divmod(int(remaining),60)
             timer=f'{"开始缩圈" if phase=="0" else "缩圈结束"}  {minutes:02d}:{seconds:02d}'
         timer_width=min(158,width)

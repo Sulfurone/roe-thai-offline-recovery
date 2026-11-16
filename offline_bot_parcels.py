@@ -99,7 +99,8 @@ class WorldParcels:
                 return [self.contents(entity)]
             del items[slot]
             notice = struct.pack('>II', entity, slot) + replies[-1][1][8:]
-            return [replies[0], (0x3b64, notice), self.contents(entity)]
+            # A replaced helmet, vest or backpack is a new ground entity.
+            return [replies[0], *replies[2:-1], (0x3b64, notice), self.contents(entity)]
         finally:
             world.stacks.pop(entity,None)
 

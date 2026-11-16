@@ -46,7 +46,11 @@ class ArmourTests(unittest.TestCase):
 
     def test_condition_survives_transfer_ground_and_world_restore_without_repair(self):
         iv=OfflineInventory();item=put(iv,201003,12,7)
-        iv.transfer((1,12),(2,2),1)
+        self.assertEqual(iv.transfer((1,12),(2,2),1),[iv.reply(1,1)])
+        self.assertEqual(iv.items[1,12],item)
+        iv.items[2,2]=iv.items.pop((1,12))  # Existing saves may contain a stowed vest.
+        iv.weapon_magazines[iv.items[1,1].uid]=30
+        iv,_,_,_=restore(snapshot(iv,OfflineGroundLoot(),30,1))
         self.assertEqual(iv.items[2,2].durability,7)
         iv.transfer((2,2),(1,12),1)
         self.assertEqual(iv.items[1,12],item)

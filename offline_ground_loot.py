@@ -139,7 +139,10 @@ class OfflineGroundLoot:
                 'entity':entity,'actor_distance_cm':round(actor_distance) if math.isfinite(actor_distance) else None,
                 'camera_distance_cm':round(camera_distance) if math.isfinite(camera_distance) else None}
             return self.error(entity)
-        if automatic:
+        wearable=stack.item.kind==20 and is_extra(stack.item)
+        if wearable:
+            key=(1,EXTRA_ITEMS[stack.item.template].slot)
+        elif automatic:
             equip=(WEAPONS[stack.item.template].slots if is_weapon(stack.item) else
                    (EXTRA_ITEMS[stack.item.template].slot,) if is_extra(stack.item) and EXTRA_ITEMS[stack.item.template].slot else ())
             key=next(((1,i) for i in equip if (1,i) not in inventory.items),None)
@@ -169,16 +172,22 @@ class OfflineGroundLoot:
                 return self.error(entity)
         else:
             changed=[key]
-        if not ammo_pickup and target is not None and (stack_limit(stack.item)<=1 or target.kind!=stack.item.kind or target.template!=stack.item.template
+        if (wearable and target is not None
+                and (self.next_entity>=2**32 or len(self.stacks)>MAX_GROUND_STACKS)):
+            self.last_rejection={'reason':'replacement_entity_limit','entity':entity}
+            return self.error(entity)
+        if not wearable and not ammo_pickup and target is not None and (stack_limit(stack.item)<=1 or target.kind!=stack.item.kind or target.template!=stack.item.template
                                    or target.count+stack.item.count>stack_limit(stack.item)):
             self.last_rejection={'reason':'occupied_or_full','entity':entity}
             return self.error(entity)
         if not ammo_pickup:
-            inventory.items[key]=(replace(target,count=target.count+stack.item.count) if target else stack.item)
+            inventory.items[key]=(replace(target,count=target.count+stack.item.count)
+                                  if target and not wearable else stack.item)
         if is_weapon(stack.item):
             inventory.weapon_magazines[stack.item.uid]=stack.magazine
         inventory.next_uid=max(inventory.next_uid,stack.item.uid+1)
         del self.stacks[entity]
+        replacement=[self.add(target,stack.position).spawn()] if wearable and target is not None else []
         if remember:
             if len(self.recent_pickups)>=MAX_GROUND_STACKS:
                 del self.recent_pickups[next(iter(self.recent_pickups))]
@@ -188,7 +197,7 @@ class OfflineGroundLoot:
         notice=struct.pack('>IIBII',entity,slot,stack.item.kind if is_weapon(stack.item) else 3,stack.item.template,stack.item.count)
         if is_weapon(stack.item):
             notice+=bytes(4)  # Original kind 1/2 union has three DWORDs.
-        return [inventory.delta(changed),(0x82b,struct.pack('>Q',entity)),(0x3b64,notice)]
+        return [inventory.delta(changed),(0x82b,struct.pack('>Q',entity)),*replacement,(0x3b64,notice)]
 
     def drop(self,body,inventory,actor_uid,player_position,can_interact,magazine=0):
         if len(body) not in (15,23):

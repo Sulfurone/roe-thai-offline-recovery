@@ -33,7 +33,7 @@ class VehicleImpactTests(unittest.TestCase):
         hits=move(350,11.2)
         self.assertEqual(bots.vitals[victim].current,0)
         self.assertEqual([mid for mid,_ in hits],[0x1069,0x533,0x480])
-        self.assertEqual(struct.unpack_from('>3I',hits[-1][1],len(hits[-1][1])-17),(1,101,12))
+        self.assertEqual(struct.unpack_from('>3I',hits[-1][1],len(hits[-1][1])-17),(1,101,4))
         self.assertEqual(move(500,11.4),[])
 
     def test_stationary_teleport_upper_floor_and_wall_do_not_hit(self):

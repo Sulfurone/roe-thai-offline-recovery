@@ -17,8 +17,8 @@ def room_kill_broadcast(killer_uid, killer_name, victim_uid, victim_name, weapon
             raise ValueError('Invalid kill broadcast participant')
         return struct.pack('>QI',uid,len(name)+1)+name+b'\0'
 
-    # Original E_POWER_UPDATE_REASON values: SHOOT=1, MISSLE=2, SHRINK=3, VEHICLE_HIT_STC=12.
-    reason=12 if vehicle_impact else 3 if not weapon else 2 if weapon==50001 else 1
+    # The native kill feed attributes reason 4 (VEHICLE) to the driver.
+    reason=4 if vehicle_impact else 3 if not weapon else 2 if weapon==50001 else 1
     vehicle=weapon if vehicle_impact else 0
     if vehicle_impact:
         weapon=0
@@ -26,6 +26,12 @@ def room_kill_broadcast(killer_uid, killer_name, victim_uid, victim_name, weapon
     body=participant(killer_uid,killer_name)+participant(0,b'')+struct.pack('>I',weapon)
     body+=participant(victim_uid,victim_name)+struct.pack('>3I5B',alive,vehicle,reason,0,0,0,0,int(headshot))
     return 0x0480,body
+
+
+def actor_kill_count(actor_uid,count):
+    if not 0<actor_uid<2**64 or not 0<=count<=63:
+        raise ValueError('Invalid local actor or kill count')
+    return 0x047e,struct.pack('>IQ',count,actor_uid)
 
 
 def survivor_number(count):

@@ -58,7 +58,12 @@ class ZoneScheduleTests(unittest.TestCase):
         self.assertEqual(pacing.countdown(final_starts),(0,45))
         self.assertEqual(pacing.circle_at(final_starts+90)[2],6000)
         self.assertEqual(pacing.circle_at(final_starts+135)[2],0)
-        self.assertTrue(pacing.tick(final_starts+135))
+        wait_packet=pacing.tick(final_starts)[0][1]
+        self.assertEqual(struct.unpack('>IfIiifiif',wait_packet)[-1],pacing.MIN_MAP_RADIUS)
+        closed_packet=pacing.tick(final_starts+135)[0][1]
+        self.assertEqual(struct.unpack('>IfIiifiif',closed_packet)[5::3],
+                         (pacing.MIN_MAP_RADIUS,pacing.MIN_MAP_RADIUS))
+        self.assertEqual(pacing.countdown(final_starts+135),(3,0))
         self.assertTrue(pacing.finished)
         for x in (0,409600):
             for y in (0,409600):

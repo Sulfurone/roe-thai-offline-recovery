@@ -56,12 +56,19 @@ class ExtraItemTests(unittest.TestCase):
             responses,_=control.execute(dict(action='item',template=template))
             self.assertEqual(responses[0][0],0x821)
             stack=list(game.ground_loot.stacks.values())[-1]
-            request=struct.pack('>IIQBHB3iB',stack.entity,0,0,0,0,1,*game.player_position,0)
-            self.assertEqual([m for m,_ in game.handle(0x3b63,request)],[0x3e82,0x82b,0x3b64])
+            previous=game.inventory.items.get((1,spec.slot)) if spec.kind==20 else None
+            request=struct.pack('>IIQBHB3iB',stack.entity,0,0,2,8,
+                                int(spec.kind!=20),*game.player_position,0)
+            self.assertEqual([m for m,_ in game.handle(0x3b63,request)],
+                             [0x3e82,0x82b]+([0x821] if previous else [])+[0x3b64])
             key=next(k for k,v in game.inventory.items.items() if v.uid==stack.item.uid)
-            if spec.slot and (template==200901 or template==50001):
+            if spec.kind==20 or template==50001:
                 self.assertEqual(key,(1,spec.slot))
             self.assertEqual(game.inventory.items[key],stack.item)
+            if previous is not None:
+                self.assertEqual(list(game.ground_loot.stacks.values())[-1].item,previous)
+            if spec.kind==20:
+                self.assertEqual(game.inventory.transfer(key,(2,126),1),[game.inventory.reply(1,1)])
         inventory,ground,_,_=restore(snapshot(game.inventory,game.ground_loot,game.magazine,game.selected_slot))
         self.assertEqual(inventory.items,game.inventory.items)
         # Drop an equipped backpack through the same original slot request.

@@ -28,7 +28,7 @@ from test_control_panel import jeep_template
 from offline_bots import POSITION_MARKER,BotRoster
 from offline_combat import BotCombat
 from offline_bot_ai import BotAI
-from offline_match_status import room_kill_broadcast
+from offline_match_status import actor_kill_count,room_kill_broadcast
 from tpdu import decrypt, encrypt, frame, read_frame
 
 
@@ -634,6 +634,7 @@ class IngameSessionTests(unittest.TestCase):
                         if native_result:
                             weapon=games[0].inventory.items[1,1].template
                             self.assertEqual(receive_raw(),room_kill_broadcast(256,b'Test',bot_uid,b'AI-1',weapon,1))
+                            self.assertEqual(receive_raw(),actor_kill_count(256,1))
                             self.assertEqual(receive_raw(),(0xd77,struct.pack('>IQ',0,17)+bytes(28)))
                             result_id,result_body=receive_raw()
                             self.assertEqual(result_id,0xd62)
