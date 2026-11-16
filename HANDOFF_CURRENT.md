@@ -1,3 +1,9 @@
+## Windows x64 单文件服务端 EXE
+
+`ROE-Thai-Offline-Server-win64.exe` 内嵌经校验的 GUI r5 便携包，包含本地服务端、双语界面与 Python/Tk 运行环境。双击后在同目录解包并打开服务端界面。原版泰服客户端单独放入程序提示的安装目录下，目录名为 `32838`。启动器会复用同一版本的完好安装，遇到不匹配的旧安装时使用带版本摘要的独立目录。EXE 当前未做 Authenticode 签名。
+
+构建命令为 `python tools/build_portable_exe.py <GUI便携包.zip> <输出.exe>`。构建器调用本机 .NET Framework C# 编译器，生成 Windows x64 GUI 程序，并把原 ZIP 作为资源嵌入。它不打包客户端、Windows 驱动或个人存档。运行端可加 `--install-only` 只解包，便于自动验包。
+
 ## 2026-11-14 迁移后 DataEngine.dll 校验失败
 
 用户反馈便携校验报告 `DataEngine.dll differs from the original Thai file`。本地直接从原始 `roe_tai.zip` 核对到 `32838/DataEngine.dll` 为 649376 字节，SHA-256 为 `8162e1d985cb3190903ca5645f40e5223d7c4fa9c7e8432eea233de14da02b37`，与便携校验预期一致。
