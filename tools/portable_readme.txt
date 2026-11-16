@@ -1,6 +1,6 @@
 无限法则泰服离线服务端 · Windows x64 便携版
 
-使用前请阅读同目录的 DISCLAIMER.zh-CN.txt。
+本项目完全免费、非营利。使用前请阅读同目录的中英双语 DISCLAIMER.txt。
 
 1. 完整解压服务端 ZIP 到可写的文件夹，例如 D:\Games。
 2. 将原版泰服 0.2.15.5 的整个 32838 文件夹放进 ROE-Thai-Offline。

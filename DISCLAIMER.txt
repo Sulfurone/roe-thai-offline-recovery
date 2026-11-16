@@ -1,0 +1,37 @@
+无限法则泰服离线服务端
+免责声明与使用说明
+
+完全免费 · 非营利
+本项目完全免费、非营利。项目方不会向用户收取任何费用。如果你通过付费渠道获得本软件，请立即向交易平台或卖家申请退款，并在购买平台如实说明收费情况、留下差评。
+
+非官方项目
+本软件是社区开发的离线恢复工具，面向个人本地游玩、学习和游戏保存研究。项目独立于腾讯、Garena 和游戏发行方，未获其赞助或背书。
+
+游戏与开源许可
+《无限法则》（Ring of Elysium）、相关商标及原版客户端内容归各自权利人所有。请使用你有权使用的原版泰服客户端，并遵守适用法律及相关条款。项目自有代码按 MIT 许可证发布，随包第三方组件适用各自的许可。详见 LICENSE 和 NOTICE.md，便携包中的这两个文件位于 recovery 目录。
+
+兼容性与数据
+本软件按现状提供。在适用法律允许的范围内，项目作者及贡献者不作明示或默示保证，包括对特定系统的兼容性、稳定性和数据完整性的保证。责任条款见随附的 MIT 许可证。使用前请备份客户端和重要存档。如果 Windows 拦截原版驱动，或启动时出现蓝屏，请停止尝试启动游戏，保留系统安全防护并查看错误记录。
+
+本地日志
+服务默认只监听本机。日志和诊断文件可能包含本地路径或对局信息，分享前请检查并移除个人信息。
+
+---
+
+Ring of Elysium Thai Offline Server
+Disclaimer and Usage Notice
+
+Completely Free and Nonprofit
+This project is completely free and nonprofit. The project team does not charge users any fees. If you paid for this software, request a refund immediately through the marketplace or seller. Leave a negative review on the marketplace that accurately describes what you were charged for.
+
+Unofficial Project
+This community-developed offline restoration tool is intended for personal local play, learning, and game preservation research. It is independent of Tencent, Garena, and the game's publisher and is neither sponsored nor endorsed by them.
+
+Game Rights and Open-Source License
+Ring of Elysium, its trademarks, and the original client content belong to their respective rights holders. Use an original Thai client you are authorized to use and follow applicable laws and terms. Original project code is released under the MIT License. Bundled third-party components are subject to their own licenses. See LICENSE and NOTICE.md in the recovery folder of the portable package.
+
+Compatibility and Data
+The software is provided as is. To the extent permitted by applicable law, the authors and contributors make no express or implied warranties about compatibility, stability, or data integrity. See the included MIT License for liability terms. Back up your client and important saves before use. If Windows blocks an original driver or crashes with a blue screen during launch, stop trying to start the game, leave Windows security protections in place, and check the error records.
+
+Local Logs
+The server listens on the local machine by default. Logs and diagnostic files may include local paths or match data. Review them and remove personal information before sharing.
