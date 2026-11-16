@@ -1,7 +1,7 @@
 import struct
 import unittest
 
-from offline_environment import (EnvironmentSchedule, NATIVE_WEATHER_IDS,
+from offline_environment import (EnvironmentSchedule, MatchWeather, NATIVE_WEATHER_IDS,
                                  WeatherSchedule, environment_weather, synchronize_lobby_clock)
 
 
@@ -65,6 +65,22 @@ class EnvironmentScheduleTests(unittest.TestCase):
         self.assertEqual(schedule.take(now=22),
                          (0x4817,struct.pack('>4I',0,12,15,0)))
         self.assertIsNone(schedule.take(now=30))
+
+    def test_match_weather_starts_after_landing_and_defers_after_manual_change(self):
+        weather=MatchWeather(13,2)
+        self.assertIsNone(weather.tick(1000,None))
+        self.assertIsNone(weather.tick(100,100))
+        due=weather.next_change
+        self.assertGreaterEqual(due,180)
+        self.assertLessEqual(due,230)
+        self.assertIsNone(weather.tick(due-.1,100))
+        message,body=weather.tick(due,100)
+        _,preset,transition,_=struct.unpack('>4I',body)
+        self.assertEqual((message,transition),(0x4817,30))
+        self.assertNotEqual(preset,2)
+        weather.manual(due+1,3,15)
+        self.assertGreaterEqual(weather.next_change,due+166)
+        self.assertIsNone(weather.tick(weather.next_change-.1,100))
 
 
 if __name__=='__main__':

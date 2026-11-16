@@ -119,8 +119,9 @@ class OfflineGroundLoot:
         entity,slot,owner,container,destination,automatic,*camera=struct.unpack('>IIQBHB3iB',body[:33])
         stack=self.stacks.get(entity)
         now=time.monotonic()
+        direct_part=container==3 and not automatic and owner!=0
         valid=(can_interact and self.announced and slot in (0,0xffffffff)
-               and automatic in (0,1) and owner in (0,actor_uid))
+               and automatic in (0,1) and (owner in (0,actor_uid) or direct_part))
         if (remember and valid and stack is None
                 and now<=self.recent_pickups.get(entity,-1)):
             # The inventory delta and notification already went out on TCP.
@@ -139,6 +140,20 @@ class OfflineGroundLoot:
                 'entity':entity,'actor_distance_cm':round(actor_distance) if math.isfinite(actor_distance) else None,
                 'camera_distance_cm':round(camera_distance) if math.isfinite(camera_distance) else None}
             return self.error(entity)
+        if direct_part:
+            key=inventory.ground_part_target(owner,destination,stack.item)
+            if key is None:
+                self.last_rejection={'reason':'attachment_destination','entity':entity}
+                return self.error(entity)
+            previous=dict(inventory.items[key].parts).get(destination)
+            if previous is not None and not self.can_replace_pickup():
+                return self.error(entity)
+            installed=inventory.install_ground_part(key,destination,stack.item)
+            if installed is None:
+                self.last_rejection={'reason':'attachment_ammunition_space','entity':entity}
+                return self.error(entity)
+            changed,previous=installed
+            return self.complete_pickup(stack,slot,inventory,changed,previous,0,remember,now)
         wearable=stack.item.kind==20 and is_extra(stack.item)
         if wearable:
             key=(1,EXTRA_ITEMS[stack.item.template].slot)
@@ -159,6 +174,7 @@ class OfflineGroundLoot:
             self.last_rejection={'reason':'destination_or_capacity','entity':entity}
             return self.error(entity)
         target=inventory.items.get(key)
+        replace_equipped=wearable or (not automatic and key[0]==1 and is_weapon(stack.item))
         ammo_pickup=stack.item.kind==3 and key[0]==2
         if ammo_pickup:
             # Even the native explicit-slot pickup can name a new bag slot.
@@ -172,22 +188,30 @@ class OfflineGroundLoot:
                 return self.error(entity)
         else:
             changed=[key]
-        if (wearable and target is not None
-                and (self.next_entity>=2**32 or len(self.stacks)>MAX_GROUND_STACKS)):
+        if replace_equipped and target is not None and not self.can_replace_pickup():
             self.last_rejection={'reason':'replacement_entity_limit','entity':entity}
             return self.error(entity)
-        if not wearable and not ammo_pickup and target is not None and (stack_limit(stack.item)<=1 or target.kind!=stack.item.kind or target.template!=stack.item.template
+        if not replace_equipped and not ammo_pickup and target is not None and (stack_limit(stack.item)<=1 or target.kind!=stack.item.kind or target.template!=stack.item.template
                                    or target.count+stack.item.count>stack_limit(stack.item)):
             self.last_rejection={'reason':'occupied_or_full','entity':entity}
             return self.error(entity)
         if not ammo_pickup:
             inventory.items[key]=(replace(target,count=target.count+stack.item.count)
-                                  if target and not wearable else stack.item)
+                                  if target and not replace_equipped else stack.item)
         if is_weapon(stack.item):
             inventory.weapon_magazines[stack.item.uid]=stack.magazine
+        previous=target if replace_equipped else None
+        previous_magazine=inventory.weapon_magazines.pop(previous.uid,0) if previous and is_weapon(previous) else 0
+        return self.complete_pickup(stack,slot,inventory,changed,previous,previous_magazine,remember,now)
+
+    def can_replace_pickup(self):
+        return self.next_entity<2**32 and len(self.stacks)<=MAX_GROUND_STACKS
+
+    def complete_pickup(self,stack,slot,inventory,changed,previous,magazine,remember,now):
+        entity=stack.entity
         inventory.next_uid=max(inventory.next_uid,stack.item.uid+1)
         del self.stacks[entity]
-        replacement=[self.add(target,stack.position).spawn()] if wearable and target is not None else []
+        replacement=[self.add(previous,stack.position,magazine).spawn()] if previous is not None else []
         if remember:
             if len(self.recent_pickups)>=MAX_GROUND_STACKS:
                 del self.recent_pickups[next(iter(self.recent_pickups))]

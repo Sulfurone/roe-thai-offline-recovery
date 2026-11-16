@@ -9,6 +9,11 @@ from offline_items import SPAWNABLE_EXTRA_ITEMS
 from offline_motion import aircraft_spawn_heading
 from offline_weapons import WEAPONS
 
+AIRDROP_BALLOON = 1
+BALLOON_AWAY = 5
+BALLOON_HEALTH = 20000
+
+
 def supply_vehicle(template, uid, position, config=4, *, state=0):
     if len(template)<16:
         raise ValueError('Invalid Thai supply aircraft fixture')
@@ -118,8 +123,9 @@ class SupplyDrops:
             flight = self.flight
             return ('incoming',*flight.landing[:2],max(0,math.ceil(self.LAND_SECONDS-now+flight.started)))
         if self.landed:
-            closest = min(self.landed.values(),key=lambda drop:math.dist(drop.position,self.game.player_position))
-            return ('landed',*closest.position[:2],0)
+            positions=(self.parcels.parcels[drop.parcel][0] for drop in self.landed.values())
+            closest=min(positions,key=lambda position:math.dist(position,self.game.player_position))
+            return ('landed',*closest[:2],0)
         return None
 
     def tick(self, now):
@@ -140,8 +146,11 @@ class SupplyDrops:
                 entity=self.parcels.add_airdrop(uid,flight.landing,self.loot())
                 if entity is not None:
                     self.landed[uid]=LandedSupply(flight.landing,now+self.LIFETIME,entity)
+                    # The Thai equipment update targets the Balloon mount in
+                    # config 501. Away plays AirdropFlyAway and its smoke effect.
+                    away=struct.pack('>Q6I',uid,0,0,AIRDROP_BALLOON,BALLOON_AWAY,BALLOON_HEALTH,0)
                     replies.extend(((0x654b,supply_vehicle(self.template,uid,flight.landing,config=501,state=1)),
-                                    (0x6571,struct.pack('>QI',uid,entity))))
+                                    (0x6571,struct.pack('>QI',uid,entity)),(0x6546,away)))
                     self.last_event=dict(action='landed',number=flight.number,position=flight.landing,entity=entity)
                 elif flight.cargo_visible:
                     replies.append((0x654c,struct.pack('>Q',uid)))

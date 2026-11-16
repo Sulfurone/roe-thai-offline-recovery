@@ -303,11 +303,31 @@ class OfflineInventory:
             updated[target_key]=replace(target,parts=tuple(sorted(parts.items())))
         else:
             updated[target_key]=part
+        changed=self.commit_part_change(updated,{source_key,target_key})
+        if changed is None:return failure
+        return [self.delta(changed),self.reply(6,template=part.template)]
+
+    def ground_part_target(self,uid,index,part):
+        for key,weapon in self.items.items():
+            if key[0]==1 and weapon.uid==uid and compatible(weapon,part,index):
+                return key
+        return None
+
+    def install_ground_part(self,key,index,part):
+        weapon=self.items[key]
+        parts=dict(weapon.parts)
+        previous=parts.get(index)
+        parts[index]=part
+        updated=dict(self.items)
+        updated[key]=replace(weapon,parts=tuple(sorted(parts.items())))
+        changed=self.commit_part_change(updated,{key},minimum_uid=part.uid+1)
+        return (changed,previous) if changed is not None else None
+
+    def commit_part_change(self,updated,changed,minimum_uid=1):
         # Removing an extension must never erase loaded rounds. Stage the
         # overflow as ordinary ammunition; reject atomically if the bag is full.
         magazines=dict(self.weapon_magazines)
-        next_uid=self.next_uid
-        changed={source_key,target_key}
+        next_uid=max(self.next_uid,minimum_uid)
         for key,weapon in list(updated.items()):
             if not is_weapon(weapon):continue
             loaded=magazines.get(weapon.uid,0)
@@ -327,15 +347,15 @@ class OfflineInventory:
                 if not remaining:break
                 bag_key=(2,slot)
                 if bag_key in updated:continue
-                if next_uid>=2**64-1:return failure
+                if next_uid>=2**64-1:return None
                 amount=min(remaining,MAX_AMMO)
                 updated[bag_key]=Item(3,ammo,next_uid,amount)
                 next_uid+=1;remaining-=amount;changed.add(bag_key)
-            if remaining:return failure
+            if remaining:return None
         self.items=updated
         self.weapon_magazines=magazines
         self.next_uid=next_uid
-        return [self.delta(changed),self.reply(6,template=part.template)]
+        return changed
 
     def consume(self,quantity,template=AMMO_TEMPLATE):
         if template not in AMMUNITION or not 0<=quantity<=self.reserve_for(template):

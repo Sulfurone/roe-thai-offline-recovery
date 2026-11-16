@@ -11,6 +11,7 @@ native elapsed time. A readiness delay alone did not prevent a live freeze.
 Synchronize the explicitly verified lobby field before testing clock delivery.
 """
 from dataclasses import dataclass
+import random
 import struct
 import time
 from offline_motion import actor_motion
@@ -157,3 +158,26 @@ class WeatherSchedule:
             return None
         self.sent = True
         return environment_weather(self.weather_id, self.transition_seconds)
+
+
+class MatchWeather:
+    PRESETS=(2,3,4,7,9,11)
+    TRANSITION=30
+
+    def __init__(self,seed,current=2):
+        self.rng=random.Random(f'{seed}:match-weather')
+        self.current=current
+        self.next_change=None
+
+    def manual(self,now,preset,transition):
+        self.current=preset
+        self.next_change=now+transition+self.rng.randint(150,240)
+
+    def tick(self,now,landed_at):
+        if landed_at is None:return None
+        if self.next_change is None:
+            self.next_change=landed_at+self.rng.randint(80,130)
+        if now<self.next_change:return None
+        self.current=self.rng.choice([preset for preset in self.PRESETS if preset!=self.current])
+        self.next_change=now+self.rng.randint(150,240)
+        return environment_weather(self.current,self.TRANSITION)

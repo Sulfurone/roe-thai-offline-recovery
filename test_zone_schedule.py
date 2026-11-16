@@ -86,7 +86,7 @@ class ZoneScheduleTests(unittest.TestCase):
         self.assertEqual(pacing.countdown(7.2),(0,8))
         self.assertEqual(pacing.tick(5.5),[])
         self.assertEqual(state(15)[:3],(2,0.,20))
-        self.assertEqual(state(25)[:3],(2,10.,20))
+        self.assertEqual(pacing.tick(25),[])
         self.assertEqual(pacing.countdown(25),(2,10))
         # A delayed loop sends the current state, not obsolete phase packets.
         self.assertEqual(state(42)[:3],(2,2.,10))

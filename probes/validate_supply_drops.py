@@ -28,10 +28,15 @@ def main():
     codec = NativeCodec()
     factory = []
     uc = codec.uc
-    vehicle,world = 0x10900000,0x10902000
+    vehicle,world,gear_node,balloon = 0x10900000,0x10902000,0x10903000,0x10904000
+    uc.mem_map(0,0x1000)  # native SEH reads fs:[0]
     uc.mem_write(0x2eedb58,struct.pack('<I',world))
     uc.mem_write(world+0x28,struct.pack('<I',world))
     uc.mem_write(vehicle,struct.pack('<I',0x25b46d8))  # AirdropUnit vtable
+    uc.mem_write(vehicle+0x95c,struct.pack('<I',gear_node))
+    uc.mem_write(gear_node+0x10,struct.pack('<II',1,balloon))
+    uc.mem_write(balloon,struct.pack('<I',0x25b01f0))  # AirBalloonEquip vtable
+    away_effects=[]
 
     def lookup_vehicle(uc,*_):
         stack = uc.reg_read(UC_X86_REG_ESP)
@@ -44,13 +49,31 @@ def main():
     def match_airdrop_type(uc,*_):
         stack = uc.reg_read(UC_X86_REG_ESP)
         ret,target_type = struct.unpack('<2I',uc.mem_read(stack,8))
-        assert uc.reg_read(UC_X86_REG_ECX)==target_type==0x2ee1430
+        assert uc.reg_read(UC_X86_REG_ECX)==0x2ee1430
+        assert target_type in (0x2ee1430,0x2ee2020)
         uc.reg_write(UC_X86_REG_EAX,1)
         uc.reg_write(UC_X86_REG_ESP,stack+8)
         uc.reg_write(UC_X86_REG_EIP,ret)
 
     uc.hook_add(UC_HOOK_CODE,lookup_vehicle,begin=0xf074e0,end=0xf074e0)
     uc.hook_add(UC_HOOK_CODE,match_airdrop_type,begin=0x67b4c0,end=0x67b4c0)
+
+    def skip_string_creation(uc,*_):
+        stack=uc.reg_read(UC_X86_REG_ESP)
+        ret,label=struct.unpack('<II',uc.mem_read(stack,8))
+        assert bytes(uc.mem_read(label,5))==b'Away\0'
+        uc.reg_write(UC_X86_REG_ESP,stack+8)
+        uc.reg_write(UC_X86_REG_EIP,ret)
+
+    def capture_away_effect(uc,*_):
+        stack=uc.reg_read(UC_X86_REG_ESP)
+        _,event=struct.unpack('<II',uc.mem_read(stack,8))
+        assert uc.reg_read(UC_X86_REG_ECX)==balloon
+        away_effects.append(event)
+        uc.reg_write(UC_X86_REG_EIP,codec.RETURN)
+
+    uc.hook_add(UC_HOOK_CODE,skip_string_creation,begin=0x401330,end=0x401330)
+    uc.hook_add(UC_HOOK_CODE,capture_away_effect,begin=0xef7a40,end=0xef7a40)
 
     def capture_spawn(uc,address,size,user):
         stack = uc.reg_read(UC_X86_REG_ESP)
@@ -70,11 +93,15 @@ def main():
         if message==0x6571:
             codec.invoke(0x1288f80,0,[codec.ROOT_OBJECT+6])
             assert codec.read32(vehicle+0xa28)==entity
+        if message==0x6546:
+            codec.invoke(0x12885e0,0,[codec.ROOT_OBJECT+6])
+            assert away_effects==[3] and uc.mem_read(balloon+0x53d,1)==b'\1'
     if [row['config'] for row in factory]!=[4,501,501] or any(row['hp']!=100 for row in factory):
         raise ValueError(f'Unexpected original spawn arguments: {factory}')
     if factory[-1]['state']!=1 or factory[-1]['position']!=position:
         raise ValueError(f'Original landed cargo arguments differ: {factory[-1]}')
-    print(json.dumps(dict(fully_decoded=[hex(message) for message,_ in packets],factory=factory),indent=2))
+    print(json.dumps(dict(fully_decoded=[hex(message) for message,_ in packets],factory=factory,
+                          native_away_effect=away_effects),indent=2))
 
 
 if __name__=='__main__':

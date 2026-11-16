@@ -83,6 +83,9 @@ if schedule.tick(0):raise ValueError('Circle pacing skipped ground stability del
 scheduled=[]
 for now in (3,13,43,73,133):
     packets=schedule.tick(now)
+    if now in (43,73):
+        if packets:raise ValueError('The client already has this shrink phase')
+        continue
     if len(packets)!=1:raise ValueError('Missing scheduled circle packet')
     mid,body=packets[0]
     result=c.decode_server(mid,body)

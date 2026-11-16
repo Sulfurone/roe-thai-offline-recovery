@@ -634,6 +634,8 @@ class OfflineGameplay:
                         # Keep the existing position/loot path and announce at landing.
                         return replies+self._handle(message,body)
         if message==0x3b63 and self.ground_loot is not None:
+            equipped=self.weapon_key()
+            equipped_item=self.inventory.items.get(equipped)
             stack=(self.ground_loot.stacks.get(struct.unpack_from('>I',body)[0])
                    if len(body) in (33,41) else None)
             feet=self.self_position if self.has_fresh_self_position() else self.player_position
@@ -651,7 +653,8 @@ class OfflineGameplay:
                     self.pickup_drop_anchor=(*camera[:2],stack.position[2])
                     self.pickup_drop_time=time.monotonic()
             self.reserve=self.inventory.reserve
-            if stack is not None and is_weapon(stack.item) and any(msg==0x3e82 for msg,_ in replies):
+            picked=stack is not None and any(msg==0x3e82 for msg,_ in replies)
+            if picked and is_weapon(stack.item):
                 key=next((k for k,item in self.inventory.items.items() if item.uid==stack.item.uid),None)
                 if key is not None:
                     # A picked gun keeps the rounds it carried on the ground;
@@ -659,7 +662,11 @@ class OfflineGameplay:
                     self.set_weapon_magazine(key,stack.magazine)
                     if key[0]==1 and self.weapon_key() is None:
                         self.selected_slot=key[1]
-                    self.refresh_magazine()
+            if picked:
+                equipped_after=self.inventory.items.get(self.weapon_key())
+                if equipped_after!=equipped_item:
+                    self.pending_reload=None
+                self.refresh_magazine()
             return replies
         if message==0x3e80 and self.inventory is not None:
             if body[:1]==b'\2' and self.ground_loot is not None:

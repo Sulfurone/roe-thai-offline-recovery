@@ -46,9 +46,11 @@ class SupplyTests(unittest.TestCase):
         self.assertFalse(parcels.parcels)
         self.assertEqual([mid for mid,_ in drops.tick(232)],[0x654c])
         landed=drops.tick(239)
-        self.assertEqual([mid for mid,_ in landed],[0x654b,0x6571])
+        self.assertEqual([mid for mid,_ in landed],[0x654b,0x6571,0x6546])
         cargo_uid=flight.aircraft+1
         self.assertEqual(landed[1][1],struct.pack('>QI',cargo_uid,next(iter(parcels.parcels))))
+        self.assertEqual(struct.unpack('>Q6I',landed[2][1]),(cargo_uid,0,0,1,5,20000,0))
+        self.assertEqual(drops.tick(240),[])
         offset=12+struct.unpack_from('>I',landed[0][1],8)[0]
         self.assertEqual(struct.unpack_from('>III3i',landed[0][1],offset),(501,1,100,*flight.landing))
         entity=next(iter(parcels.parcels))
@@ -60,8 +62,11 @@ class SupplyTests(unittest.TestCase):
         self.assertTrue({200103,201003,200903,70003,50001,50002}<=templates)
         search=struct.pack('>Q',cargo_uid)
         self.assertEqual(parcels.handle(0x656f,search),[])
-        game.player_position=position
+        game.player_position=(position[0]-2047,position[1]+3363,position[2]-712)
         self.assertEqual(parcels.handle(0x656f,search),[parcels.contents(entity)])
+        position,items=parcels.parcels[entity]
+        self.assertEqual(position,game.player_position)
+        self.assertTrue(all(stack.position==position for stack in items.values()))
         request=struct.pack('>IIQBHB3iB',entity,1,game.actor_uid,0,0,1,*position,0)
         self.assertEqual([mid for mid,_ in parcels.handle(0x3b63,request)],[0x3e82,0x3b64,0x3b61])
         self.assertEqual(game.inventory.items[1,1],weapon)
@@ -69,7 +74,7 @@ class SupplyTests(unittest.TestCase):
         self.assertEqual([mid for mid,_ in drops.tick(520)],[0x4a6,0x654b,0x6564])
         self.assertEqual([mid for mid,_ in drops.tick(526)],[0x654b,0x6563])
         self.assertEqual(drops.tick(538.99),[(0x654c,struct.pack('>Q',drops.flight.aircraft))])
-        self.assertEqual([mid for mid,_ in drops.tick(539)],[0x654c,0x654b,0x6571])
+        self.assertEqual([mid for mid,_ in drops.tick(539)],[0x654c,0x654b,0x6571,0x6546])
         self.assertNotIn(entity,parcels.parcels)
 
     def test_waits_for_dry_ground_and_does_not_spawn_after_death(self):

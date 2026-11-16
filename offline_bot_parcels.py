@@ -1,4 +1,5 @@
 """Session-local Thai death containers backed by the existing pickup logic."""
+from dataclasses import replace
 import math
 import struct
 
@@ -11,6 +12,8 @@ from offline_weapons import AMMUNITION,WEAPONS,is_weapon
 
 
 class WorldParcels:
+    AIRDROP_DRIFT_CM=6500
+
     def __init__(self, game):
         self.game = game
         self.parcels = {}
@@ -74,7 +77,7 @@ class WorldParcels:
             entity=self.airdrops.get(struct.unpack_from('>Q',body)[0])
             if entity is None:
                 return None
-            return self.open(entity,self.game.actor_uid)
+            return self.open(entity,self.game.actor_uid,airdrop=True)
         if message == 0xbce and len(body) in (16, 24):
             entity, owner = struct.unpack_from('>QQ', body)
             if entity not in self.parcels:
@@ -104,12 +107,21 @@ class WorldParcels:
         finally:
             world.stacks.pop(entity,None)
 
-    def open(self, entity, owner):
-        position,_=self.parcels[entity]
+    def open(self, entity, owner, *, airdrop=False):
+        position,items=self.parcels[entity]
         feet=self.game.self_position if self.game.has_fresh_self_position() else self.game.player_position
         if (owner!=self.game.actor_uid or not self.game.actor_ready or self.game.seated
-                or not self.game.vitals.current or math.dist(position,feet)>PICKUP_DISTANCE):
+                or not self.game.vitals.current):
             return []
+        if math.dist(position,feet)>PICKUP_DISTANCE:
+            # The original balloon simulation can visibly drift from the
+            # server's nominated landing point. A native open action names
+            # the cargo UID after the client has reached that model.
+            if (not airdrop or entity in self.opened
+                    or abs(position[2]-feet[2])>2000
+                    or math.dist(position[:2],feet[:2])>self.AIRDROP_DRIFT_CM):
+                return []
+            self.parcels[entity]=(feet,{slot:replace(stack,position=feet) for slot,stack in items.items()})
         self.opened.add(entity)
         return [self.contents(entity)]
 

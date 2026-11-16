@@ -54,17 +54,14 @@ class GroundWeaponTests(unittest.TestCase):
         self.assertEqual(game.ground_loot.stacks[0x400003].magazine,28)
         self.assertEqual(game.magazine,0)
 
-    def test_occupied_requested_slot_rejects_without_losing_gun(self):
+    def test_occupied_bag_slot_rejects_without_losing_gun(self):
         game=self.ready()
         game.handle(0x3e80,drop(1,container=1,slot=1))
         before=game.state_payload()
         replies=game.handle(0x3b63,request(0x400002,container=2,destination=0,automatic=0))
         self.assertEqual(replies[0][0],0x3b66)
         self.assertEqual(game.state_payload(),before)
-        # An explicitly occupied weapon slot is never displaced.
         game.inventory.items[1,2]=Item(1,WEAPON_TEMPLATE,0x100111,1)
-        self.assertEqual(game.handle(0x3b63,request(0x400002,container=1,destination=2,automatic=0))[0][0],0x3b66)
-        self.assertIn(0x400002,game.ground_loot.stacks)
         # The dropped M4A1 returns to the free long-gun slot.
         self.assertEqual(game.handle(0x3b63,request(0x400002))[0][0],0x3e82)
         self.assertEqual(game.inventory.items[1,1].uid,0x100101)
@@ -73,6 +70,31 @@ class GroundWeaponTests(unittest.TestCase):
         self.assertEqual(game.handle(0x3b63,request(third.entity))[0][0],0x3e82)
         self.assertNotIn(third.entity,game.ground_loot.stacks)
         self.assertEqual(game.inventory.items[2,1].uid,0x100121)
+
+    def test_drag_gun_onto_occupied_slot_drops_old_gun_with_its_rounds(self):
+        game=self.ready()
+        old=game.inventory.items[1,1]
+        incoming=game.ground_loot.add(Item(1,10202,0x100121,1),game.player_position,magazine=7)
+        replies=game.handle(0x3b63,request(incoming.entity,container=1,destination=1,automatic=0))
+        self.assertEqual(replies[-1][0],0x3b64)
+        self.assertEqual((game.inventory.items[1,1],game.magazine),(incoming.item,7))
+        self.assertNotIn(incoming.entity,game.ground_loot.stacks)
+        dropped=next(stack for stack in game.ground_loot.stacks.values() if stack.item==old)
+        self.assertEqual(dropped.magazine,28)
+
+    def test_drag_ground_optic_onto_weapon_uid_replaces_existing_optic(self):
+        game=self.ready()
+        gun=game.inventory.items[1,1]
+        optic=game.ground_loot.add(Item(4,40302,0x100121,1),game.player_position)
+        other=game.ground_loot.add(Item(4,40303,0x100122,1),game.player_position)
+        self.assertEqual(game.handle(0x3b63,request(optic.entity,owner=gun.uid+1,container=3,
+                                                    destination=2,automatic=0))[0][0],0x3b66)
+        for stack in (optic,other):
+            replies=game.handle(0x3b63,request(stack.entity,owner=gun.uid,container=3,
+                                               destination=2,automatic=0))
+            self.assertEqual(replies[-1][0],0x3b64)
+            self.assertEqual(dict(game.inventory.items[1,1].parts)[2],stack.item)
+        self.assertTrue(any(stack.item==optic.item for stack in game.ground_loot.stacks.values()))
 
     def test_second_long_gun_keeps_independent_magazine_across_restart(self):
         with tempfile.TemporaryDirectory() as temporary:

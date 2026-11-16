@@ -17,7 +17,7 @@ import time
 import webbrowser
 from tpdu import FrameReader, auth_info, decrypt, encrypt, frame
 from thai_profile import save_submission
-from offline_environment import (EnvironmentSchedule, NATIVE_WEATHER_IDS,
+from offline_environment import (EnvironmentSchedule, MatchWeather, NATIVE_WEATHER_IDS,
                                  WeatherSchedule, environment_clock, synchronize_lobby_clock)
 from offline_gameplay import OfflineGameplay,ACTOR_UID,JEEP_UID,TYPED_ACTOR_UID,TYPED_VEHICLE_UID
 from offline_control import ControlHub, ControlServer
@@ -543,6 +543,12 @@ def main():
         map_push_specs.append((message_id, Path(path)))
     if args.gameplay_random_aircraft_route and not any(mid==0x654b for mid,_ in map_push_specs):
         parser.error('A random aircraft route requires the map-load aircraft spawn')
+    glass_panes={}
+    if args.world_client_map:
+        scene_entities=args.world_client_map/'ENTITYSTATUSINPXSCENE.XML'
+        if scene_entities.is_file():
+            from offline_glass import read_glass
+            glass_panes=read_glass(scene_entities)
     supply_template = None
     if args.world_supply_drops:
         try:
@@ -755,6 +761,11 @@ def main():
                     control_session.vehicle_impacts=VehicleImpacts(gameplay,bots,bot_visibility)
                 blast=BlastCombat(gameplay,bots,bot_visibility) if args.world_throwable_combat else None
                 zones=ZoneSchedule(gameplay,population_surface,match_zones) if match_zones is not None else None
+                match_weather=MatchWeather(world_seed,args.environment_weather or 2) if args.world_random_zones else None
+                if glass_panes:
+                    from offline_glass import GlassState
+                    glass=GlassState(glass_panes)
+                else:glass=None
                 supplies = (SupplyDrops(gameplay,zones,parcels,supply_template,world_seed,bot_visibility)
                             if supply_template is not None else None)
                 if control_session is not None:
@@ -880,6 +891,8 @@ def main():
                                 send(connection, 0, body=encrypt(response, key))
                             if item['action'] == 'weather' and weather is not None:
                                 weather.sent = True
+                            if item['action']=='weather' and match_weather is not None:
+                                match_weather.manual(time.monotonic(),item['weather_id'],item['transition'])
                             control.finish(item['id'], 'sent', description)
                             emit('control_command_sent', action=item['action'], replies=len(replies),
                                  actor_position=gameplay.player_position)
@@ -937,6 +950,14 @@ def main():
                                 response=struct.pack('>IHI',1,response_id,response_id)+response_body
                                 send(connection,0,body=encrypt(response,key))
                                 emit('local_zone_state_sent',message_id=response_id,**zones.last_event)
+                            if match_weather is not None and gameplay.vitals.current:
+                                change=match_weather.tick(time.monotonic(),zones.started)
+                                if change is not None:
+                                    send_application_batch(connection,[change],key)
+                                    if control_session is not None:
+                                        control_session.weather_id=match_weather.current
+                                    emit('match_weather_changed',weather_id=match_weather.current,
+                                         transition_seconds=match_weather.TRANSITION)
                             if zone_damage is not None:
                                 for response_id,response_body in zone_damage.tick():
                                     response=struct.pack('>IHI',1,response_id,response_id)+response_body
@@ -1163,6 +1184,9 @@ def main():
                                         emit('vehicle_exit_request',**control_session.last_exit_event)
                                 gameplay_replies=(gameplay.handle(message_id,application[26:])
                                                   if control_replies is None else control_replies)
+                                if (message_id==0x6f59 and glass is not None and gameplay.actor_ready
+                                        and gameplay.vitals.current):
+                                    gameplay_replies.extend(glass.handle(application[26:],gameplay.actor_uid))
                                 if control is not None and gameplay.seated!=was_seated:
                                     control.update(seated=gameplay.seated)
                                 if (message_id==0x3e80 and application[26:27]==b'\1'

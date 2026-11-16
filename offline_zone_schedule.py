@@ -98,7 +98,6 @@ class ZonePlan:
 
 class ZoneSchedule:
     ARM_DELAY=3.
-    PERIOD=1.
     MIN_MAP_RADIUS=2000  # centimetres, UI only
 
     def __init__(self,game,terrain,plan):
@@ -106,7 +105,7 @@ class ZoneSchedule:
             raise ValueError('Local circle pacing requires gameplay, terrain and a validated plan')
         self.game,self.terrain,self.plan=game,terrain,plan
         self.ready_since=self.started=None
-        self.next_send=0.
+        self.sent_phase=None
         self.finished=False
         self.last_event=None
 
@@ -160,9 +159,11 @@ class ZoneSchedule:
             if self.ready_since is None:self.ready_since=now
             if now-self.ready_since<self.ARM_DELAY:return []
             self.started=now
-        if now<self.next_send:return []
-        self.next_send=now+self.PERIOD
         index,current,target,phase,offset,total=self.stage_at(now)
+        # The original client runs the transition from elapsed/total itself.
+        # Replaying phase 2 re-enters the shrink HUD and its alert.
+        if self.sent_phase==(index,phase):return []
+        self.sent_phase=(index,phase)
         self.finished=index==len(self.plan.stages)
         self.last_event=dict(stage=index,phase=phase,elapsed=offset,total=total,finished=self.finished)
         if self.plan.stages[-1].target.radius==0 and target.radius==0:
