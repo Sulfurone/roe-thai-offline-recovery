@@ -111,9 +111,29 @@ class SelfPositionTests(unittest.TestCase):
                 with patch.object(self_position,'game_stopped',return_value=False):
                     self.assertFalse(observer.restore())
                     self.assertEqual((game/'DataEngine.dll').read_bytes(),proxy)
+                pending=game/'DataEngine.roe-restore.tmp'
+                replace=type(pending).replace
+
+                def locked_dll(source,target):
+                    if source==pending:
+                        raise PermissionError('synthetic DLL lock')
+                    return replace(source,target)
+
+                with patch.object(type(pending),'replace',locked_dll):
+                    with self.assertRaises(PermissionError):
+                        observer.restore()
+                self.assertEqual(pending.read_bytes(),original)
+                self.assertEqual(observer.target.read_bytes(),proxy)
+                pending.write_bytes(b'unknown file')
+                with self.assertRaisesRegex(ValueError,'Unrecognized observer restore file'):
+                    observer.restore()
+                self.assertEqual(pending.read_bytes(),b'unknown file')
+                self.assertEqual(observer.target.read_bytes(),proxy)
+                pending.write_bytes(original)
                 self.assertTrue(observer.restore())
                 self.assertEqual((game/'DataEngine.dll').read_bytes(),original)
                 self.assertFalse((game/'_ROE_Original_DataEngine.dll').exists())
+                self.assertFalse(pending.exists())
 
     def test_startup_rejects_an_old_library_after_source_change_or_failed_build(self):
         import json

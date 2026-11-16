@@ -24,7 +24,7 @@
 启动遇到问题时运行 Verify-ROE.cmd。它核对包文件、泰服版本、SFC 目录和脚点模块，
 检查时游戏须关闭。对局日志写入 recovery\logs，可用最新目录的 server.jsonl 定位错误。
 脚点模块随服务启动，正常退出后恢复原 DataEngine.dll。若上次异常退出，关闭游戏后
-从同一目录重新启动，服务会先恢复该目录的上次记录。
+从同一目录重新校验或启动。上次的恢复临时文件若与原版哈希一致，会接着恢复。
 
 如果 Verify-ROE.cmd 提示 DataEngine.dll 的 SHA-256 不符，先关闭游戏和启动窗口。
 在 Start-ROE.cmd 所在目录把现有 32838 重命名为 32838-old，再从原始 roe_tai.zip

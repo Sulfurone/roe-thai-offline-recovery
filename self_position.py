@@ -172,10 +172,18 @@ class PositionInstallation(AbstractContextManager):
         if current not in (ORIGINAL_SHA,record['proxy_sha256']):raise ValueError('Loaded DLL changed; refusing overwrite')
         for path,key in ((self.copy,'original_sha256'),(self.config,'config_sha256')):
             if path.exists() and sha(path.read_bytes())!=record[key]:raise ValueError('Owned observer file changed; preserve it')
+        pending=self.game/'DataEngine.roe-restore.tmp'
+        if pending.is_symlink() or pending.exists() and getattr(pending.lstat(),'st_file_attributes',0)&0x400:
+            raise ValueError('Refusing linked position observer restore file')
+        if pending.exists() and (not pending.is_file() or sha(pending.read_bytes())!=ORIGINAL_SHA):
+            raise ValueError(f'Unrecognized observer restore file. Preserve it and use a clean client: {pending}')
         if current!=ORIGINAL_SHA:
-            pending=self.game/'DataEngine.roe-restore.tmp'
-            with pending.open('xb') as file:file.write(original)
+            # A failed replace can leave a complete, verified copy from the previous attempt.
+            if not pending.exists():
+                with pending.open('xb') as file:file.write(original)
             pending.replace(self.target)
+        elif pending.exists():
+            pending.unlink()
         for path in (self.copy,self.config):
             if path.exists():path.unlink()
         self.deployed=False
