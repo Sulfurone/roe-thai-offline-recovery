@@ -642,7 +642,7 @@ class OfflineGameplay:
             replies=self.ground_loot.pickup(body,self.inventory,self.actor_uid,feet,
                                             self.actor_ready and not self.seated
                                             and not (glider is not None and glider.seated),
-                                            remember=not parcel_pickup)
+                                            remember=not parcel_pickup,selected_slot=self.selected_slot)
             if stack is not None and any(msg==0x3e82 for msg,_ in replies):
                 camera=struct.unpack_from('>3i',body,20)
                 # The drop DTO has no position. Successful pickup supplies a
@@ -838,6 +838,21 @@ class OfflineGameplay:
                         loot_replies=self.ground_loot.announce()
                     if self.scatter_loot:
                         loot_replies+=self.scatter(position)
+                    if (self.world_file is not None and self.ground_loot.announced and not self.seated
+                            and (not self.opening_airdrop or self.deployment_phase=='landed')):
+                        moved=[]
+                        for key,item in list(self.inventory.items.items()):
+                            if key[0]!=2 or not is_weapon(item):
+                                continue
+                            if len(self.ground_loot.stacks)>=MAX_GROUND_STACKS or self.ground_loot.next_entity>=2**32:
+                                break
+                            rounds=self.inventory.weapon_magazines.get(item.uid,0)
+                            loot_replies.append(self.ground_loot.add(item,position,rounds).spawn())
+                            del self.inventory.items[key]
+                            self.inventory.weapon_magazines.pop(item.uid,None)
+                            moved.append(key)
+                        if moved:
+                            loot_replies.insert(0,self.inventory.delta(moved))
                 if self.inventory_selftest and self.inventory_test_started is None:
                     self.inventory_test_started=time.monotonic()
                 if self.can_auto_board():

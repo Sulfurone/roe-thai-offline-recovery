@@ -46,15 +46,13 @@ class InventoryTests(unittest.TestCase):
             inventory.handle(body)
             self.assertEqual(inventory.snapshot(30,1),before)
 
-    def test_same_slot_is_noop_and_whole_stack_swap_preserves_objects(self):
+    def test_same_slot_is_noop_and_a_weapon_cannot_move_to_the_bag(self):
         inventory=OfflineInventory()
         before=dict(inventory.items)
         inventory.handle(transfer((2,0),(2,0),20))
         self.assertEqual(inventory.items,before)
         inventory.handle(transfer((1,1),(2,1),1))
-        inventory.handle(transfer((2,0),(2,1),120))
-        self.assertEqual(inventory.items[2,0].uid,0x100101)
-        self.assertEqual(inventory.items[2,1].uid,0x100102)
+        self.assertEqual(inventory.items,before)
         self.assertEqual(inventory.reserve,120)
 
     def test_weapon_slot_change_reload_and_empty_ammo_stack(self):
@@ -74,18 +72,17 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(replies[-1][1][0],2)
         self.assertNotEqual(struct.unpack('>II',game.handle(0x49c,struct.pack('>I',1))[0][1])[1],0)
 
-    def test_stowed_weapon_cannot_fire_or_reload(self):
+    def test_holstered_weapon_cannot_fire_or_reload(self):
         game=OfflineGameplay(inventory_enabled=True,magazine=29)
-        game.handle(0x3e80,transfer((1,1),(2,8),1))
+        game.handle(0x49e,struct.pack('>I',0))
         self.assertEqual(game.handle(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,1,0)),[])
         game.handle(0x49c,struct.pack('>I',1))
         # The live magazine mirrors the selected slot; the stowed gun keeps
         # its rounds in the per-weapon record.
         self.assertEqual((game.magazine,game.reserve),(0,120))
         self.assertEqual(game.inventory.weapon_magazines[0x100101],29)
-        game.handle(0x3e80,transfer((2,8),(1,2),1))
-        self.assertEqual(game.inventory.weapon_slot(),2)
-        game.handle(0x49e,struct.pack('>I',2))
+        self.assertEqual(game.inventory.weapon_slot(),1)
+        game.handle(0x49e,struct.pack('>I',1))
         self.assertEqual(game.magazine,29)
 
     def test_atomic_save_reopen_and_noop_save(self):
@@ -138,7 +135,7 @@ class InventoryTests(unittest.TestCase):
         inventory.weapon_magazines={primary.uid:30,0x100081:0,0x100082:17}
         restored=OfflineInventory.restore(inventory.snapshot(30,1))
         self.assertEqual(restored.weapon_magazines,inventory.weapon_magazines)
-        inventory.items[2,5]=Item(1,10201,0x100083,1)
+        inventory.items[1,4]=Item(1,10201,0x100083,1)
         with self.assertRaises(ValueError):
             OfflineInventory.restore(inventory.snapshot(30,1))
 

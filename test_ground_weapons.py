@@ -36,21 +36,18 @@ class GroundWeaponTests(unittest.TestCase):
         game.handle(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,2,0))
         self.assertEqual((game.magazine,game.reserve),(27,120))
 
-    def test_pickup_into_bag_then_equip_second_slot_preserves_rounds(self):
+    def test_pickup_rejects_bag_and_can_equip_second_slot(self):
         game=self.ready()
         game.handle(0x3e80,drop(1,container=1,slot=1))
-        replies=game.handle(0x3b63,request(0x400002,container=2,destination=8,automatic=0))
+        for bag_slot in (1,8):
+            replies=game.handle(0x3b63,request(0x400002,container=2,destination=bag_slot,automatic=0))
+            self.assertEqual([m for m,_ in replies],[0x3b66])
+            self.assertIn(0x400002,game.ground_loot.stacks)
+        replies=game.handle(0x3b63,request(0x400002,container=1,destination=2,automatic=0))
         self.assertEqual([m for m,_ in replies],[0x3e82,0x82b,0x3b64])
-        # A bagged gun is not carried; the live magazine stays empty until
-        # it is equipped, but its rounds stay recorded on the gun.
-        self.assertEqual(game.magazine,0)
-        self.assertEqual(list(game.inventory.weapon_magazines.values()),[28])
-        self.assertIsNone(game.inventory.weapon_slot())
-        replies=game.handle(0x3e80,struct.pack('>BBHBHHB',1,2,8,1,2,1,1))
-        self.assertNotIn(0x4a0,dict(replies))
+        self.assertEqual(game.magazine,28)
         self.assertEqual(game.inventory.weapon_magazines[game.inventory.items[1,2].uid],28)
-        game.handle(0x3e80,struct.pack('>BBHBHHB',1,1,2,2,9,1,1))
-        game.handle(0x3e80,drop(1,container=2,slot=9))
+        game.handle(0x3e80,drop(1,container=1,slot=2))
         self.assertEqual(game.ground_loot.stacks[0x400003].magazine,28)
         self.assertEqual(game.magazine,0)
 
@@ -65,11 +62,45 @@ class GroundWeaponTests(unittest.TestCase):
         # The dropped M4A1 returns to the free long-gun slot.
         self.assertEqual(game.handle(0x3b63,request(0x400002))[0][0],0x3e82)
         self.assertEqual(game.inventory.items[1,1].uid,0x100101)
-        # Automatic pickup of a third long gun stores it in the bag instead.
+        old=game.inventory.items[1,1]
         third=game.ground_loot.add(Item(1,10202,0x100121,1),game.player_position)
         self.assertEqual(game.handle(0x3b63,request(third.entity))[0][0],0x3e82)
         self.assertNotIn(third.entity,game.ground_loot.stacks)
-        self.assertEqual(game.inventory.items[2,1].uid,0x100121)
+        self.assertEqual(game.inventory.items[1,1],third.item)
+        self.assertTrue(any(stack.item==old for stack in game.ground_loot.stacks.values()))
+
+    def test_automatic_pickup_fills_empty_slot_before_replacing_selected_gun(self):
+        game=self.ready()
+        old=game.inventory.items[1,1]
+        incoming=game.ground_loot.add(Item(1,10202,0x100121,1),game.player_position,magazine=7)
+        self.assertNotIn(0x821,dict(game.handle(0x3b63,request(incoming.entity))))
+        self.assertEqual((game.inventory.items[1,1],game.magazine),(old,28))
+        self.assertEqual(game.inventory.items[1,2],incoming.item)
+        self.assertEqual(game.inventory.weapon_magazines[incoming.item.uid],7)
+
+        game.handle(0x49e,struct.pack('>I',2))
+        third=game.ground_loot.add(Item(1,10203,0x100122,1),game.player_position,magazine=11)
+        self.assertIn(0x821,dict(game.handle(0x3b63,request(third.entity))))
+        self.assertEqual((game.inventory.items[1,2],game.magazine),(third.item,11))
+        self.assertEqual(game.inventory.items[1,1],old)
+        dropped=next(stack for stack in game.ground_loot.stacks.values() if stack.item==incoming.item)
+        self.assertEqual(dropped.magazine,7)
+
+    def test_legacy_world_moves_bagged_weapon_to_ground_and_keeps_its_rounds(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'world.json'
+            game=self.ready(path)
+            game.inventory.items[1,2]=Item(1,10202,game.inventory.next_uid,1)
+            old=Item(1,10202,game.inventory.next_uid+1,1)
+            game.inventory.next_uid+=2
+            game.inventory.items[2,8]=old
+            game.inventory.weapon_magazines[old.uid]=7
+            game.save_state()
+            reopened=self.ready(path)
+            self.assertNotIn((2,8),reopened.inventory.items)
+            dropped=next(stack for stack in reopened.ground_loot.stacks.values() if stack.item==old)
+            self.assertEqual((dropped.position,dropped.magazine),(reopened.player_position,7))
+            self.assertEqual(self.ready(path).ground_loot.stacks[dropped.entity],dropped)
 
     def test_drag_gun_onto_occupied_slot_drops_old_gun_with_its_rounds(self):
         game=self.ready()
@@ -104,7 +135,8 @@ class GroundWeaponTests(unittest.TestCase):
             game.handle(0x2a,struct.pack('>I3i',1,325800,271700,6488))
             second=next(s for s in game.ground_loot.stacks.values() if s.item.template==10202)
             game.handle(0x2a,struct.pack('>I3i',1,*second.position))
-            self.assertEqual(game.handle(0x3b63,request(second.entity))[0][0],0x3e82)
+            self.assertEqual(game.handle(0x3b63,request(second.entity,container=1,destination=2,
+                                                       automatic=0))[0][0],0x3e82)
             self.assertEqual(game.inventory.items[1,2],second.item)
             game.handle(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,1,0))
             game.handle(0x11d3,struct.pack('>6fIB',1,2,3,1,102,3,2,0))

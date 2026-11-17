@@ -129,9 +129,11 @@ class OfflineInventory:
 
     @classmethod
     def fits(cls,key,item):
-        return cls.valid_slot(key) and (key[0]==2
-            or is_weapon(item) and key[1] in WEAPONS[item.template].slots
-            or is_extra(item) and EXTRA_ITEMS[item.template].slot==key[1])
+        if not cls.valid_slot(key):
+            return False
+        if is_weapon(item):
+            return key[0]==1 and key[1] in WEAPONS[item.template].slots
+        return key[0]==2 or is_extra(item) and EXTRA_ITEMS[item.template].slot==key[1]
 
     @property
     def reserve(self):
@@ -148,6 +150,13 @@ class OfflineInventory:
     def weapon_slot(self):
         return next((slot for (container,slot),item in self.items.items()
                      if container==1 and is_weapon(item)),None)
+
+    def pickup_weapon_slot(self, item, selected):
+        slots = WEAPONS[item.template].slots
+        for slot in slots:
+            if (1, slot) not in self.items:
+                return (1, slot)
+        return (1, selected if selected in slots else slots[0])
 
     def full_body(self, equipped_clothes=()):
         body=struct.pack('>I',len(self.items)+len(equipped_clothes))
@@ -437,7 +446,8 @@ class OfflineInventory:
             key=(row['container'],row['slot'])
             item=read_item({k:v for k,v in row.items() if k not in ('container','slot')})
             identities=item_uids(item)
-            if (not inventory.fits(key,item) or key in inventory.items
+            legacy_bag_weapon=key[0]==2 and inventory.valid_slot(key) and is_weapon(item)
+            if (not (inventory.fits(key,item) or legacy_bag_weapon) or key in inventory.items
                     or any(not 0<uid<inventory.next_uid or uid in uids for uid in identities)
                     or len(set(identities))!=len(identities)):
                 raise ValueError('Invalid or duplicate offline item identity/slot')
@@ -445,11 +455,10 @@ class OfflineInventory:
                 raise ValueError('Unsupported offline item type/count')
             inventory.items[key]=item
             uids.update(identities)
-        # Original carry limit: two long guns in slots 1/2 plus one pistol
-        # in slot 3; further guns may only sit in the bag.
+        # Older saves can still contain a gun in the bag. The gameplay path
+        # moves these to the world after landing.
         weapons=[item for item in inventory.items.values() if is_weapon(item)]
-        if (inventory.reserve>MAX_RESERVE or sum(item.kind==1 for item in weapons)>2
-                or sum(item.kind==2 for item in weapons)>1):
+        if inventory.reserve>MAX_RESERVE:
             raise ValueError('Offline loadout exceeds its supported limits')
         if version==1:
             # v1 profiles carried a single gun whose magazine was global.

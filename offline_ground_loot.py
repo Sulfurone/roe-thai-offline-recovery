@@ -8,7 +8,7 @@ import math
 import struct
 import time
 from offline_inventory import Item,MAX_AMMO,supported,stack_limit,item_fields,read_item,item_uids
-from offline_weapons import magazine_capacity,WEAPONS,AMMUNITION,is_weapon
+from offline_weapons import magazine_capacity,AMMUNITION,is_weapon
 from offline_items import EXTRA_ITEMS,is_extra
 
 # Server working-set bound for independent 0x821 entities. This is unrelated
@@ -111,7 +111,7 @@ class OfflineGroundLoot:
         self.announced=True
         return [stack.spawn() for stack in self.stacks.values()]
 
-    def pickup(self,body,inventory,actor_uid,player_position,can_interact,*,remember=True):
+    def pickup(self,body,inventory,actor_uid,player_position,can_interact,*,remember=True,selected_slot=0):
         self.last_rejection=None
         if len(body) not in (33,41):
             self.last_rejection={'reason':'length'}
@@ -155,11 +155,14 @@ class OfflineGroundLoot:
             changed,previous=installed
             return self.complete_pickup(stack,slot,inventory,changed,previous,0,remember,now)
         wearable=stack.item.kind==20 and is_extra(stack.item)
-        if wearable:
+        weapon=is_weapon(stack.item)
+        if automatic and weapon:
+            key=inventory.pickup_weapon_slot(stack.item,selected_slot)
+        elif wearable:
             key=(1,EXTRA_ITEMS[stack.item.template].slot)
         elif automatic:
-            equip=(WEAPONS[stack.item.template].slots if is_weapon(stack.item) else
-                   (EXTRA_ITEMS[stack.item.template].slot,) if is_extra(stack.item) and EXTRA_ITEMS[stack.item.template].slot else ())
+            equip=((EXTRA_ITEMS[stack.item.template].slot,) if
+                   is_extra(stack.item) and EXTRA_ITEMS[stack.item.template].slot else ())
             key=next(((1,i) for i in equip if (1,i) not in inventory.items),None)
             if key is None and stack_limit(stack.item)>1:
                 key=next((key for key,item in sorted(inventory.items.items())
@@ -174,7 +177,7 @@ class OfflineGroundLoot:
             self.last_rejection={'reason':'destination_or_capacity','entity':entity}
             return self.error(entity)
         target=inventory.items.get(key)
-        replace_equipped=wearable or (not automatic and key[0]==1 and is_weapon(stack.item))
+        replace_equipped=wearable or weapon
         ammo_pickup=stack.item.kind==3 and key[0]==2
         if ammo_pickup:
             # Even the native explicit-slot pickup can name a new bag slot.
@@ -198,7 +201,7 @@ class OfflineGroundLoot:
         if not ammo_pickup:
             inventory.items[key]=(replace(target,count=target.count+stack.item.count)
                                   if target and not replace_equipped else stack.item)
-        if is_weapon(stack.item):
+        if weapon:
             inventory.weapon_magazines[stack.item.uid]=stack.magazine
         previous=target if replace_equipped else None
         previous_magazine=inventory.weapon_magazines.pop(previous.uid,0) if previous and is_weapon(previous) else 0
